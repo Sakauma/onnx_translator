@@ -189,6 +189,75 @@ static double cos_lut_lookup(double x) {
 }
 
 /**
+ * 余弦函数前向传播
+ * * @param input 输入张量
+ * @param output 输出张量
+ */
+void cos_forward(const Tensor* input, Tensor* output) {
+    // 确保余弦查找表已经初始化
+    if (!cos_lut_initialized) {
+        init_cos_lut();
+    }
+
+    // 遍历张量中的每个元素
+    for (size_t i = 0; i < input->size; i++) {
+        // 根据数据类型进行余弦计算
+        switch (input->dtype) {
+            case DTYPE_FLOAT32: {
+                // 32位浮点数的余弦计算
+                float val = ((float*)input->data)[i];
+                ((float*)output->data)[i] = (float)cos_lut_lookup((double)val);
+                break;
+            }
+            case DTYPE_FLOAT64: {
+                // 64位浮点数的余弦计算
+                double val = ((double*)input->data)[i];
+                ((double*)output->data)[i] = cos_lut_lookup(val);
+                break;
+            }
+            case DTYPE_FLOAT16: {
+                // 16位浮点数的余弦计算
+                uint16_t val = ((uint16_t*)input->data)[i];
+                float fval = float16_to_float(val);
+                float result = (float)cos_lut_lookup((double)fval);
+                ((uint16_t*)output->data)[i] = float_to_float16(result);
+                break;
+            }
+            case DTYPE_BFLOAT16: {
+                // bfloat16格式的余弦计算
+                uint16_t val = ((uint16_t*)input->data)[i];
+                float fval = bfloat16_to_float(val);
+                float result = (float)cos_lut_lookup((double)fval);
+                ((uint16_t*)output->data)[i] = float_to_bfloat16(result);
+                break;
+            }
+            // 整数类型的余弦函数通常没有明确定义，这里我们将其转换为浮点数处理
+            // 注意：这可能会导致精度损失
+            case DTYPE_INT8: {
+                int8_t val = ((int8_t*)input->data)[i];
+                ((int8_t*)output->data)[i] = (int8_t)round(cos_lut_lookup((double)val));
+                break;
+            }
+            case DTYPE_INT16: {
+                int16_t val = ((int16_t*)input->data)[i];
+                ((int16_t*)output->data)[i] = (int16_t)round(cos_lut_lookup((double)val));
+                break;
+            }
+            case DTYPE_INT32: {
+                int32_t val = ((int32_t*)input->data)[i];
+                ((int32_t*)output->data)[i] = (int32_t)round(cos_lut_lookup((double)val));
+                break;
+            }
+            case DTYPE_INT64: {
+                int64_t val = ((int64_t*)input->data)[i];
+                ((int64_t*)output->data)[i] = (int64_t)round(cos_lut_lookup((double)val));
+                break;
+            }
+        }
+    }
+}
+
+/**
  * 创建张量
  * 
  * @param shape 张量形状数组

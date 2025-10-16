@@ -40,28 +40,28 @@ def GraphGenerate(input_graph, model_name):
                 label = (f'{{ input node: {input_graph.ops[node_name].inputs} | {node_name}| '
                          f'output node: {input_graph.ops[node_name].outputs}| '
                          f'output tensor: {[input_graph.ops[node_name].parameters["values"]["tensor"][0].size,input_graph.ops[node_name].parameters["values"]["tensor"][1].size]} }}')
-                dot.node(node_name, label=label, shape='record', width='1.6', height='0.8', color="grey",
+                dot.node(node_name, label=label, shape='record', width='1.6', height='0.8',
                          fontsize="12",
-                         style='rounded',
+                         style='rounded,filled', 
                          fillcolor='lightblue', color='blue', fontname='Consolas')
 
             elif len(input_graph.ops[node_name].parameters["values"]["tensor"]) == 3:
                 label = (f'{{ input node: {input_graph.ops[node_name].inputs} | {node_name}| '
                          f'output node: {input_graph.ops[node_name].outputs}| '
                          f'output tensor: {[input_graph.ops[node_name].parameters["values"]["tensor"][0].size, input_graph.ops[node_name].parameters["values"]["tensor"][1].size, input_graph.ops[node_name].parameters["values"]["tensor"][2].size]} }}')
-                dot.node(node_name, label=label, shape='record', width='1.6', height='0.8', color="grey",
+                dot.node(node_name, label=label, shape='record', width='1.6', height='0.8',
                          fontsize="12",
-                         style='rounded',
+                         style='rounded,filled', 
                          fillcolor='lightblue', color='blue', fontname='Consolas')
 
             else:
                 label = (f'{{ input node: {input_graph.ops[node_name].inputs} | {node_name}| '
                          f'output node: {input_graph.ops[node_name].outputs}| '
                          f'output tensor: {input_graph.ops[node_name].parameters["values"]["tensor"].size} }}')
-                dot.node(node_name, label=label, shape='record', width='1.6', height='0.8', color="grey",
-                         fontsize="12",
-                         style='rounded',
-                         fillcolor='lightblue', color='blue', fontname='Consolas')
+                dot.node(node_name, label=label, shape='record', width='1.6', height='0.8',
+                     fontsize="12",
+                     style='rounded,filled',
+                     fillcolor='lightblue', color='blue', fontname='Consolas')
 
     # 为输入输出节点创建点状节点
     for node_name in temp_nodes:
