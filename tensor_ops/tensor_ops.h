@@ -62,4 +62,14 @@ void relu_forward(const Tensor* input, Tensor* output);
  */
 void cos_forward(const Tensor* input, Tensor* output);
 
+
+void add_forward(const Tensor* input_a, const Tensor* input_b, Tensor* output);
+
+void mul_forward(const Tensor* input_a, const Tensor* input_b, Tensor* output);
+
+void sub_forward(const Tensor* input_a, const Tensor* input_b, Tensor* output);
+
+void div_forward(const Tensor* input_a, const Tensor* input_b, Tensor* output);
+
+void reshape_forward(const Tensor* input, const Tensor* new_shape, Tensor* output);
 #endif

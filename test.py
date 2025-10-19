@@ -27,8 +27,8 @@ from nn.ONNXImport import ONNXImport
 from nn.GraphVisualization import GraphGenerate
 
 # --- 准备工作 ---
-file_path = "./onnx_model/model_with_relu_and_cos_modified.onnx"
-model = "relu_cos"
+file_path = "./onnx_model/model_with_reshape.onnx"
+model = "reshape"
 
 # --- 只调用 ONNXParasGen 一次 ---
 print("正在解析模型输入并生成一组张量...")

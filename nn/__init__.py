@@ -132,7 +132,11 @@ class Ops:
             cls._lib.relu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             cls._lib.cos_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             cls._lib.init_cos_lut.argtypes = []
-            
+            cls._lib.add_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.mul_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.sub_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.div_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.reshape_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             # 初始化余弦查找表
             cls._lib.init_cos_lut()
             cls._lib_initialized = True
@@ -164,6 +168,8 @@ class Ops:
             计算结果
         """
         pass
+
+
 
     def forward_(self, input):
         """
@@ -304,10 +310,16 @@ class Graph:
         # 依次执行每个操作
         for (cc, op_na) in zip(range(length), self.ops):
             op = self.ops[op_na]
+            # 在inputs = ... 之前添加
+            print(f"当前执行的算子类型: {op.dtype}，算子名称: {op.name}")
+            print(f"该算子的输入列表: {op.inputs}")  # 看哪个输入是'getitem'
+            print(f"当前edge_data_buffer中的键: {list(edge_data_buffer.keys())}")
+            inputs = (edge_data_buffer[na] for na in op.inputs)
             inputs = (edge_data_buffer[na] for na in op.inputs)
             outputs = op.forward(*inputs)
             
             # 处理输出结果
+
             if "graph" in outputs:
                 outputs, graph = outputs["tensor"], outputs["graph"]
                 do_graph = True

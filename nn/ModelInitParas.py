@@ -6,7 +6,8 @@ from onnx import shape_inference
 
 # ONNX数据类型到NumPy数据类型的映射
 onnx_np_dtype_mapping = {
- "float32": np.float32
+ "float32": np.float32,
+ "int64": np.int64
 }
 
 
