@@ -79,6 +79,47 @@ def ONNXImport(file_path):
                                                      node.output,
                                                      dtype=onnx_dtype_mapping[elem_type],
                                                      version="17"))
+        elif node.op_type.upper() == "ADD":
+            # 处理ADD操作节点
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.__getattribute__("ADD")(node.input,
+                                                     node.output,
+                                                     dtype=onnx_dtype_mapping[elem_type],
+                                                     version="17"))
+        elif node.op_type.upper() == "MUL":
+            # 处理SUB操作节点
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.__getattribute__("MUL")(node.input,
+                                                     node.output,
+                                                     dtype=onnx_dtype_mapping[elem_type],
+                                                     version="17"))
+        elif node.op_type.upper() == "SUB":
+            # 处理SUB操作节点
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.__getattribute__("SUB")(node.input,
+                                                     node.output,
+                                                     dtype=onnx_dtype_mapping[elem_type],
+                                                     version="17"))
+        elif node.op_type.upper() == "DIV":
+            # 处理DIV操作节点
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.__getattribute__("DIV")(node.input,
+                                                     node.output,
+                                                     dtype=onnx_dtype_mapping[elem_type],
+                                                     version="17"))
+        elif node.op_type.upper() == "RESHAPE":
+            # 处理RESHAPE操作节点
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.__getattribute__("RESHAPE")(node.input,
+                                                     node.output,
+                                                     dtype=onnx_dtype_mapping[elem_type],
+                                                     version="17"))
+
         elif node.op_type.upper() == "OTHER_OPS":
             # 其他操作节点的处理占位符
             pass
