@@ -1,0 +1,56 @@
+pytorch2.5.1:´ 
+‰
+input_tensor/relu/Relu_output_0
+/relu/Relu"Relu2Ñ/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/functional.py(1704): relu
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/activation.py(133): forward
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1726): _slow_forward
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1747): _call_impl
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1736): _wrapped_call_impl
+/home/sakauma/code/fuckingzx/code/sample.py(13): forward
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1726): _slow_forward
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1747): _call_impl
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1736): _wrapped_call_impl
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/jit/_trace.py(130): wrapper
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/jit/_trace.py(139): forward
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1747): _call_impl
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1736): _wrapped_call_impl
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/jit/_trace.py(1500): _get_trace_graph
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(904): _trace_and_get_graph_from_model
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(997): _create_jit_graph
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(1113): _model_to_graph
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(1564): _export
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(502): export
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/__init__.py(375): export
+/home/sakauma/code/fuckingzx/code/sample.py(30): <module>
+
+È
+/relu/Relu_output_0output_tensor/Cos"Cos2–/home/sakauma/code/fuckingzx/code/sample.py(15): forward
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1726): _slow_forward
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1747): _call_impl
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1736): _wrapped_call_impl
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/jit/_trace.py(130): wrapper
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/jit/_trace.py(139): forward
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1747): _call_impl
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/nn/modules/module.py(1736): _wrapped_call_impl
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/jit/_trace.py(1500): _get_trace_graph
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(904): _trace_and_get_graph_from_model
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(997): _create_jit_graph
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(1113): _model_to_graph
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(1564): _export
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/utils.py(502): export
+/home/sakauma/data/miniconda3/envs/zxic/lib/python3.10/site-packages/torch/onnx/__init__.py(375): export
+/home/sakauma/code/fuckingzx/code/sample.py(30): <module>
+
+main_graphZ&
+input_tensor
+
+
+
+
+b'
+output_tensor
+
+
+
+
+B
