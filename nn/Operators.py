@@ -45,8 +45,8 @@ class RELU(Ops):
         self.lib.relu_forward(input_c, output_c)
         
         # 转换回numpy并创建输出张量
-        output_data = self._ctensor_to_numpy(output_c, self.dtype)
-        output_tensor = Tensor(*input.size, dtype=self.dtype, data=output_data)
+        output_data = self._ctensor_to_numpy(output_c, input.dtype)
+        output_tensor = Tensor(*input.size, dtype=input.dtype, data=output_data)
         
         # 清理资源
         self.lib.free_tensor(input_c)
@@ -104,7 +104,7 @@ class COS(Ops):
             Tensor: 经过余弦函数计算后的输出张量
         """
         # 将输入转换为C张量
-        input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        input_c = self._numpy_to_ctensor(input.data, input.dtype)
         
         # 创建输出C张量
         output_shape = (ctypes.c_int * len(input.size))(*input.size)
@@ -114,8 +114,8 @@ class COS(Ops):
         self.lib.cos_forward(input_c, output_c)
         
         # 转换回numpy并创建输出张量
-        output_data = self._ctensor_to_numpy(output_c, self.dtype)
-        output_tensor = Tensor(*input.size, dtype=self.dtype, data=output_data)
+        output_data = self._ctensor_to_numpy(output_c, input.dtype)
+        output_tensor = Tensor(*input.size, dtype=input.dtype, data=output_data)
         
         # 清理资源
         self.lib.free_tensor(input_c)
@@ -166,7 +166,7 @@ class ABS(Ops):
         Abs函数的C后端实现，使用真实数据进行计算
         """
         # 将输入转换为C张量
-        input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        input_c = self._numpy_to_ctensor(input.data, input.dtype)
         
         # 创建输出C张量
         output_shape = (ctypes.c_int * len(input.size))(*input.size)
@@ -176,8 +176,8 @@ class ABS(Ops):
         self.lib.abs_forward(input_c, output_c)
         
         # 转换回numpy并创建输出张量
-        output_data = self._ctensor_to_numpy(output_c, self.dtype)
-        output_tensor = Tensor(*input.size, dtype=self.dtype, data=output_data)
+        output_data = self._ctensor_to_numpy(output_c, input.dtype)
+        output_tensor = Tensor(*input.size, dtype=input.dtype, data=output_data)
         
         # 清理资源
         self.lib.free_tensor(input_c)
@@ -255,8 +255,10 @@ class ADD(Ops):
         # 3. 准备C张量 (A, B, Output)
         # 确保广播后的输入数据类型与原始张量类型一致，再传入C
         # （注意：广播后的数组a_bcast_data可能继承了类型提升后的dtype，我们用astype(a.data.dtype)把它转回去）
-        a_c = self._numpy_to_ctensor(a_bcast_data.astype(a.data.dtype, copy=False), a.dtype)
-        b_c = self._numpy_to_ctensor(b_bcast_data.astype(b.data.dtype, copy=False), b.dtype)
+        a_data_contiguous = np.ascontiguousarray(a_bcast_data.astype(a.data.dtype, copy=False))
+        b_data_contiguous = np.ascontiguousarray(b_bcast_data.astype(b.data.dtype, copy=False))
+        a_c = self._numpy_to_ctensor(a_data_contiguous, a.dtype)
+        b_c = self._numpy_to_ctensor(b_data_contiguous, b.dtype)
         
         # 4. 创建输出C张量
         output_shape_c = (ctypes.c_int * len(output_shape))(*output_shape)

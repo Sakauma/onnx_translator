@@ -75,7 +75,7 @@ def run_numpy_verification(op_name, nps_op_class, input_specs):
         print(f"  NumPy Shape: {numpy_result.shape}")
         return
 
-    # 检查数据类型 (我们V2方案的核心)
+    # 检查数据类型
     nps_dtype_str = nps_result_tensor.dtype
     if numpy_result.dtype.type not in nn.NUMPY_TO_DTYPE:
          print(f"❌ FAILED: NumPy 结果类型 '{numpy_result.dtype}' 未在 nn.NUMPY_TO_DTYPE 中定义。")
