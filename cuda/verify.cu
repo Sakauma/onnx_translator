@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
-#include "tensor_ops.h"
+#include "../tensor_ops/tensor_ops.h"
 #include <math.h>
 
 /**

@@ -1,6 +1,7 @@
 // tensor_ops/tensor_ops.c
 #include "tensor_ops.h"
 #include <stdlib.h>
+#include <math.h>
 
 // 余弦查找表大小
 #define COS_LUT_SIZE 4096
@@ -335,6 +336,60 @@ void free_tensor(Tensor* tensor) {
     }
 }
 
+/*
+ *
+ * 从张量获取值，并作为 float 返回
+ */
+static inline float get_value_as_float(const Tensor* tensor, size_t index) {
+    switch (tensor->dtype) {
+        case DTYPE_FLOAT32: return ((float*)tensor->data)[index];
+        case DTYPE_FLOAT16: return float16_to_float(((uint16_t*)tensor->data)[index]);
+        case DTYPE_BFLOAT16: return bfloat16_to_float(((uint16_t*)tensor->data)[index]);
+        case DTYPE_INT8: return (float)((int8_t*)tensor->data)[index];
+        case DTYPE_INT16: return (float)((int16_t*)tensor->data)[index];
+        case DTYPE_INT32: return (float)((int32_t*)tensor->data)[index];
+        case DTYPE_INT64: return (float)((int64_t*)tensor->data)[index];
+        case DTYPE_FLOAT64: return (float)((double*)tensor->data)[index]; // 降精度
+        default: return 0.0f;
+    }
+}
+
+/*
+ *
+ * 从张量获取值，并作为 double 返回
+ */
+static inline double get_value_as_double(const Tensor* tensor, size_t index) {
+    switch (tensor->dtype) {
+        case DTYPE_FLOAT32: return (double)((float*)tensor->data)[index];
+        case DTYPE_FLOAT16: return (double)float16_to_float(((uint16_t*)tensor->data)[index]);
+        case DTYPE_BFLOAT16: return (double)bfloat16_to_float(((uint16_t*)tensor->data)[index]);
+        case DTYPE_INT8: return (double)((int8_t*)tensor->data)[index];
+        case DTYPE_INT16: return (double)((int16_t*)tensor->data)[index];
+        case DTYPE_INT32: return (double)((int32_t*)tensor->data)[index];
+        case DTYPE_INT64: return (double)((int64_t*)tensor->data)[index];
+        case DTYPE_FLOAT64: return ((double*)tensor->data)[index];
+        default: return 0.0;
+    }
+}
+
+/*
+ *
+ * 从张量获取值，并作为 int64_t 返回
+ */
+static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
+    switch (tensor->dtype) {
+        case DTYPE_FLOAT32: return (int64_t)roundf(((float*)tensor->data)[index]);
+        case DTYPE_FLOAT16: return (int64_t)roundf(float16_to_float(((uint16_t*)tensor->data)[index]));
+        case DTYPE_BFLOAT16: return (int64_t)roundf(bfloat16_to_float(((uint16_t*)tensor->data)[index]));
+        case DTYPE_INT8: return (int64_t)((int8_t*)tensor->data)[index];
+        case DTYPE_INT16: return (int64_t)((int16_t*)tensor->data)[index];
+        case DTYPE_INT32: return (int64_t)((int32_t*)tensor->data)[index];
+        case DTYPE_INT64: return ((int64_t*)tensor->data)[index];
+        case DTYPE_FLOAT64: return (int64_t)round(((double*)tensor->data)[index]);
+        default: return 0;
+    }
+}
+
 
 /**
  * ReLU激活函数前向传播实现
@@ -397,6 +452,138 @@ void relu_forward(const Tensor* input, Tensor* output) {
                 ((int64_t*)output->data)[i] = val > 0 ? val : 0;
                 break;
             }
+        }
+    }
+}
+
+/**
+ * Abs函数前向传播实现
+ * 
+ * @param input 输入张量
+ * @param output 输出张量
+ */
+void abs_forward(const Tensor* input, Tensor* output) {
+    // 遍历张量中的每个元素
+    for (size_t i = 0; i < input->size; i++) {
+        // 根据数据类型进行Abs计算
+        switch (input->dtype) {
+            case DTYPE_FLOAT32: {
+                // 32位浮点数的Abs计算
+                ((float*)output->data)[i] = fabsf(((float*)input->data)[i]);
+                break;
+            }
+            case DTYPE_FLOAT64: {
+                // 64位浮点数的Abs计算
+                ((double*)output->data)[i] = fabs(((double*)input->data)[i]);
+                break;
+            }
+            case DTYPE_FLOAT16: {
+                // 16位浮点数的Abs计算 (移除符号位)
+                ((uint16_t*)output->data)[i] = ((uint16_t*)input->data)[i] & 0x7FFF;
+                break;
+            }
+            case DTYPE_BFLOAT16: {
+                // bfloat16格式的Abs计算 (移除符号位)
+                ((uint16_t*)output->data)[i] = ((uint16_t*)input->data)[i] & 0x7FFF;
+                break;
+            }
+            case DTYPE_INT8: {
+                // 8位整数的Abs计算
+                int8_t val = ((int8_t*)input->data)[i];
+                ((int8_t*)output->data)[i] = val < 0 ? -val : val;
+                break;
+            }
+            case DTYPE_INT16: {
+                // 16位整数的Abs计算
+                int16_t val = ((int16_t*)input->data)[i];
+                ((int16_t*)output->data)[i] = val < 0 ? -val : val;
+                break;
+            }
+            case DTYPE_INT32: {
+                // 32位整数的Abs计算
+                int32_t val = ((int32_t*)input->data)[i];
+                ((int32_t*)output->data)[i] = val < 0 ? -val : val;
+                break;
+            }
+            case DTYPE_INT64: {
+                // 64位整数的Abs计算
+                int64_t val = ((int64_t*)input->data)[i];
+                ((int64_t*)output->data)[i] = val < 0 ? -val : val;
+                break;
+            }
+        }
+    }
+}
+
+/**
+ * Add函数前向传播实现
+ * 
+ * 假设: A, B, 和 O 具有完全相同的形状 (广播已在Python层处理)
+ * @param A 输入张量A
+ * @param B 输入张量B
+ * @param O 输出张量 (决定了计算精度)
+ */
+void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    // 核心逻辑：根据输出张量 O 的类型，来决定计算精度
+    
+    switch (O->dtype) {
+        case DTYPE_FLOAT32: {
+            float* out_data = (float*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                // 1. 将A和B都转为 float (32位)
+                float val_a = get_value_as_float(A, i);
+                float val_b = get_value_as_float(B, i);
+                // 2. 执行 32位 加法 (匹配CUDA)
+                out_data[i] = val_a + val_b;
+            }
+            break;
+        }
+            
+        case DTYPE_FLOAT64: {
+            double* out_data = (double*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                // 1. 将A和B都转为 double (64位)
+                double val_a = get_value_as_double(A, i);
+                double val_b = get_value_as_double(B, i);
+                // 2. 执行 64位 加法
+                out_data[i] = val_a + val_b;
+            }
+            break;
+        }
+
+        case DTYPE_INT32: {
+            int32_t* out_data = (int32_t*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                // 只有 int + int 才会产生 int32 输出
+                int64_t val_a = get_value_as_int64(A, i);
+                int64_t val_b = get_value_as_int64(B, i);
+                // (为防止溢出，先用int64计算，再截断)
+                out_data[i] = (int32_t)(val_a + val_b);
+            }
+            break;
+        }
+
+        case DTYPE_INT64: {
+            int64_t* out_data = (int64_t*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                int64_t val_a = get_value_as_int64(A, i);
+                int64_t val_b = get_value_as_int64(B, i);
+                out_data[i] = val_a + val_b;
+            }
+            break;
+        }
+        
+        // 其他类型 (float16, bfloat16, int8, int16)
+        // Python的NumPy层通常会将它们提升为至少 float32 或 int32
+        // 如果需要处理这些输出类型，可以在这里添加 case
+        default: {
+            float* out_data = (float*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                float val_a = get_value_as_float(A, i);
+                float val_b = get_value_as_float(B, i);
+                out_data[i] = val_a + val_b;
+            }
+            break;
         }
     }
 }

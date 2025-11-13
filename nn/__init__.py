@@ -42,6 +42,26 @@ DTYPE_TO_NUMPY = {
     "int64": np.int64
 }
 
+# NumPy 类型到 NPS 字符串类型的反向映射
+NUMPY_TO_DTYPE = {
+    np.float16: "float16",
+    np.uint16: "bfloat16",
+    np.float32: "float32",
+    np.float64: "float64",
+    np.int8: "int8",
+    np.int16: "int16",
+    np.int32: "int32",
+    np.int64: "int64",
+}
+
+# 动态添加对平台特定类型的支持
+NUMPY_TO_DTYPE[np.dtype('intc').type] = "int32" if np.dtype('intc').itemsize == 4 else "int64"
+if hasattr(np, 'uint32'):
+    NUMPY_TO_DTYPE[np.uint32] = "uint32" 
+if hasattr(np, 'uint64'):
+    NUMPY_TO_DTYPE[np.uint64] = "uint64"
+
+
 # ONNX数据类型映射
 onnx_dtype_mapping = {
     1: "float32",
@@ -54,7 +74,7 @@ onnx_dtype_mapping = {
     8: "string",
     9: "bool",
     10: "float16",
-    11: "double",
+    11: "float64", # 对应 ONNX 'double'
     12: "uint32",
     13: "uint64",
     14: "complex64",
@@ -131,9 +151,11 @@ class Ops:
             cls._lib.free_tensor.argtypes = [ctypes.POINTER(CTensor)]
             cls._lib.relu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             cls._lib.cos_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
-            cls._lib.init_cos_lut.argtypes = []
+            cls._lib.abs_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.add_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             
             # 初始化余弦查找表
+            cls._lib.init_cos_lut.argtypes = []
             cls._lib.init_cos_lut()
             cls._lib_initialized = True
             

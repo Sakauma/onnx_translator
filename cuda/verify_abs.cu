@@ -1,31 +1,30 @@
-// verify_relu.cu - CUDA验证程序，用于测试 RELU 操作的正确性
+// verify_abs.cu - CUDA验证程序，用于测试 ABS 操作的正确性
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
-#include <math.h> // 包含 fmaxf
+#include <math.h> // 包含 fabsf
 
 /**
- * CUDA核函数：计算float32类型数据的RELU值
+ * CUDA核函数：计算float32类型数据的ABS值
  *
  * @param input 输入数据指针
  * @param output 输出数据指针
  * @param size 数据元素个数
  */
-__global__ void relu_kernel_float32(const float* input, float* output, size_t size) {
+__global__ void abs_kernel_float32(const float* input, float* output, size_t size) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < size) {
-        // RELU的核心逻辑: max(0, input)
-        output[idx] = fmaxf(0.0f, input[idx]);
+        // ABS的核心逻辑: fabsf(input)
+        output[idx] = fabsf(input[idx]);
     }
 }
 
 /**
- * 主函数：演示CUDA RELU计算功能
- * 为了自动化，我们将修改它，使其从文件读取输入，并将结果写入文件。
+ * 主函数：演示CUDA ABS计算功能
  */
 int main(int argc, char** argv) {
     if (argc != 4) {
-        fprintf(stderr, "Usage: %s <num_elements> <input_file> <output_file>\n", argv[0]);
+        fprintf(stderr, "用法: %s <元素数量> <输入文件名> <输出文件名>\n", argv[0]);
         return 1;
     }
 
@@ -38,7 +37,8 @@ int main(int argc, char** argv) {
     float* h_input = (float*)malloc(data_size);
     FILE* fp_in = fopen(input_filename, "rb");
     if (!fp_in || fread(h_input, 1, data_size, fp_in) != data_size) {
-        fprintf(stderr, "Error reading input file.\n");
+        fprintf(stderr, "读取输入文件时出错: %s\n", input_filename);
+        free(h_input);
         return 1;
     }
     fclose(fp_in);
@@ -54,7 +54,7 @@ int main(int argc, char** argv) {
     // 4. 配置并启动CUDA核函数
     int threads = 256;
     int blocks = (num_elements + threads - 1) / threads;
-    relu_kernel_float32<<<blocks, threads>>>(d_input, d_output, num_elements);
+    abs_kernel_float32<<<blocks, threads>>>(d_input, d_output, num_elements);
     cudaDeviceSynchronize();
 
     // 5. 将结果复制回主机
@@ -64,7 +64,9 @@ int main(int argc, char** argv) {
     // 6. 将主机端结果写入文件
     FILE* fp_out = fopen(output_filename, "wb");
     if (!fp_out || fwrite(h_result, 1, data_size, fp_out) != data_size) {
-        fprintf(stderr, "Error writing output file.\n");
+        fprintf(stderr, "写入输出文件时出错: %s\n", output_filename);
+        free(h_input);
+        free(h_result);
         return 1;
     }
     fclose(fp_out);
