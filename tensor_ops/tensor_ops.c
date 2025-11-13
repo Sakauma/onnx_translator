@@ -318,7 +318,6 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
     return tensor;
 }
 
-
 /**
  * 释放张量内存
  * 
@@ -389,7 +388,6 @@ static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
         default: return 0;
     }
 }
-
 
 /**
  * ReLU激活函数前向传播实现
@@ -588,5 +586,202 @@ void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     }
 }
 
+/**
+ * Sub函数前向传播实现 (A - B)
+ * 
+ * 假设: A, B, 和 O 具有完全相同的形状 (广播已在Python层处理)
+ * @param A 输入张量A
+ * @param B 输入张量B
+ * @param O 输出张量 (决定了计算精度)
+ */
+void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    switch (O->dtype) {
+        case DTYPE_FLOAT32: {
+            float* out_data = (float*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                float val_a = get_value_as_float(A, i);
+                float val_b = get_value_as_float(B, i);
+                out_data[i] = val_a - val_b;
+            }
+            break;
+        }
+            
+        case DTYPE_FLOAT64: {
+            double* out_data = (double*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                double val_a = get_value_as_double(A, i);
+                double val_b = get_value_as_double(B, i);
+                out_data[i] = val_a - val_b;
+            }
+            break;
+        }
 
+        case DTYPE_INT32: {
+            int32_t* out_data = (int32_t*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                int64_t val_a = get_value_as_int64(A, i);
+                int64_t val_b = get_value_as_int64(B, i);
+                out_data[i] = (int32_t)(val_a - val_b);
+            }
+            break;
+        }
+
+        case DTYPE_INT64: {
+            int64_t* out_data = (int64_t*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                int64_t val_a = get_value_as_int64(A, i);
+                int64_t val_b = get_value_as_int64(B, i);
+                out_data[i] = val_a - val_b;
+            }
+            break;
+        }
+        
+        default: {
+            // 默认回退到 float32
+            float* out_data = (float*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                float val_a = get_value_as_float(A, i);
+                float val_b = get_value_as_float(B, i);
+                out_data[i] = val_a - val_b;
+            }
+            break;
+        }
+    }
+}
+
+/**
+ * Mul函数前向传播实现 (A * B)
+ * 
+ * 假设: A, B, 和 O 具有完全相同的形状 (广播已在Python层处理)
+ * @param A 输入张量A
+ * @param B 输入张量B
+ * @param O 输出张量 (决定了计算精度)
+ */
+void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    switch (O->dtype) {
+        case DTYPE_FLOAT32: {
+            float* out_data = (float*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                float val_a = get_value_as_float(A, i);
+                float val_b = get_value_as_float(B, i);
+                out_data[i] = val_a * val_b; 
+            }
+            break;
+        }
+            
+        case DTYPE_FLOAT64: {
+            double* out_data = (double*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                double val_a = get_value_as_double(A, i);
+                double val_b = get_value_as_double(B, i);
+                out_data[i] = val_a * val_b;
+            }
+            break;
+        }
+
+        case DTYPE_INT32: {
+            int32_t* out_data = (int32_t*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                int64_t val_a = get_value_as_int64(A, i);
+                int64_t val_b = get_value_as_int64(B, i);
+                out_data[i] = (int32_t)(val_a * val_b);
+            }
+            break;
+        }
+
+        case DTYPE_INT64: {
+            int64_t* out_data = (int64_t*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                int64_t val_a = get_value_as_int64(A, i);
+                int64_t val_b = get_value_as_int64(B, i);
+                out_data[i] = val_a * val_b;
+            }
+            break;
+        }
+        
+        default: {
+            float* out_data = (float*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                float val_a = get_value_as_float(A, i);
+                float val_b = get_value_as_float(B, i);
+                out_data[i] = val_a * val_b;
+            }
+            break;
+        }
+    }
+}
+
+/**
+ * Div函数前向传播实现 (A / B)
+ * 
+ * 假设: A, B, 和 O 具有完全相同的形状 (广播已在Python层处理)
+ * @param A 输入张量A
+ * @param B 输入张量B
+ * @param O 输出张量 (决定了计算精度)
+ */
+void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    switch (O->dtype) {
+        case DTYPE_FLOAT32: {
+            float* out_data = (float*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                float val_a = get_value_as_float(A, i);
+                float val_b = get_value_as_float(B, i);
+                // 浮点数除法会自动产生 inf，无需检查
+                out_data[i] = val_a / val_b;
+            }
+            break;
+        }
+            
+        case DTYPE_FLOAT64: {
+            double* out_data = (double*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                double val_a = get_value_as_double(A, i);
+                double val_b = get_value_as_double(B, i);
+                // 浮点数除法会自动产生 inf，无需检查
+                out_data[i] = val_a / val_b;
+            }
+            break;
+        }
+
+        case DTYPE_INT32: {
+            int32_t* out_data = (int32_t*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                int64_t val_a = get_value_as_int64(A, i);
+                int64_t val_b = get_value_as_int64(B, i);
+                // 整数除法必须检查除以零
+                if (val_b == 0) {
+                    out_data[i] = 0; // 安全策略：返回 0
+                } else {
+                    out_data[i] = (int32_t)(val_a / val_b);
+                }
+            }
+            break;
+        }
+
+        case DTYPE_INT64: {
+            int64_t* out_data = (int64_t*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                int64_t val_a = get_value_as_int64(A, i);
+                int64_t val_b = get_value_as_int64(B, i);
+                // 整数除法必须检查除以零
+                if (val_b == 0) {
+                    out_data[i] = 0; // 安全策略：返回 0
+                } else {
+                    out_data[i] = val_a / val_b;
+                }
+            }
+            break;
+        }
+        
+        default: {
+            float* out_data = (float*)O->data;
+            for (size_t i = 0; i < O->size; i++) {
+                float val_a = get_value_as_float(A, i);
+                float val_b = get_value_as_float(B, i);
+                out_data[i] = val_a / val_b;
+            }
+            break;
+        }
+    }
+}
 

@@ -55,7 +55,7 @@ def run_numpy_verification(op_name, nps_op_class, input_specs):
         elif op_name == 'abs':
             numpy_result = np.abs(np_inputs[0])
         elif op_name == 'cos':
-            numpy_result = np.cos(np_inputs[0].astype(np.float32)) # (NPS C库使用LUT，统一转float)
+            numpy_result = np.cos(np_inputs[0].astype(np.float64))
         elif op_name == 'relu':
             numpy_result = np.maximum(0, np_inputs[0])
         else:

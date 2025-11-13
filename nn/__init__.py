@@ -153,6 +153,9 @@ class Ops:
             cls._lib.cos_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             cls._lib.abs_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             cls._lib.add_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.sub_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.mul_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.div_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             
             # 初始化余弦查找表
             cls._lib.init_cos_lut.argtypes = []

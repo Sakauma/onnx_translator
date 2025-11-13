@@ -79,4 +79,31 @@ void abs_forward(const Tensor* input, Tensor* output);
  */
 void add_forward(const Tensor* A, const Tensor* B, Tensor* O);
 
+/**
+ * Sub函数前向传播
+ * 
+ * @param A 输入张量A
+ * @param B 输入张量B
+ * @param O 输出张量
+ */
+void sub_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+/**
+ * Mul函数前向传播
+ * 
+ * @param A 输入张量A
+ * @param B 输入张量B
+ * @param O 输出张量
+ */
+void mul_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+/**
+ * Div函数前向传播
+ *  
+ * @param A 输入张量A
+ * @param B 输入张量B
+ * @param O 输出张量
+ */
+void div_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
 #endif

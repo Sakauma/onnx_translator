@@ -41,10 +41,9 @@ except Exception as e:
     
 # 3. 实例化计算图
 print("\n步骤 3: 创建 Graph 对象 (用于图结构推断)...")
-# 我们使用 forward_ 来进行无数据的图推断
-# 这需要一个单独的图实例
+# 使用 forward_ 来进行无数据的图推断
 graph_for_logic = Graph(
-    ops=ONNXImport(file_path), # 重新导入以获得干净的op实例
+    ops=ops_list, 
     input_name=initial_inputs,
     model_name=model_name
 )

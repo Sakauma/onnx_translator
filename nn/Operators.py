@@ -6,7 +6,6 @@ import numpy as np
 from typing import List, Union
 import os
 
-
 class RELU(Ops):
     """ReLU激活函数操作类"""
     
@@ -74,7 +73,6 @@ class RELU(Ops):
                   "graph": None}
         self.parameters = {"values": values}
         return values
-
 
 class COS(Ops):
     """余弦函数操作类"""
@@ -314,6 +312,333 @@ class ADD(Ops):
              output_dtype_str = "int64"
         else:
              output_dtype_str = "float32" # 最终备用
+        
+        # 3. 创建输出的 Tensor_
+        output_tensor = Tensor_(*output_shape, dtype=output_dtype_str)
+
+        values = {"tensor": output_tensor,
+                  "parameters": None,
+                  "graph": None}
+        self.parameters = {"values": values}
+        return values
+    
+class SUB(Ops):
+    """减法操作类 (A - B)，支持广播和混合精度"""
+
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(SUB, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, *inputs) -> Tensor:
+        """
+        减法函数的C后端实现，在Python层处理广播
+        """
+        if len(inputs) != 2:
+            raise ValueError(f"SUB operator expects 2 inputs, but got {len(inputs)}")
+        
+        a = inputs[0]
+        b = inputs[1]
+
+        # 1. Python (NumPy) 层处理广播
+        try:
+            a_bcast_data, b_bcast_data = np.broadcast_arrays(a.data, b.data)
+        except ValueError as e:
+            print(f"Error during broadcasting inputs with shapes {a.size} and {b.size}")
+            raise e
+
+        # 2. Python (NumPy) 层处理类型提升
+        output_dtype_np = np.result_type(a.data, b.data)
+        
+        if output_dtype_np.type in nn.NUMPY_TO_DTYPE:
+             output_dtype_str = nn.NUMPY_TO_DTYPE[output_dtype_np.type]
+        elif 'float' in str(output_dtype_np):
+             output_dtype_str = "float64"
+        elif 'int' in str(output_dtype_np):
+             output_dtype_str = "int64"
+        else:
+             output_dtype_str = "float32"
+        
+        output_shape = a_bcast_data.shape
+
+        # 3. 准备C张量
+        a_data_contiguous = np.ascontiguousarray(a_bcast_data.astype(a.data.dtype, copy=False))
+        b_data_contiguous = np.ascontiguousarray(b_bcast_data.astype(b.data.dtype, copy=False))
+        a_c = self._numpy_to_ctensor(a_data_contiguous, a.dtype)
+        b_c = self._numpy_to_ctensor(b_data_contiguous, b.dtype)
+        
+        # 4. 创建输出C张量
+        output_shape_c = (ctypes.c_int * len(output_shape))(*output_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(output_shape), nn.DTYPE_MAP[output_dtype_str])
+        
+        # 5. 调用C函数
+        self.lib.sub_forward(a_c, b_c, output_c)
+        
+        # 6. 转换回NPS/NumPy张量
+        output_data = self._ctensor_to_numpy(output_c, output_dtype_str)
+        output_tensor = Tensor(*output_shape, dtype=output_dtype_str, data=output_data)
+        
+        # 7. 清理资源
+        self.lib.free_tensor(a_c)
+        self.lib.free_tensor(b_c)
+        self.lib.free_tensor(output_c)
+        
+        values = {"tensor": output_tensor,
+                  "parameters": None,
+                  "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, *inputs) -> Tensor_:
+        """
+        Sub函数的Python实现，不使用真实数据进行计算 (用于图推断)
+        """
+        if len(inputs) != 2:
+            raise ValueError(f"SUB operator expects 2 inputs (Tensor_), but got {len(inputs)}")
+        
+        a = inputs[0]
+        b = inputs[1]
+
+        # 1. 计算广播后的形状
+        temp_a = np.empty(a.size, dtype=np.uint8)
+        temp_b = np.empty(b.size, dtype=np.uint8)
+        try:
+            output_shape = np.broadcast(temp_a, temp_b).shape
+        except ValueError as e:
+            print(f"Error during broadcasting shapes {a.size} and {b.size}")
+            raise e
+
+        # 2. 计算类型提升
+        dtype_a = nn.DTYPE_TO_NUMPY[a.dtype]
+        dtype_b = nn.DTYPE_TO_NUMPY[b.dtype]
+        output_dtype_np = np.result_type(dtype_a, dtype_b)
+        
+        if output_dtype_np.type in nn.NUMPY_TO_DTYPE:
+             output_dtype_str = nn.NUMPY_TO_DTYPE[output_dtype_np.type]
+        elif 'float' in str(output_dtype_np):
+             output_dtype_str = "float64"
+        elif 'int' in str(output_dtype_np):
+             output_dtype_str = "int64"
+        else:
+             output_dtype_str = "float32"
+        
+        # 3. 创建输出的 Tensor_
+        output_tensor = Tensor_(*output_shape, dtype=output_dtype_str)
+
+        values = {"tensor": output_tensor,
+                  "parameters": None,
+                  "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+class MUL(Ops):
+    """乘法操作类 (A * B)，支持广播和混合精度"""
+
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(MUL, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, *inputs) -> Tensor:
+        """
+        乘法函数的C后端实现，在Python层处理广播
+        """
+        if len(inputs) != 2:
+            raise ValueError(f"MUL operator expects 2 inputs, but got {len(inputs)}")
+        
+        a = inputs[0]
+        b = inputs[1]
+
+        # 1. Python (NumPy) 层处理广播
+        try:
+            a_bcast_data, b_bcast_data = np.broadcast_arrays(a.data, b.data)
+        except ValueError as e:
+            print(f"Error during broadcasting inputs with shapes {a.size} and {b.size}")
+            raise e
+
+        # 2. Python (NumPy) 层处理类型提升
+        output_dtype_np = np.result_type(a.data, b.data)
+        
+        if output_dtype_np.type in nn.NUMPY_TO_DTYPE:
+             output_dtype_str = nn.NUMPY_TO_DTYPE[output_dtype_np.type]
+        elif 'float' in str(output_dtype_np):
+             output_dtype_str = "float64"
+        elif 'int' in str(output_dtype_np):
+             output_dtype_str = "int64"
+        else:
+             output_dtype_str = "float32"
+        
+        output_shape = a_bcast_data.shape
+
+        # 3. 准备C张量
+        a_data_contiguous = np.ascontiguousarray(a_bcast_data.astype(a.data.dtype, copy=False))
+        b_data_contiguous = np.ascontiguousarray(b_bcast_data.astype(b.data.dtype, copy=False))
+        a_c = self._numpy_to_ctensor(a_data_contiguous, a.dtype)
+        b_c = self._numpy_to_ctensor(b_data_contiguous, b.dtype)
+        
+        # 4. 创建输出C张量
+        output_shape_c = (ctypes.c_int * len(output_shape))(*output_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(output_shape), nn.DTYPE_MAP[output_dtype_str])
+        
+        # 5. 调用C函数
+        self.lib.mul_forward(a_c, b_c, output_c)
+        
+        # 6. 转换回NPS/NumPy张量
+        output_data = self._ctensor_to_numpy(output_c, output_dtype_str)
+        output_tensor = Tensor(*output_shape, dtype=output_dtype_str, data=output_data)
+        
+        # 7. 清理资源
+        self.lib.free_tensor(a_c)
+        self.lib.free_tensor(b_c)
+        self.lib.free_tensor(output_c)
+        
+        values = {"tensor": output_tensor,
+                  "parameters": None,
+                  "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, *inputs) -> Tensor_:
+        """
+        Mul函数的Python实现，不使用真实数据进行计算 (用于图推断)
+        """
+        if len(inputs) != 2:
+            raise ValueError(f"MUL operator expects 2 inputs (Tensor_), but got {len(inputs)}")
+        
+        a = inputs[0]
+        b = inputs[1]
+
+        # 1. 计算广播后的形状
+        temp_a = np.empty(a.size, dtype=np.uint8)
+        temp_b = np.empty(b.size, dtype=np.uint8)
+        try:
+            output_shape = np.broadcast(temp_a, temp_b).shape
+        except ValueError as e:
+            print(f"Error during broadcasting shapes {a.size} and {b.size}")
+            raise e
+
+        # 2. 计算类型提升
+        dtype_a = nn.DTYPE_TO_NUMPY[a.dtype]
+        dtype_b = nn.DTYPE_TO_NUMPY[b.dtype]
+        output_dtype_np = np.result_type(dtype_a, dtype_b)
+        
+        if output_dtype_np.type in nn.NUMPY_TO_DTYPE:
+             output_dtype_str = nn.NUMPY_TO_DTYPE[output_dtype_np.type]
+        elif 'float' in str(output_dtype_np):
+             output_dtype_str = "float64"
+        elif 'int' in str(output_dtype_np):
+             output_dtype_str = "int64"
+        else:
+             output_dtype_str = "float32"
+        
+        # 3. 创建输出的 Tensor_
+        output_tensor = Tensor_(*output_shape, dtype=output_dtype_str)
+
+        values = {"tensor": output_tensor,
+                  "parameters": None,
+                  "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+class DIV(Ops):
+    """除法操作类 (A / B)，支持广播和混合精度"""
+
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(DIV, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, *inputs) -> Tensor:
+        """
+        除法函数的C后端实现，在Python层处理广播
+        """
+        if len(inputs) != 2:
+            raise ValueError(f"DIV operator expects 2 inputs, but got {len(inputs)}")
+        
+        a = inputs[0]
+        b = inputs[1]
+
+        # 1. Python (NumPy) 层处理广播
+        try:
+            a_bcast_data, b_bcast_data = np.broadcast_arrays(a.data, b.data)
+        except ValueError as e:
+            print(f"Error during broadcasting inputs with shapes {a.size} and {b.size}")
+            raise e
+
+        # 2. Python (NumPy) 层处理类型提升
+        output_dtype_np = np.result_type(a.data, b.data)
+        
+        if output_dtype_np.type in nn.NUMPY_TO_DTYPE:
+             output_dtype_str = nn.NUMPY_TO_DTYPE[output_dtype_np.type]
+        elif 'float' in str(output_dtype_np):
+             output_dtype_str = "float64"
+        elif 'int' in str(output_dtype_np):
+             output_dtype_str = "int64"
+        else:
+             output_dtype_str = "float32"
+        
+        output_shape = a_bcast_data.shape
+
+        # 3. 准备C张量
+        a_data_contiguous = np.ascontiguousarray(a_bcast_data.astype(a.data.dtype, copy=False))
+        b_data_contiguous = np.ascontiguousarray(b_bcast_data.astype(b.data.dtype, copy=False))
+        a_c = self._numpy_to_ctensor(a_data_contiguous, a.dtype)
+        b_c = self._numpy_to_ctensor(b_data_contiguous, b.dtype)
+        
+        # 4. 创建输出C张量
+        output_shape_c = (ctypes.c_int * len(output_shape))(*output_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(output_shape), nn.DTYPE_MAP[output_dtype_str])
+        
+        # 5. 调用C函数
+        self.lib.div_forward(a_c, b_c, output_c)
+        
+        # 6. 转换回NPS/NumPy张量
+        output_data = self._ctensor_to_numpy(output_c, output_dtype_str)
+        output_tensor = Tensor(*output_shape, dtype=output_dtype_str, data=output_data)
+        
+        # 7. 清理资源
+        self.lib.free_tensor(a_c)
+        self.lib.free_tensor(b_c)
+        self.lib.free_tensor(output_c)
+        
+        values = {"tensor": output_tensor,
+                  "parameters": None,
+                  "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, *inputs) -> Tensor_:
+        """
+        Div函数的Python实现，不使用真实数据进行计算 (用于图推断)
+        """
+        if len(inputs) != 2:
+            raise ValueError(f"DIV operator expects 2 inputs (Tensor_), but got {len(inputs)}")
+        
+        a = inputs[0]
+        b = inputs[1]
+
+        # 1. 计算广播后的形状
+        temp_a = np.empty(a.size, dtype=np.uint8)
+        temp_b = np.empty(b.size, dtype=np.uint8)
+        try:
+            output_shape = np.broadcast(temp_a, temp_b).shape
+        except ValueError as e:
+            print(f"Error during broadcasting shapes {a.size} and {b.size}")
+            raise e
+
+        # 2. 计算类型提升
+        dtype_a = nn.DTYPE_TO_NUMPY[a.dtype]
+        dtype_b = nn.DTYPE_TO_NUMPY[b.dtype]
+        output_dtype_np = np.result_type(dtype_a, dtype_b)
+        
+        if output_dtype_np.type in nn.NUMPY_TO_DTYPE:
+             output_dtype_str = nn.NUMPY_TO_DTYPE[output_dtype_np.type]
+        elif 'float' in str(output_dtype_np):
+             output_dtype_str = "float64"
+        elif 'int' in str(output_dtype_np):
+             output_dtype_str = "int64"
+        else:
+             output_dtype_str = "float32"
         
         # 3. 创建输出的 Tensor_
         output_tensor = Tensor_(*output_shape, dtype=output_dtype_str)
