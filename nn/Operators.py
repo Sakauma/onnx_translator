@@ -648,3 +648,80 @@ class DIV(Ops):
                   "graph": None}
         self.parameters = {"values": values}
         return values
+
+
+class SIGMOID(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(SIGMOID, self).__init__(inputs, outputs)  # ← 关键修复：原为 SQUEEZE!
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input: Tensor) -> dict:
+        input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        output_shape = (ctypes.c_int * len(input.size))(*input.size)
+        output_c = self.lib.create_tensor(output_shape, len(input.size), nn.DTYPE_MAP[self.dtype])
+        self.lib.sigmoid_forward(input_c, output_c)
+        output_data = self._ctensor_to_numpy(output_c, self.dtype)
+        output_tensor = Tensor(*input.size, dtype=self.dtype, data=output_data)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input: Tensor_) -> dict:
+        return {"tensor": input, "parameters": None, "graph": None}
+
+
+class SQUEEZE(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17", axes=None):
+        super(SQUEEZE, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+        self.axes = axes  # 允许 None
+
+    def forward(self, input: Tensor) -> dict:
+        # 推导输出 shape
+        input_shape = input.size
+        ndim = len(input_shape)
+
+        if self.axes is None or len(self.axes) == 0:
+            output_shape = [s for s in input_shape if s != 1]
+        else:
+            axes_set = set(a % ndim for a in self.axes)
+            for a in axes_set:
+                if input_shape[a] != 1:
+                    raise ValueError(f"Cannot squeeze axis {a} (size={input_shape[a]} != 1)")
+            output_shape = [s for i, s in enumerate(input_shape) if i not in axes_set]
+
+        # 处理标量情况
+        if len(output_shape) == 0:
+            output_shape = [1]
+
+        # 创建 C 张量
+        input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        output_shape_c = (ctypes.c_int * len(output_shape))(*output_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(output_shape), nn.DTYPE_MAP[self.dtype])
+
+        # 准备 axes 数组（避免 NULL）
+        if self.axes and len(self.axes) > 0:
+            axes_list = [a % ndim for a in self.axes]
+            axes_c = (ctypes.c_int * len(axes_list))(*axes_list)
+            num_axes = len(axes_list)
+        else:
+            axes_c = (ctypes.c_int * 1)(0)
+            num_axes = 0
+
+        # 调用 C 函数（只拷贝数据）
+        self.lib.squeeze_forward(input_c, output_c, axes_c, num_axes)
+
+        # 转回 Python
+        output_data = self._ctensor_to_numpy(output_c, self.dtype)
+        output_tensor = Tensor(*output_shape, dtype=self.dtype, data=output_data)
+
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+        return {"tensor": output_tensor, "parameters": {"axes": self.axes}, "graph": None}
+
+    def forward_(self, input: Tensor_) -> dict:
+        # 简化：假设无 axes 时自动 squeeze
+        output_shape = tuple(s for s in input.size if s != 1) or (1,)
+        return {"tensor": Tensor_(*output_shape, dtype=input.dtype), "parameters": None, "graph": None}

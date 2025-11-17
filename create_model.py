@@ -11,6 +11,7 @@ class ComprehensiveModel(nn.Module):
     def __init__(self):
         super(ComprehensiveModel, self).__init__()
         self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """
@@ -30,6 +31,12 @@ class ComprehensiveModel(nn.Module):
         
         # 4. 应用 Cos
         output = torch.cos(added)
+
+        # 5. 应用 Sigmoid
+        output = self.sigmoid(output)
+
+        # 6. 应用 Squeeze (移除维度为1的维度)
+        output = torch.squeeze(output)
         
         return output
 

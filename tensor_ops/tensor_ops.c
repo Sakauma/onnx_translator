@@ -1,5 +1,6 @@
 // tensor_ops/tensor_ops.c
 #include "tensor_ops.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 
@@ -784,4 +785,46 @@ void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
         }
     }
 }
+/**
+ * 获取数据类型大小
+ */
+size_t get_type_size(DataType dtype) {
+    switch (dtype) {
+        case DTYPE_FLOAT32: return sizeof(float);
+        case DTYPE_FLOAT64: return sizeof(double);
+        case DTYPE_FLOAT16: return sizeof(uint16_t);
+        case DTYPE_BFLOAT16: return sizeof(uint16_t);
+        case DTYPE_INT8: return sizeof(int8_t);
+        case DTYPE_INT16: return sizeof(int16_t);
+        case DTYPE_INT32: return sizeof(int32_t);
+        case DTYPE_INT64: return sizeof(int64_t);
+        default: return sizeof(float);
+    }
+}
 
+void sigmoid_forward(const Tensor* input, Tensor* output) {
+    if (input->dtype == DTYPE_FLOAT32) {
+        float* in = (float*)input->data;
+        float* out = (float*)output->data;
+        for (long long i = 0; i < input->size; i++) {
+            float x = in[i];
+            if (x >= 88.0f) out[i] = 1.0f;
+            else if (x <= -88.0f) out[i] = 0.0f;
+            else out[i] = 1.0f / (1.0f + expf(-x));
+        }
+    } else if (input->dtype == DTYPE_FLOAT64) {
+        double* in = (double*)input->data;
+        double* out = (double*)output->data;
+        for (long long i = 0; i < input->size; i++) {
+            double x = in[i];
+            if (x >= 709.0) out[i] = 1.0;
+            else if (x <= -709.0) out[i] = 0.0;
+            else out[i] = 1.0 / (1.0 + exp(-x));
+        }
+    }
+}
+
+void squeeze_forward(const Tensor* input, Tensor* output, const int* axes, int num_axes) {
+    size_t total_bytes = input->size * get_type_size(input->dtype);
+    memcpy(output->data, input->data, total_bytes);
+}

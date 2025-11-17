@@ -31,7 +31,7 @@ typedef struct {
 
 /**
  * 创建张量
- * 
+ *
  * @param shape 张量形状数组
  * @param ndim 张量维度数
  * @param dtype 数据类型
@@ -41,14 +41,14 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype);
 
 /**
  * 释放张量内存
- * 
+ *
  * @param tensor 要释放的张量指针
  */
 void free_tensor(Tensor* tensor);
 
 /**
  * ReLU激活函数前向传播
- * 
+ *
  * @param input 输入张量
  * @param output 输出张量
  */
@@ -56,7 +56,7 @@ void relu_forward(const Tensor* input, Tensor* output);
 
 /**
  * 余弦函数前向传播
- * 
+ *
  * @param input 输入张量
  * @param output 输出张量
  */
@@ -64,7 +64,7 @@ void cos_forward(const Tensor* input, Tensor* output);
 
 /**
  * Abs函数前向传播
- * 
+ *
  * @param input 输入张量
  * @param output 输出张量
  */
@@ -72,7 +72,7 @@ void abs_forward(const Tensor* input, Tensor* output);
 
 /**
  * Add函数前向传播
- * 
+ *
  * @param A 输入张量A
  * @param B 输入张量B
  * @param O 输出张量
@@ -81,7 +81,7 @@ void add_forward(const Tensor* A, const Tensor* B, Tensor* O);
 
 /**
  * Sub函数前向传播
- * 
+ *
  * @param A 输入张量A
  * @param B 输入张量B
  * @param O 输出张量
@@ -90,7 +90,7 @@ void sub_forward(const Tensor* A, const Tensor* B, Tensor* O);
 
 /**
  * Mul函数前向传播
- * 
+ *
  * @param A 输入张量A
  * @param B 输入张量B
  * @param O 输出张量
@@ -99,11 +99,14 @@ void mul_forward(const Tensor* A, const Tensor* B, Tensor* O);
 
 /**
  * Div函数前向传播
- *  
+ *
  * @param A 输入张量A
  * @param B 输入张量B
  * @param O 输出张量
  */
 void div_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void sigmoid_forward(const Tensor* input, Tensor* output);
+void squeeze_forward(const Tensor* input, Tensor* output, const int* axes, int axes_size);
 
 #endif

@@ -119,6 +119,26 @@ def ONNXImport(file_path):
                                                     node.output,
                                                     dtype=onnx_dtype_mapping[elem_type],
                                                     version="17"))
+        elif node.op_type.upper() == "SIGMOID":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.__getattribute__("SIGMOID")(node.input,
+                                                         node.output,
+                                                         dtype=onnx_dtype_mapping[elem_type],
+                                                         version="17"))
+
+        elif node.op_type.upper() == "SQUEEZE":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            axes = []
+            for attr in node.attribute:
+                if attr.name == "axes":
+                    axes = list(attr.ints)
+            onnx_graph_list.append(
+                nn.Operators.__getattribute__("SQUEEZE")(node.input,
+                                                         node.output,
+                                                         dtype=onnx_dtype_mapping[elem_type],
+                                                         version="17",
+                                                         axes=axes))
         elif node.op_type.upper() == "OTHER_OPS":
             # 其他操作节点的处理占位符
             pass
