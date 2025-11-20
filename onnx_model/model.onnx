@@ -1,0 +1,193 @@
+pytorch2.8.0:è„
+È
+input_x/relu/Relu_output_0
+/relu/Relu"Relu2•/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/functional.py(1701): relu
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/activation.py(135): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/github-projects/onnx_translator/create_model.py(21): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(129): wrapper
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(138): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(1504): _get_trace_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(871): _trace_and_get_graph_from_model
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(964): _create_jit_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1080): _model_to_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1457): _export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(522): export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/__init__.py(424): export
+/home/ywwq/github-projects/onnx_translator/create_model.py(63): <module>
+
+ö
+input_y/Abs_output_0/Abs"Abs2Ð/home/ywwq/github-projects/onnx_translator/create_model.py(24): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(129): wrapper
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(138): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(1504): _get_trace_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(871): _trace_and_get_graph_from_model
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(964): _create_jit_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1080): _model_to_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1457): _export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(522): export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/__init__.py(424): export
+/home/ywwq/github-projects/onnx_translator/create_model.py(63): <module>
+
+‘
+/relu/Relu_output_0
+/Abs_output_0/Add_output_0/Add"Add2Ð/home/ywwq/github-projects/onnx_translator/create_model.py(29): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(129): wrapper
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(138): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(1504): _get_trace_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(871): _trace_and_get_graph_from_model
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(964): _create_jit_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1080): _model_to_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1457): _export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(522): export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/__init__.py(424): export
+/home/ywwq/github-projects/onnx_translator/create_model.py(63): <module>
+
+ü
+/Add_output_0/Cos_output_0/Cos"Cos2Ð/home/ywwq/github-projects/onnx_translator/create_model.py(32): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(129): wrapper
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(138): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(1504): _get_trace_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(871): _trace_and_get_graph_from_model
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(964): _create_jit_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1080): _model_to_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1457): _export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(522): export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/__init__.py(424): export
+/home/ywwq/github-projects/onnx_translator/create_model.py(63): <module>
+
+ÿ
+/Cos_output_0/Tanh_output_0/Tanh"Tanh2Ð/home/ywwq/github-projects/onnx_translator/create_model.py(35): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(129): wrapper
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(138): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(1504): _get_trace_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(871): _trace_and_get_graph_from_model
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(964): _create_jit_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1080): _model_to_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1457): _export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(522): export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/__init__.py(424): export
+/home/ywwq/github-projects/onnx_translator/create_model.py(63): <module>
+
+¨/Constant_output_0	/Constant"Constant**
+value*J                      2Ð/home/ywwq/github-projects/onnx_translator/create_model.py(38): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(129): wrapper
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(138): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(1504): _get_trace_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(871): _trace_and_get_graph_from_model
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(964): _create_jit_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1080): _model_to_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1457): _export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(522): export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/__init__.py(424): export
+/home/ywwq/github-projects/onnx_translator/create_model.py(63): <module>
+
+¯
+/Tanh_output_0
+/Constant_output_0/Reshape_output_0/Reshape"Reshape*
+	allowzero  2Ð/home/ywwq/github-projects/onnx_translator/create_model.py(38): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(129): wrapper
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(138): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(1504): _get_trace_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(871): _trace_and_get_graph_from_model
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(964): _create_jit_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1080): _model_to_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1457): _export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(522): export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/__init__.py(424): export
+/home/ywwq/github-projects/onnx_translator/create_model.py(63): <module>
+
+œ/Constant_1_output_0/Constant_1"Constant*
+value*J        2Ð/home/ywwq/github-projects/onnx_translator/create_model.py(41): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(129): wrapper
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(138): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(1504): _get_trace_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(871): _trace_and_get_graph_from_model
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(964): _create_jit_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1080): _model_to_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1457): _export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(522): export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/__init__.py(424): export
+/home/ywwq/github-projects/onnx_translator/create_model.py(63): <module>
+
+›
+/Reshape_output_0
+/Constant_1_output_0output
+/Unsqueeze"	Unsqueeze2Ð/home/ywwq/github-projects/onnx_translator/create_model.py(41): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1763): _slow_forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(129): wrapper
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(138): forward
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1784): _call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/nn/modules/module.py(1773): _wrapped_call_impl
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/jit/_trace.py(1504): _get_trace_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(871): _trace_and_get_graph_from_model
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(964): _create_jit_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1080): _model_to_graph
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(1457): _export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/utils.py(522): export
+/home/ywwq/miniforge3/envs/onnx_translator/lib/python3.9/site-packages/torch/onnx/__init__.py(424): export
+/home/ywwq/github-projects/onnx_translator/create_model.py(63): <module>
+
+main_graphZ!
+input_x
+
+
+
+ 
+ Z!
+input_y
+
+
+
+
+ b!
+output
+
+
+
+
+€B

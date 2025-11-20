@@ -29,8 +29,17 @@ class ComprehensiveModel(nn.Module):
         added = x_relu + y_abs
         
         # 4. 应用 Cos
-        output = torch.cos(added)
-        
+        cos_output = torch.cos(added)
+	
+	# 5. 应用 Tanh
+       	tanh_output = torch.tanh(cos_output)
+
+        # 6. 应用 Reshape: 从 (1, 3, 32, 32) 重塑为 (1, 3, 1024)
+        reshaped = torch.reshape(tanh_output, (1, 3, 1024))
+
+        # 7. 应用 Unsqueeze: 在维度1上增加一个维度 (1, 3, 1024) -> (1, 1, 3, 1024)
+        output = torch.unsqueeze(reshaped, 1)
+
         return output
 
 # --- 主执行流程 ---
