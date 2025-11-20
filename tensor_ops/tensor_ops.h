@@ -99,11 +99,38 @@ void mul_forward(const Tensor* A, const Tensor* B, Tensor* O);
 
 /**
  * Div函数前向传播
- *  
+ *
  * @param A 输入张量A
  * @param B 输入张量B
  * @param O 输出张量
  */
 void div_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+/**
+ * Tanh函数前向传播
+ *
+ * @param input  输入张量
+ * @param output 输出张量
+ */
+void tanh_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Reshape函数前向传播
+ *
+ * @param input     输入张量
+ * @param output    输出张量
+ * @param new_shape 新形状数组
+ * @param new_ndim  新维度数
+ */
+void reshape_forward(const Tensor* input, Tensor* output, const int* new_shape, int new_ndim);
+
+/**
+ * Unsqueeze函数前向传播
+ *
+ * @param input  输入张量
+ * @param output 输出张量
+ * @param axis   要插入的轴
+ */
+void unsqueeze_forward(const Tensor* input, Tensor* output, int axis);
 
 #endif

@@ -785,3 +785,44 @@ void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     }
 }
 
+
+/**
+ * Tanh函数前向传播
+ *
+ * @param input  输入张量
+ * @param output 输出张量
+ */
+void tanh_forward(const Tensor* input, Tensor* output) {
+    float* in = (float*)input->data;
+    float* out = (float*)output->data;
+    for (int i = 0; i < input->size; i++) 
+        out[i] = tanhf(in[i]);
+}
+
+/**
+ * Reshape函数前向传播
+ *
+ * @param input     输入张量
+ * @param output    输出张量
+ * @param new_shape 新形状数组
+ * @param new_ndim  新维度数
+ */
+void reshape_forward(const Tensor* input, Tensor* output, const int* new_shape, int new_ndim) {
+    memcpy(output->data, input->data, input->size * sizeof(float));
+    output->ndim = new_ndim;
+    for (int i = 0; i < new_ndim; i++) output->shape[i] = new_shape[i];
+}
+
+/**
+ * Unsqueeze函数前向传播
+ *
+ * @param input  输入张量
+ * @param output 输出张量
+ * @param axis   要插入的轴
+ */
+void unsqueeze_forward(const Tensor* input, Tensor* output, int axis) {
+    memcpy(output->data, input->data, input->size * sizeof(float));
+    output->ndim = input->ndim + 1;
+    for (int i = 0, j = 0; i < output->ndim; i++)
+        output->shape[i] = (i == axis) ? 1 : input->shape[j++];
+}
