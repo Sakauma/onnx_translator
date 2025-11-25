@@ -40,12 +40,6 @@ def run_numpy_verification(op_name, nps_op_class, input_specs):
         np_inputs.append(np_data)
         nps_inputs.append(Tensor(*shape, dtype=dtype, data=np_data))
 
-    # # 2. 获取 NPS 计算结果
-    # print(f"[NPS] ... 正在运行 NPS 算子...")
-    # nps_op = nps_op_class(inputs=['a', 'b'][:len(nps_inputs)], outputs=['y'], dtype="float32")
-    # nps_result_tensor = nps_op.forward(*nps_inputs)["tensor"]
-    # nps_result_data = nps_result_tensor.data
-
     # 2. 获取 NumPy 计算结果
     print(f"[NumPy] ... 正在运行 NumPy 算子...")
     numpy_result = None
@@ -57,7 +51,7 @@ def run_numpy_verification(op_name, nps_op_class, input_specs):
         elif op_name == 'mul':
             numpy_result = np_inputs[0] * np_inputs[1]
         elif op_name == 'div':
-            # 注意：Python/NumPy 的除法行为比较复杂，这里直接使用默认行为
+            # 除法简化
             numpy_result = np_inputs[0] / np_inputs[1]
         elif op_name == 'abs':
             numpy_result = np.abs(np_inputs[0])
@@ -75,7 +69,7 @@ def run_numpy_verification(op_name, nps_op_class, input_specs):
     
     # 3. 智能推断 NPS 应使用的 dtype
     # - 如果 NumPy 算出来是整数 -> NPS 也应配置为输出对应的整数类型 (int32, int64 等)
-    # - 如果 NumPy 算出来是浮点 -> NPS 统一配置为 float32 (为了兼容性和C后端默认行为)
+    # - 如果 NumPy 算出来是浮点 -> NPS 统一配置为 float32  (可以更改)
     target_dtype = "float32" # 默认
     
     if numpy_result.dtype.type in nn.NUMPY_TO_DTYPE:
@@ -99,26 +93,6 @@ def run_numpy_verification(op_name, nps_op_class, input_specs):
 
     # 5. 对比结果
     print("[COMPARE] ... 正在对比 NPS 与 NumPy 结果...")
-    
-    # # 检查形状
-    # if nps_result_data.shape != numpy_result.shape:
-    #     print(f"❌ FAILED: 形状不匹配!")
-    #     print(f"  NPS Shape:   {nps_result_data.shape}")
-    #     print(f"  NumPy Shape: {numpy_result.shape}")
-    #     return
-
-    # # 检查数据类型
-    # nps_dtype_str = nps_result_tensor.dtype
-    # if numpy_result.dtype.type not in nn.NUMPY_TO_DTYPE:
-    #      print(f"❌ FAILED: NumPy 结果类型 '{numpy_result.dtype}' 未在 nn.NUMPY_TO_DTYPE 中定义。")
-    #      return
-    # numpy_dtype_str = nn.NUMPY_TO_DTYPE[numpy_result.dtype.type]
-
-    # if nps_dtype_str != numpy_dtype_str:
-    #      print(f"❌ FAILED: 数据类型不匹配!")
-    #      print(f"  NPS Dtype:   {nps_dtype_str}")
-    #      print(f"  NumPy Dtype: {numpy_dtype_str}")
-    #      return
     # 数据准备：如果 NPS 是 float32 而 NumPy 是 float64，将 NumPy 降级为 float32 再对比
     if target_dtype == "float32" and numpy_result.dtype == np.float64:
         numpy_result = numpy_result.astype(np.float32)
@@ -286,14 +260,15 @@ def run_cuda_binary_op_verification(op_name, nps_op_class, shape_a, shape_b, dty
     os.remove(input_file_b)
     os.remove(output_file)
     
+# =============================================================================
+# 验证块四: 边缘计算混合精度 (A8W4 / A16W8)
+# =============================================================================
+    
 def run_mixed_precision_check():
     """
     专门验证边缘计算场景下的混合精度 (A8W4, A16W8 等)
     """
-    print("\n=========================================================")
-    print(" 验证块四: 边缘计算混合精度 (A8W4 / A16W8) ")
-    print("=========================================================")
-
+    
     # --- 测试案例 1: A8W4 (Activation Int8 + Weight Int4 -> Int32 Accum) ---
     print("\n[测试] A8W4 加法 (Int8 + Int4 -> Int32)")
     shape = (4, 4)
@@ -361,6 +336,26 @@ def run_mixed_precision_check():
         print("✅ SUCCESS: A16W8 计算正确")
     else:
         print("❌ FAILED: A16W8 计算错误")
+        
+    # --- 测试案例 4: UINT8 输入与饱和 (Image Input Scenario) ---
+    print("\n[测试] UINT8 输入加法 (UINT8 + INT8 -> INT32)")
+    # 模拟：图像像素(0~255) + 负数偏置 -> 结果
+    
+    data_img = np.array([[250, 10], [128, 0]], dtype=np.uint8)
+    data_bias = np.array([[-50, -5], [0, 0]], dtype=np.int8)
+    
+    t_img = Tensor(*shape, dtype="uint8", data=data_img)
+    t_bias = Tensor(*shape, dtype="int8", data=data_bias)
+    
+    add_op_u8 = nn.Operators.ADD(inputs=[], outputs=[], dtype="int32")
+    nps_res_u8 = add_op_u8.forward(t_img, t_bias)["tensor"].data
+    
+    # 验证逻辑：必须正确处理无符号数
+    # 250 - 50 = 200
+    if nps_res_u8[0, 0] == 200:
+        print(f"✅ SUCCESS: UINT8 正确解析 (250 + -50 = {nps_res_u8[0,0]})")
+    else:
+        print(f"❌ FAILED: UINT8 解析错误 (期望 200, 实际 {nps_res_u8[0,0]})")
 
 
 # =============================================================================
@@ -393,7 +388,6 @@ if __name__ == "__main__":
     run_numpy_verification('add', ADD, [("int32", (10, 10)), ("int32", (10, 10))])        # 相同 int -> int32
     run_numpy_verification('add', ADD, [("int64", (10, 10)), ("int32", (1, 10))])       # 混合 int + 广播 -> int64
 
-    
     print("\n=========================================================")
     print(" 验证块三: 对标 CUDA (精度验证) ")
     print("=========================================================")
@@ -419,5 +413,9 @@ if __name__ == "__main__":
     run_cuda_binary_op_verification('add', ADD, 
                                     shape_a=(10, 10), dtype_a="int32",
                                     shape_b=(10, 10), dtype_b="float32")
+    
+    print("\n=========================================================")
+    print(" 验证块四: 边缘计算混合精度 (A8W4 / A16W8)")
+    print("=========================================================")
     
     run_mixed_precision_check()

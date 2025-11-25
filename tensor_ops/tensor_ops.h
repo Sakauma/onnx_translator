@@ -12,11 +12,12 @@ typedef enum {
     DTYPE_BFLOAT16,  // 16位bfloat格式
     DTYPE_FLOAT32,   // 32位浮点数
     DTYPE_FLOAT64,   // 64位浮点数
+    DTYPE_INT4,      // 4位整数
     DTYPE_INT8,      // 8位整数
+    DTYPE_UINT8,     // 8位无符号整数
     DTYPE_INT16,     // 16位整数
     DTYPE_INT32,     // 32位整数
-    DTYPE_INT64,      // 64位整数
-    DTYPE_INT4,      // 4位整数
+    DTYPE_INT64,     // 64位整数
 } DataType;
 
 /**

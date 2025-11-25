@@ -5,7 +5,6 @@ import numpy as np
 from typing import List, Union
 import os
 
-
 class CTensor(ctypes.Structure):
     """C张量结构体，用于与C库交互"""
     _fields_ = [
@@ -16,20 +15,19 @@ class CTensor(ctypes.Structure):
         ("dtype", ctypes.c_int)                   # 数据类型
     ]
 
-
 # 数据类型映射到整数编码
 DTYPE_MAP = {
     "float16": 0,
     "bfloat16": 1,
     "float32": 2,
     "float64": 3,
-    "int8": 4,
-    "int16": 5,
-    "int32": 6,
-    "int64": 7,
-    "int4": 8
+    "int4": 4,
+    "int8": 5,
+    "uint8": 6,
+    "int16": 7,
+    "int32": 8,
+    "int64": 9,
 }
-
 
 # 数据类型映射到NumPy类型
 DTYPE_TO_NUMPY = {
@@ -37,11 +35,12 @@ DTYPE_TO_NUMPY = {
     "bfloat16": np.uint16,
     "float32": np.float32,
     "float64": np.float64,
+    "int4": np.int8,
     "int8": np.int8,
+    "uint8": np.uint8,
     "int16": np.int16,
     "int32": np.int32,
     "int64": np.int64,
-    "int4": np.int8
 }
 
 # NumPy 类型到 NPS 字符串类型的反向映射
@@ -51,6 +50,7 @@ NUMPY_TO_DTYPE = {
     np.float32: "float32",
     np.float64: "float64",
     np.int8: "int8",
+    np.uint8: "uint8",
     np.int16: "int16",
     np.int32: "int32",
     np.int64: "int64",
@@ -63,7 +63,6 @@ if hasattr(np, 'uint32'):
     NUMPY_TO_DTYPE[np.uint32] = "uint32" 
 if hasattr(np, 'uint64'):
     NUMPY_TO_DTYPE[np.uint64] = "uint64"
-
 
 # ONNX数据类型映射
 onnx_dtype_mapping = {
@@ -84,7 +83,6 @@ onnx_dtype_mapping = {
     15: "complex128",
     16: "bfloat16"
 }
-
 
 class Tensor:
     """张量类，用于存储和操作多维数组数据"""
@@ -110,7 +108,6 @@ class Tensor:
             np_dtype = DTYPE_TO_NUMPY[dtype]
             self.data = np.zeros(self.size, dtype=np_dtype)
 
-
 class Tensor_:
     """张量占位符类，用于图构建阶段"""
     
@@ -127,7 +124,6 @@ class Tensor_:
         for s in self.size:
             self.data_size *= s
         self.dtype = dtype
-
 
 class Ops:
     """操作基类，所有计算操作的父类"""
@@ -245,7 +241,6 @@ class Ops:
             dtype=np_dtype
         ).reshape(shape)
         return arr.copy()
-
 
 class Graph:
     """计算图类，用于管理操作节点和数据流"""
@@ -408,4 +403,3 @@ class Graph:
             for na in list(edge_data_buffer.keys()):
                 if self.output_in_degree[na] == 0:
                     edge_data_buffer.pop(na)
-
