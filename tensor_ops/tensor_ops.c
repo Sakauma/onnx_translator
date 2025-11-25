@@ -2,6 +2,7 @@
 #include "tensor_ops.h"
 #include <stdlib.h>
 #include <math.h>
+#include <omp.h>
 
 // 余弦查找表大小
 #define COS_LUT_SIZE 4096
@@ -319,6 +320,7 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
     switch (O->dtype) { \
         case DTYPE_INT32: { \
             int32_t* out_data = (int32_t*)O->data; \
+            _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
@@ -329,6 +331,7 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
         } \
         case DTYPE_INT16: { \
             int16_t* out_data = (int16_t*)O->data; \
+            _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
@@ -339,6 +342,7 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
         } \
         case DTYPE_INT8: { \
             int8_t* out_data = (int8_t*)O->data; \
+            _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
@@ -349,6 +353,7 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
         } \
         case DTYPE_INT4: { \
             int8_t* out_data = (int8_t*)O->data; \
+            _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
@@ -359,6 +364,7 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
         } \
         case DTYPE_INT64: { \
             int64_t* out_data = (int64_t*)O->data; \
+            _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
@@ -528,10 +534,12 @@ void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
         // 浮点路径 (保持原有的 switch 结构或简化)
         if (O->dtype == DTYPE_FLOAT64) {
             double* out_data = (double*)O->data;
+            #pragma omp parallel for
             for (size_t i = 0; i < O->size; i++) 
                 out_data[i] = get_value_as_double(A, i) + get_value_as_double(B, i);
         } else { // 默认 float32
             float* out_data = (float*)O->data;
+            #pragma omp parallel for
             for (size_t i = 0; i < O->size; i++) 
                 out_data[i] = get_value_as_float(A, i) + get_value_as_float(B, i);
         }
@@ -552,10 +560,12 @@ void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     } else {
         if (O->dtype == DTYPE_FLOAT64) {
             double* out_data = (double*)O->data;
+            #pragma omp parallel for
             for (size_t i = 0; i < O->size; i++) 
                 out_data[i] = get_value_as_double(A, i) - get_value_as_double(B, i);
         } else {
             float* out_data = (float*)O->data;
+            #pragma omp parallel for
             for (size_t i = 0; i < O->size; i++) 
                 out_data[i] = get_value_as_float(A, i) - get_value_as_float(B, i);
         }
@@ -576,10 +586,12 @@ void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     } else {
         if (O->dtype == DTYPE_FLOAT64) {
             double* out_data = (double*)O->data;
+            #pragma omp parallel for
             for (size_t i = 0; i < O->size; i++) 
                 out_data[i] = get_value_as_double(A, i) * get_value_as_double(B, i);
         } else {
-            float* out_data = (float*)O->data;
+            float* out_data = (float*)O->data;  
+            #pragma omp parallel for
             for (size_t i = 0; i < O->size; i++) 
                 out_data[i] = get_value_as_float(A, i) * get_value_as_float(B, i);
         }
@@ -600,10 +612,12 @@ void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     } else {
         if (O->dtype == DTYPE_FLOAT64) {
             double* out_data = (double*)O->data;
+            #pragma omp parallel for
             for (size_t i = 0; i < O->size; i++) 
                 out_data[i] = get_value_as_double(A, i) / get_value_as_double(B, i);
         } else {
-            float* out_data = (float*)O->data;
+            float* out_data = (float*)O->data;  
+            #pragma omp parallel for
             for (size_t i = 0; i < O->size; i++) 
                 out_data[i] = get_value_as_float(A, i) / get_value_as_float(B, i);
         }
