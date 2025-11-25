@@ -34,7 +34,9 @@ class RELU(Ops):
             Tensor: 经过ReLU激活后的输出张量
         """
         # 将输入转换为C张量
-        input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        input_data_contiguous = np.ascontiguousarray(input.data)
+        #input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        input_c = self._numpy_to_ctensor(input_data_contiguous, input.dtype)
         
         # 创建输出C张量
         output_shape = (ctypes.c_int * len(input.size))(*input.size)
@@ -44,8 +46,8 @@ class RELU(Ops):
         self.lib.relu_forward(input_c, output_c)
         
         # 转换回numpy并创建输出张量
-        output_data = self._ctensor_to_numpy(output_c, input.dtype)
-        output_tensor = Tensor(*input.size, dtype=input.dtype, data=output_data)
+        output_data = self._ctensor_to_numpy(output_c, self.dtype)
+        output_tensor = Tensor(*input.size, dtype=self.dtype, data=output_data)
         
         # 清理资源
         self.lib.free_tensor(input_c)
@@ -67,7 +69,8 @@ class RELU(Ops):
         Returns:
             Tensor_: 输出张量占位符
         """
-        output_tensor = input
+        #output_tensor = input
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
         values = {"tensor": output_tensor,
                   "parameters": None,
                   "graph": None}
@@ -102,7 +105,9 @@ class COS(Ops):
             Tensor: 经过余弦函数计算后的输出张量
         """
         # 将输入转换为C张量
-        input_c = self._numpy_to_ctensor(input.data, input.dtype)
+        input_data_contiguous = np.ascontiguousarray(input.data)
+        #input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        input_c = self._numpy_to_ctensor(input_data_contiguous, input.dtype)
         
         # 创建输出C张量
         output_shape = (ctypes.c_int * len(input.size))(*input.size)
@@ -112,8 +117,8 @@ class COS(Ops):
         self.lib.cos_forward(input_c, output_c)
         
         # 转换回numpy并创建输出张量
-        output_data = self._ctensor_to_numpy(output_c, input.dtype)
-        output_tensor = Tensor(*input.size, dtype=input.dtype, data=output_data)
+        output_data = self._ctensor_to_numpy(output_c, self.dtype)
+        output_tensor = Tensor(*input.size, dtype=self.dtype, data=output_data)
         
         # 清理资源
         self.lib.free_tensor(input_c)
@@ -135,7 +140,8 @@ class COS(Ops):
         Returns:
             Tensor_: 输出张量占位符
         """
-        output_tensor = input
+        #output_tensor = input
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
         values = {"tensor": output_tensor,
                   "parameters": None,
                   "graph": None}
@@ -164,7 +170,9 @@ class ABS(Ops):
         Abs函数的C后端实现，使用真实数据进行计算
         """
         # 将输入转换为C张量
-        input_c = self._numpy_to_ctensor(input.data, input.dtype)
+        input_data_contiguous = np.ascontiguousarray(input.data)
+        #input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        input_c = self._numpy_to_ctensor(input_data_contiguous, input.dtype)
         
         # 创建输出C张量
         output_shape = (ctypes.c_int * len(input.size))(*input.size)
@@ -174,8 +182,8 @@ class ABS(Ops):
         self.lib.abs_forward(input_c, output_c)
         
         # 转换回numpy并创建输出张量
-        output_data = self._ctensor_to_numpy(output_c, input.dtype)
-        output_tensor = Tensor(*input.size, dtype=input.dtype, data=output_data)
+        output_data = self._ctensor_to_numpy(output_c, self.dtype)
+        output_tensor = Tensor(*input.size, dtype=self.dtype, data=output_data)
         
         # 清理资源
         self.lib.free_tensor(input_c)
@@ -191,7 +199,8 @@ class ABS(Ops):
         """
         Abs函数的Python实现，不使用真实数据进行计算
         """
-        output_tensor = input
+        #output_tensor = input
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
         values = {"tensor": output_tensor,
                   "parameters": None,
                   "graph": None}
@@ -246,8 +255,10 @@ class ADD(Ops):
         elif 'int' in str(output_dtype_np):
              output_dtype_str = "int64"
         else:
-             output_dtype_str = "float32" # 最终备用
+             output_dtype_str = "float32"
         
+        if self.dtype is not None:
+            output_dtype_str = self.dtype
         output_shape = a_bcast_data.shape
 
         # 3. 准备C张量 (A, B, Output)
@@ -359,6 +370,8 @@ class SUB(Ops):
         else:
              output_dtype_str = "float32"
         
+        if self.dtype is not None:
+            output_dtype_str = self.dtype
         output_shape = a_bcast_data.shape
 
         # 3. 准备C张量
@@ -468,6 +481,8 @@ class MUL(Ops):
         else:
              output_dtype_str = "float32"
         
+        if self.dtype is not None:     
+            output_dtype_str = self.dtype
         output_shape = a_bcast_data.shape
 
         # 3. 准备C张量
@@ -577,6 +592,8 @@ class DIV(Ops):
         else:
              output_dtype_str = "float32"
         
+        if self.dtype is not None:
+            output_dtype_str = self.dtype
         output_shape = a_bcast_data.shape
 
         # 3. 准备C张量

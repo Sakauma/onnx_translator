@@ -9,11 +9,11 @@ import os
 class CTensor(ctypes.Structure):
     """C张量结构体，用于与C库交互"""
     _fields_ = [
-        ("data", ctypes.c_void_p),           # 数据指针
+        ("data", ctypes.c_void_p),                # 数据指针
         ("shape", ctypes.POINTER(ctypes.c_int)),  # 形状数组指针
-        ("ndim", ctypes.c_int),              # 维度数
-        ("size", ctypes.c_size_t),           # 总元素数
-        ("dtype", ctypes.c_int)              # 数据类型
+        ("ndim", ctypes.c_int),                   # 维度数
+        ("size", ctypes.c_size_t),                # 总元素数
+        ("dtype", ctypes.c_int)                   # 数据类型
     ]
 
 
@@ -26,7 +26,8 @@ DTYPE_MAP = {
     "int8": 4,
     "int16": 5,
     "int32": 6,
-    "int64": 7
+    "int64": 7,
+    "int4": 8
 }
 
 
@@ -39,7 +40,8 @@ DTYPE_TO_NUMPY = {
     "int8": np.int8,
     "int16": np.int16,
     "int32": np.int32,
-    "int64": np.int64
+    "int64": np.int64,
+    "int4": np.int8
 }
 
 # NumPy 类型到 NPS 字符串类型的反向映射
@@ -52,6 +54,7 @@ NUMPY_TO_DTYPE = {
     np.int16: "int16",
     np.int32: "int32",
     np.int64: "int64",
+    # int4 需要显式指定 dtype="int4"
 }
 
 # 动态添加对平台特定类型的支持

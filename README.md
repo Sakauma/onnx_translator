@@ -15,7 +15,7 @@
 # -fPIC: 生成位置无关代码
 # -shared: 创建共享库
 # -lm: 链接数学库
-gcc -shared -o libtensor_ops.so -fPIC tensor_ops/tensor_ops.c -lm
+gcc -shared -o tensor_ops.so -fPIC tensor_ops/tensor_ops.c -lm
 ```
 
 ### 3. 步骤二：编译 CUDA 验证程序

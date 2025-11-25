@@ -17,7 +17,37 @@ static int cos_lut_initialized = 0;
 #define TWO_PI (2.0 * PI)
 // 半圆周率
 #define HALF_PI (PI / 2.0)
+// 4位整数范围
+#define INT4_MIN -8
+#define INT4_MAX 7
 
+// 4-bit 饱和截断
+static inline int8_t saturate_cast_int4(int64_t val) {
+    if (val > INT4_MAX) return INT4_MAX;
+    if (val < INT4_MIN) return INT4_MIN;
+    return (int8_t)val;
+}
+
+// 8-bit 饱和截断
+static inline int8_t saturate_cast_int8(int64_t val) {
+    if (val > 127) return 127;
+    if (val < -128) return -128;
+    return (int8_t)val;
+}
+
+// 16-bit 饱和截断
+static inline int16_t saturate_cast_int16(int64_t val) {
+    if (val > 32767) return 32767;
+    if (val < -32768) return -32768;
+    return (int16_t)val;
+}
+
+// 32-bit 饱和截断
+static inline int32_t saturate_cast_int32(int64_t val) {
+    if (val > 2147483647) return 2147483647;
+    if (val < -2147483648) return -2147483648;
+    return (int32_t)val;
+}
 
 /**
  * 将32位浮点数转换为16位浮点数
@@ -100,6 +130,429 @@ static inline float bfloat16_to_float(uint16_t value) {
 }
 
 /**
+ * 创建张量
+ * 
+ * @param shape 张量形状数组
+ * @param ndim 张量维度数
+ * @param dtype 数据类型
+ * @return 创建的张量指针
+ */
+Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
+    // 分配张量结构体内存
+    Tensor* tensor = (Tensor*)malloc(sizeof(Tensor));
+    
+    // 设置维度数
+    tensor->ndim = ndim;
+    
+    // 分配并复制形状数组
+    tensor->shape = (int*)malloc(ndim * sizeof(int));
+    memcpy(tensor->shape, shape, ndim * sizeof(int));
+    
+    // 设置数据类型
+    tensor->dtype = dtype;
+    
+    // 计算总元素数
+    tensor->size = 1;
+    for (int i = 0; i < ndim; i++) {
+        tensor->size *= shape[i];
+    }
+    
+    // 根据数据类型分配数据内存
+    size_t elem_size = 0;
+    switch (dtype) {
+        case DTYPE_FLOAT16:
+        case DTYPE_BFLOAT16:
+            elem_size = 2;  // 16位数据类型
+            break;
+        case DTYPE_FLOAT32:
+            elem_size = 4;  // 32位浮点数
+            break;
+        case DTYPE_FLOAT64:
+            elem_size = 8;  // 64位浮点数
+            break;
+        case DTYPE_INT4:
+            elem_size = 1;  // 4位整数
+            break;
+        case DTYPE_INT8:
+            elem_size = 1;  // 8位整数
+            break;
+        case DTYPE_INT16:
+            elem_size = 2;  // 16位整数
+            break;
+        case DTYPE_INT32:
+            elem_size = 4;  // 32位整数
+            break;
+        case DTYPE_INT64:
+            elem_size = 8;  // 64位整数
+            break;
+    }
+    
+    // 分配数据内存
+    //tensor->data = malloc(tensor->size * elem_size);
+    tensor->data = calloc(tensor->size, elem_size);
+    return tensor;
+}
+
+/**
+ * 释放张量内存
+ * 
+ * @param tensor 要释放的张量指针
+ */
+void free_tensor(Tensor* tensor) {
+    // 检查张量指针是否有效
+    if (tensor) {
+        // 释放数据内存
+        free(tensor->data);
+        // 释放形状数组内存
+        free(tensor->shape);
+        // 释放张量结构体内存
+        free(tensor);
+    }
+}
+
+/*
+ *
+ * 从张量获取值，并作为 float 返回
+ */
+static inline float get_value_as_float(const Tensor* tensor, size_t index) {
+    switch (tensor->dtype) {
+        case DTYPE_FLOAT16: return float16_to_float(((uint16_t*)tensor->data)[index]);
+        case DTYPE_BFLOAT16: return bfloat16_to_float(((uint16_t*)tensor->data)[index]);
+        case DTYPE_FLOAT32: return ((float*)tensor->data)[index];
+        case DTYPE_FLOAT64: return (float)((double*)tensor->data)[index];
+        case DTYPE_INT4: return (float)((int8_t*)tensor->data)[index];
+        case DTYPE_INT8: return (float)((int8_t*)tensor->data)[index];
+        case DTYPE_INT16: return (float)((int16_t*)tensor->data)[index];
+        case DTYPE_INT32: return (float)((int32_t*)tensor->data)[index];
+        case DTYPE_INT64: return (float)((int64_t*)tensor->data)[index];
+        default: return 0.0f;
+    }
+}
+
+/*
+ *
+ * 从张量获取值，并作为 double 返回
+ */
+static inline double get_value_as_double(const Tensor* tensor, size_t index) {
+    switch (tensor->dtype) {
+        case DTYPE_FLOAT32: return (double)((float*)tensor->data)[index];
+        case DTYPE_FLOAT16: return (double)float16_to_float(((uint16_t*)tensor->data)[index]);
+        case DTYPE_BFLOAT16: return (double)bfloat16_to_float(((uint16_t*)tensor->data)[index]);
+        case DTYPE_INT4: return (double)((int8_t*)tensor->data)[index];
+        case DTYPE_INT8: return (double)((int8_t*)tensor->data)[index];
+        case DTYPE_INT16: return (double)((int16_t*)tensor->data)[index];
+        case DTYPE_INT32: return (double)((int32_t*)tensor->data)[index];
+        case DTYPE_INT64: return (double)((int64_t*)tensor->data)[index];
+        case DTYPE_FLOAT64: return ((double*)tensor->data)[index];
+        default: return 0.0;
+    }
+}
+
+/*
+ *
+ * 从张量获取值，并作为 int64_t 返回
+ */
+static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
+    switch (tensor->dtype) {
+        case DTYPE_FLOAT32: return (int64_t)roundf(((float*)tensor->data)[index]);
+        case DTYPE_FLOAT16: return (int64_t)roundf(float16_to_float(((uint16_t*)tensor->data)[index]));
+        case DTYPE_BFLOAT16: return (int64_t)roundf(bfloat16_to_float(((uint16_t*)tensor->data)[index]));
+        case DTYPE_INT4: return (int64_t)((int8_t*)tensor->data)[index];
+        case DTYPE_INT8: return (int64_t)((int8_t*)tensor->data)[index];
+        case DTYPE_INT16: return (int64_t)((int16_t*)tensor->data)[index];
+        case DTYPE_INT32: return (int64_t)((int32_t*)tensor->data)[index];
+        case DTYPE_INT64: return ((int64_t*)tensor->data)[index];
+        case DTYPE_FLOAT64: return (int64_t)round(((double*)tensor->data)[index]);
+        default: return 0;
+    }
+}
+
+/* 
+ * 通用写入函数
+ * 负责将计算结果安全地写入输出张量
+ */
+static inline void set_tensor_value_from_int(Tensor* tensor, size_t index, int64_t value) {
+    switch (tensor->dtype) {
+        case DTYPE_INT32:   ((int32_t*)tensor->data)[index] = saturate_cast_int32(value); break;
+        case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = saturate_cast_int8(value); break;
+        case DTYPE_INT16:   ((int16_t*)tensor->data)[index] = saturate_cast_int16(value); break;
+        case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = saturate_cast_int4(value); break;
+        case DTYPE_INT64:   ((int64_t*)tensor->data)[index] = value; break;
+        // 如果目标是浮点，进行转换
+        case DTYPE_FLOAT32: ((float*)tensor->data)[index] = (float)value; break;
+        case DTYPE_FLOAT64: ((double*)tensor->data)[index] = (double)value; break;
+        default: break;
+    }
+}
+
+static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, double value) {
+    switch (tensor->dtype) {
+        case DTYPE_FLOAT32: ((float*)tensor->data)[index] = (float)value; break;
+        case DTYPE_FLOAT64: ((double*)tensor->data)[index] = value; break;
+        // 如果目标是整数，进行截断 (Round or Cast)
+        case DTYPE_INT32:   ((int32_t*)tensor->data)[index] = (int32_t)value; break;
+        case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = (int8_t)value; break;
+        case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = (int8_t)value; break; 
+        case DTYPE_INT64:   ((int64_t*)tensor->data)[index] = (int64_t)value; break;
+        default: break;
+    }
+}
+
+/* 判断是否为整数类型 */
+#define IS_INT_TYPE(d) (d == DTYPE_INT8 || d == DTYPE_INT16 || d == DTYPE_INT32 || d == DTYPE_INT64 || d == DTYPE_INT4)
+
+/* 
+   OP_FUNC: 执行计算的逻辑 (a + b, a - b 等)
+*/
+#define BINARY_OP_INT_LOGIC(OP_FUNC) \
+    switch (O->dtype) { \
+        case DTYPE_INT32: { \
+            int32_t* out_data = (int32_t*)O->data; \
+            for (size_t i = 0; i < O->size; i++) { \
+                int64_t val_a = get_value_as_int64(A, i); \
+                int64_t val_b = get_value_as_int64(B, i); \
+                int64_t res = OP_FUNC(val_a, val_b); \
+                out_data[i] = saturate_cast_int32(res); \
+            } \
+            break; \
+        } \
+        case DTYPE_INT16: { \
+            int16_t* out_data = (int16_t*)O->data; \
+            for (size_t i = 0; i < O->size; i++) { \
+                int64_t val_a = get_value_as_int64(A, i); \
+                int64_t val_b = get_value_as_int64(B, i); \
+                int64_t res = OP_FUNC(val_a, val_b); \
+                out_data[i] = saturate_cast_int16(res); \
+            } \
+            break; \
+        } \
+        case DTYPE_INT8: { \
+            int8_t* out_data = (int8_t*)O->data; \
+            for (size_t i = 0; i < O->size; i++) { \
+                int64_t val_a = get_value_as_int64(A, i); \
+                int64_t val_b = get_value_as_int64(B, i); \
+                int64_t res = OP_FUNC(val_a, val_b); \
+                out_data[i] = saturate_cast_int8(res); \
+            } \
+            break; \
+        } \
+        case DTYPE_INT4: { \
+            int8_t* out_data = (int8_t*)O->data; \
+            for (size_t i = 0; i < O->size; i++) { \
+                int64_t val_a = get_value_as_int64(A, i); \
+                int64_t val_b = get_value_as_int64(B, i); \
+                int64_t res = OP_FUNC(val_a, val_b); \
+                out_data[i] = saturate_cast_int4(res); \
+            } \
+            break; \
+        } \
+        case DTYPE_INT64: { \
+            int64_t* out_data = (int64_t*)O->data; \
+            for (size_t i = 0; i < O->size; i++) { \
+                int64_t val_a = get_value_as_int64(A, i); \
+                int64_t val_b = get_value_as_int64(B, i); \
+                out_data[i] = OP_FUNC(val_a, val_b); \
+            } \
+            break; \
+        } \
+        default: break; \
+    }
+
+// 简单的运算包装器，用于宏
+static inline int64_t op_add(int64_t a, int64_t b) { return a + b; }
+static inline int64_t op_sub(int64_t a, int64_t b) { return a - b; }
+static inline int64_t op_mul(int64_t a, int64_t b) { return a * b; }
+static inline int64_t op_div(int64_t a, int64_t b) { return b == 0 ? 0 : a / b; }
+
+/**
+ * ReLU激活函数前向传播实现
+ * 
+ * @param input 输入张量
+ * @param output 输出张量
+ */
+// void relu_forward(const Tensor* input, Tensor* output) {
+//     // 遍历张量中的每个元素
+//     for (size_t i = 0; i < input->size; i++) {
+//         // 根据数据类型进行ReLU计算
+//         switch (input->dtype) {
+//             case DTYPE_FLOAT32: {
+//                 // 32位浮点数的ReLU计算
+//                 float val = ((float*)input->data)[i];
+//                 ((float*)output->data)[i] = val > 0.0f ? val : 0.0f;
+//                 break;
+//             }
+//             case DTYPE_FLOAT64: {
+//                 // 64位浮点数的ReLU计算
+//                 double val = ((double*)input->data)[i];
+//                 ((double*)output->data)[i] = val > 0.0 ? val : 0.0;
+//                 break;
+//             }
+//             case DTYPE_FLOAT16: {
+//                 // 16位浮点数的ReLU计算
+//                 uint16_t val = ((uint16_t*)input->data)[i];
+//                 float fval = float16_to_float(val);
+//                 ((uint16_t*)output->data)[i] = fval > 0.0f ? val : 0;
+//                 break;
+//             }
+//             case DTYPE_BFLOAT16: {
+//                 // bfloat16格式的ReLU计算
+//                 uint16_t val = ((uint16_t*)input->data)[i];
+//                 float fval = bfloat16_to_float(val);
+//                 ((uint16_t*)output->data)[i] = fval > 0.0f ? val : 0;
+//                 break;
+//             }
+//             case DTYPE_INT4: {
+//                 // 4位整数的ReLU计算
+//                 int8_t val = ((int8_t*)input->data)[i];
+//                 ((int8_t*)output->data)[i] = val > 0 ? val : 0; 
+//                 break;
+//             }
+//             case DTYPE_INT8: {
+//                 // 8位整数的ReLU计算
+//                 int8_t val = ((int8_t*)input->data)[i];
+//                 ((int8_t*)output->data)[i] = val > 0 ? val : 0;
+//                 break;
+//             }
+//             case DTYPE_INT16: {
+//                 // 16位整数的ReLU计算
+//                 int16_t val = ((int16_t*)input->data)[i];
+//                 ((int16_t*)output->data)[i] = val > 0 ? val : 0;
+//                 break;
+//             }
+//             case DTYPE_INT32: {
+//                 // 32位整数的ReLU计算
+//                 int32_t val = ((int32_t*)input->data)[i];
+//                 ((int32_t*)output->data)[i] = val > 0 ? val : 0;
+//                 break;
+//             }
+//             case DTYPE_INT64: {
+//                 // 64位整数的ReLU计算
+//                 int64_t val = ((int64_t*)input->data)[i];
+//                 ((int64_t*)output->data)[i] = val > 0 ? val : 0;
+//                 break;
+//             }
+//         }
+//     }
+// }
+
+void relu_forward(const Tensor* input, Tensor* output) {
+    for (size_t i = 0; i < input->size; i++) {
+        if (IS_INT_TYPE(input->dtype)) {
+            // 整数路径 (高精度保持)
+            int64_t val = get_value_as_int64(input, i);
+            int64_t res = val > 0 ? val : 0;
+            set_tensor_value_from_int(output, i, res);
+        } else {
+            // 浮点路径
+            double val = get_value_as_double(input, i);
+            double res = val > 0 ? val : 0.0;
+            set_tensor_value_from_float(output, i, res);
+        }
+    }
+}
+
+/**
+ * Abs函数前向传播实现
+ * 
+ * @param input 输入张量
+ * @param output 输出张量
+ */
+// void abs_forward(const Tensor* input, Tensor* output) {
+//     // 遍历张量中的每个元素
+//     for (size_t i = 0; i < input->size; i++) {
+//         // 根据数据类型进行Abs计算
+//         switch (input->dtype) {
+//             case DTYPE_FLOAT32: {
+//                 // 32位浮点数的Abs计算
+//                 ((float*)output->data)[i] = fabsf(((float*)input->data)[i]);
+//                 break;
+//             }
+//             case DTYPE_FLOAT64: {
+//                 // 64位浮点数的Abs计算
+//                 ((double*)output->data)[i] = fabs(((double*)input->data)[i]);
+//                 break;
+//             }
+//             case DTYPE_FLOAT16: {
+//                 // 16位浮点数的Abs计算 (移除符号位)
+//                 ((uint16_t*)output->data)[i] = ((uint16_t*)input->data)[i] & 0x7FFF;
+//                 break;
+//             }
+//             case DTYPE_BFLOAT16: {
+//                 // bfloat16格式的Abs计算 (移除符号位)
+//                 ((uint16_t*)output->data)[i] = ((uint16_t*)input->data)[i] & 0x7FFF;
+//                 break;
+//             }
+//             case DTYPE_INT4: {
+//                 int8_t val = ((int8_t*)input->data)[i];
+//                 // 注意: abs(-8) = 8, 超过了 int4 最大值 7
+//                 // 如果输出也是 INT4，必须饱和到 7
+//                 if (output->dtype == DTYPE_INT4) {
+//                     int64_t res = val < 0 ? -val : val;
+//                     ((int8_t*)output->data)[i] = saturate_cast_int4(res);
+//                 } else {
+//                     ((int8_t*)output->data)[i] = val < 0 ? -val : val;
+//                 }
+//                 break;
+//             }
+//             case DTYPE_INT8: {
+//                 // // 8位整数的Abs计算
+//                 // int8_t val = ((int8_t*)input->data)[i];
+//                 // ((int8_t*)output->data)[i] = val < 0 ? -val : val;
+//                 // break;
+//                 int8_t val = ((int8_t*)input->data)[i];
+//                 // abs(-128) = 128 > 127
+//                 if (output->dtype == DTYPE_INT8) {
+//                     int64_t res = val < 0 ? -val : val;
+//                     ((int8_t*)output->data)[i] = saturate_cast_int8(res);
+//                 } else {
+//                     ((int8_t*)output->data)[i] = val < 0 ? -val : val;
+//                 }
+//                 break;
+//             }
+//             case DTYPE_INT16: {
+//                 // 16位整数的Abs计算
+//                 int16_t val = ((int16_t*)input->data)[i];
+//                 ((int16_t*)output->data)[i] = val < 0 ? -val : val;
+//                 break;
+//             }
+//             case DTYPE_INT32: {
+//                 // 32位整数的Abs计算
+//                 int32_t val = ((int32_t*)input->data)[i];
+//                 ((int32_t*)output->data)[i] = val < 0 ? -val : val;
+//                 break;
+//             }
+//             case DTYPE_INT64: {
+//                 // 64位整数的Abs计算
+//                 int64_t val = ((int64_t*)input->data)[i];
+//                 ((int64_t*)output->data)[i] = val < 0 ? -val : val;
+//                 break;
+//             }
+//             default: { 
+//                  float val = get_value_as_float(input, i);
+//                  if (output->dtype == DTYPE_FLOAT32) ((float*)output->data)[i] = fabsf(val);
+//                  break;
+//             }
+//         }
+//     }
+// }
+void abs_forward(const Tensor* input, Tensor* output) {
+    for (size_t i = 0; i < input->size; i++) {
+        if (IS_INT_TYPE(input->dtype)) {
+            // 整数路径
+            int64_t val = get_value_as_int64(input, i);
+            // TODO: int64_min 的 abs 可能会溢出
+            int64_t res = val < 0 ? -val : val;
+            set_tensor_value_from_int(output, i, res);
+        } else {
+            // 浮点路径
+            double val = get_value_as_double(input, i);
+            double res = fabs(val);
+            set_tensor_value_from_float(output, i, res);
+        }
+    }
+}
+
+/**
  * 初始化余弦查找表
  * 使用泰勒级数展开计算余弦值并存储在查找表中
  */
@@ -141,11 +594,9 @@ void init_cos_lut(void) {
             t2 * (0.008333333333333333 + t2 * (-0.0001984126984126984 +
             t2 * 0.0000027557319223985893))));
         }
-        
         // 存储带符号的计算结果
         cos_lut[i] = sign * result;
     }
-    
     // 标记查找表已初始化
     cos_lut_initialized = 1;
 }
@@ -194,322 +645,82 @@ static double cos_lut_lookup(double x) {
  * * @param input 输入张量
  * @param output 输出张量
  */
+// void cos_forward(const Tensor* input, Tensor* output) {
+//     // 确保余弦查找表已经初始化
+//     if (!cos_lut_initialized) {
+//         init_cos_lut();
+//     }
+
+//     // 遍历张量中的每个元素
+//     for (size_t i = 0; i < input->size; i++) {
+//         // 根据数据类型进行余弦计算
+//         switch (input->dtype) {
+//             case DTYPE_FLOAT32: {
+//                 // 32位浮点数的余弦计算
+//                 float val = ((float*)input->data)[i];
+//                 ((float*)output->data)[i] = (float)cos_lut_lookup((double)val);
+//                 break;
+//             }
+//             case DTYPE_FLOAT64: {
+//                 // 64位浮点数的余弦计算
+//                 double val = ((double*)input->data)[i];
+//                 ((double*)output->data)[i] = cos_lut_lookup(val);
+//                 break;
+//             }
+//             case DTYPE_FLOAT16: {
+//                 // 16位浮点数的余弦计算
+//                 uint16_t val = ((uint16_t*)input->data)[i];
+//                 float fval = float16_to_float(val);
+//                 float result = (float)cos_lut_lookup((double)fval);
+//                 ((uint16_t*)output->data)[i] = float_to_float16(result);
+//                 break;
+//             }
+//             case DTYPE_BFLOAT16: {
+//                 // bfloat16格式的余弦计算
+//                 uint16_t val = ((uint16_t*)input->data)[i];
+//                 float fval = bfloat16_to_float(val);
+//                 float result = (float)cos_lut_lookup((double)fval);
+//                 ((uint16_t*)output->data)[i] = float_to_bfloat16(result);
+//                 break;
+//             }
+//             // 整数类型的余弦函数通常没有明确定义，这里我们将其转换为浮点数处理
+//             // 注意：这可能会导致精度损失
+//             case DTYPE_INT4: {
+//                 int8_t val = ((int8_t*)input->data)[i];
+//                 ((int8_t*)output->data)[i] = (int8_t)round(cos_lut_lookup((double)val));
+//                 break;
+//             }
+//             case DTYPE_INT8: {
+//                 int8_t val = ((int8_t*)input->data)[i];
+//                 ((int8_t*)output->data)[i] = (int8_t)round(cos_lut_lookup((double)val));
+//                 break;
+//             }
+//             case DTYPE_INT16: {
+//                 int16_t val = ((int16_t*)input->data)[i];
+//                 ((int16_t*)output->data)[i] = (int16_t)round(cos_lut_lookup((double)val));
+//                 break;
+//             }
+//             case DTYPE_INT32: {
+//                 int32_t val = ((int32_t*)input->data)[i];
+//                 ((int32_t*)output->data)[i] = (int32_t)round(cos_lut_lookup((double)val));
+//                 break;
+//             }
+//             case DTYPE_INT64: {
+//                 int64_t val = ((int64_t*)input->data)[i];
+//                 ((int64_t*)output->data)[i] = (int64_t)round(cos_lut_lookup((double)val));
+//                 break;
+//             }
+//         }
+//     }
+// }
+
 void cos_forward(const Tensor* input, Tensor* output) {
-    // 确保余弦查找表已经初始化
-    if (!cos_lut_initialized) {
-        init_cos_lut();
-    }
+    if (!cos_lut_initialized) init_cos_lut();
 
-    // 遍历张量中的每个元素
     for (size_t i = 0; i < input->size; i++) {
-        // 根据数据类型进行余弦计算
-        switch (input->dtype) {
-            case DTYPE_FLOAT32: {
-                // 32位浮点数的余弦计算
-                float val = ((float*)input->data)[i];
-                ((float*)output->data)[i] = (float)cos_lut_lookup((double)val);
-                break;
-            }
-            case DTYPE_FLOAT64: {
-                // 64位浮点数的余弦计算
-                double val = ((double*)input->data)[i];
-                ((double*)output->data)[i] = cos_lut_lookup(val);
-                break;
-            }
-            case DTYPE_FLOAT16: {
-                // 16位浮点数的余弦计算
-                uint16_t val = ((uint16_t*)input->data)[i];
-                float fval = float16_to_float(val);
-                float result = (float)cos_lut_lookup((double)fval);
-                ((uint16_t*)output->data)[i] = float_to_float16(result);
-                break;
-            }
-            case DTYPE_BFLOAT16: {
-                // bfloat16格式的余弦计算
-                uint16_t val = ((uint16_t*)input->data)[i];
-                float fval = bfloat16_to_float(val);
-                float result = (float)cos_lut_lookup((double)fval);
-                ((uint16_t*)output->data)[i] = float_to_bfloat16(result);
-                break;
-            }
-            // 整数类型的余弦函数通常没有明确定义，这里我们将其转换为浮点数处理
-            // 注意：这可能会导致精度损失
-            case DTYPE_INT8: {
-                int8_t val = ((int8_t*)input->data)[i];
-                ((int8_t*)output->data)[i] = (int8_t)round(cos_lut_lookup((double)val));
-                break;
-            }
-            case DTYPE_INT16: {
-                int16_t val = ((int16_t*)input->data)[i];
-                ((int16_t*)output->data)[i] = (int16_t)round(cos_lut_lookup((double)val));
-                break;
-            }
-            case DTYPE_INT32: {
-                int32_t val = ((int32_t*)input->data)[i];
-                ((int32_t*)output->data)[i] = (int32_t)round(cos_lut_lookup((double)val));
-                break;
-            }
-            case DTYPE_INT64: {
-                int64_t val = ((int64_t*)input->data)[i];
-                ((int64_t*)output->data)[i] = (int64_t)round(cos_lut_lookup((double)val));
-                break;
-            }
-        }
-    }
-}
-
-/**
- * 创建张量
- * 
- * @param shape 张量形状数组
- * @param ndim 张量维度数
- * @param dtype 数据类型
- * @return 创建的张量指针
- */
-Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
-    // 分配张量结构体内存
-    Tensor* tensor = (Tensor*)malloc(sizeof(Tensor));
-    
-    // 设置维度数
-    tensor->ndim = ndim;
-    
-    // 分配并复制形状数组
-    tensor->shape = (int*)malloc(ndim * sizeof(int));
-    memcpy(tensor->shape, shape, ndim * sizeof(int));
-    
-    // 设置数据类型
-    tensor->dtype = dtype;
-    
-    // 计算总元素数
-    tensor->size = 1;
-    for (int i = 0; i < ndim; i++) {
-        tensor->size *= shape[i];
-    }
-    
-    // 根据数据类型分配数据内存
-    size_t elem_size = 0;
-    switch (dtype) {
-        case DTYPE_FLOAT16:
-        case DTYPE_BFLOAT16:
-            elem_size = 2;  // 16位数据类型
-            break;
-        case DTYPE_FLOAT32:
-            elem_size = 4;  // 32位浮点数
-            break;
-        case DTYPE_FLOAT64:
-            elem_size = 8;  // 64位浮点数
-            break;
-        case DTYPE_INT8:
-            elem_size = 1;  // 8位整数
-            break;
-        case DTYPE_INT16:
-            elem_size = 2;  // 16位整数
-            break;
-        case DTYPE_INT32:
-            elem_size = 4;  // 32位整数
-            break;
-        case DTYPE_INT64:
-            elem_size = 8;  // 64位整数
-            break;
-    }
-    
-    // 分配数据内存
-    tensor->data = malloc(tensor->size * elem_size);
-    return tensor;
-}
-
-/**
- * 释放张量内存
- * 
- * @param tensor 要释放的张量指针
- */
-void free_tensor(Tensor* tensor) {
-    // 检查张量指针是否有效
-    if (tensor) {
-        // 释放数据内存
-        free(tensor->data);
-        // 释放形状数组内存
-        free(tensor->shape);
-        // 释放张量结构体内存
-        free(tensor);
-    }
-}
-
-/*
- *
- * 从张量获取值，并作为 float 返回
- */
-static inline float get_value_as_float(const Tensor* tensor, size_t index) {
-    switch (tensor->dtype) {
-        case DTYPE_FLOAT32: return ((float*)tensor->data)[index];
-        case DTYPE_FLOAT16: return float16_to_float(((uint16_t*)tensor->data)[index]);
-        case DTYPE_BFLOAT16: return bfloat16_to_float(((uint16_t*)tensor->data)[index]);
-        case DTYPE_INT8: return (float)((int8_t*)tensor->data)[index];
-        case DTYPE_INT16: return (float)((int16_t*)tensor->data)[index];
-        case DTYPE_INT32: return (float)((int32_t*)tensor->data)[index];
-        case DTYPE_INT64: return (float)((int64_t*)tensor->data)[index];
-        case DTYPE_FLOAT64: return (float)((double*)tensor->data)[index]; // 降精度
-        default: return 0.0f;
-    }
-}
-
-/*
- *
- * 从张量获取值，并作为 double 返回
- */
-static inline double get_value_as_double(const Tensor* tensor, size_t index) {
-    switch (tensor->dtype) {
-        case DTYPE_FLOAT32: return (double)((float*)tensor->data)[index];
-        case DTYPE_FLOAT16: return (double)float16_to_float(((uint16_t*)tensor->data)[index]);
-        case DTYPE_BFLOAT16: return (double)bfloat16_to_float(((uint16_t*)tensor->data)[index]);
-        case DTYPE_INT8: return (double)((int8_t*)tensor->data)[index];
-        case DTYPE_INT16: return (double)((int16_t*)tensor->data)[index];
-        case DTYPE_INT32: return (double)((int32_t*)tensor->data)[index];
-        case DTYPE_INT64: return (double)((int64_t*)tensor->data)[index];
-        case DTYPE_FLOAT64: return ((double*)tensor->data)[index];
-        default: return 0.0;
-    }
-}
-
-/*
- *
- * 从张量获取值，并作为 int64_t 返回
- */
-static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
-    switch (tensor->dtype) {
-        case DTYPE_FLOAT32: return (int64_t)roundf(((float*)tensor->data)[index]);
-        case DTYPE_FLOAT16: return (int64_t)roundf(float16_to_float(((uint16_t*)tensor->data)[index]));
-        case DTYPE_BFLOAT16: return (int64_t)roundf(bfloat16_to_float(((uint16_t*)tensor->data)[index]));
-        case DTYPE_INT8: return (int64_t)((int8_t*)tensor->data)[index];
-        case DTYPE_INT16: return (int64_t)((int16_t*)tensor->data)[index];
-        case DTYPE_INT32: return (int64_t)((int32_t*)tensor->data)[index];
-        case DTYPE_INT64: return ((int64_t*)tensor->data)[index];
-        case DTYPE_FLOAT64: return (int64_t)round(((double*)tensor->data)[index]);
-        default: return 0;
-    }
-}
-
-/**
- * ReLU激活函数前向传播实现
- * 
- * @param input 输入张量
- * @param output 输出张量
- */
-void relu_forward(const Tensor* input, Tensor* output) {
-    // 遍历张量中的每个元素
-    for (size_t i = 0; i < input->size; i++) {
-        // 根据数据类型进行ReLU计算
-        switch (input->dtype) {
-            case DTYPE_FLOAT32: {
-                // 32位浮点数的ReLU计算
-                float val = ((float*)input->data)[i];
-                ((float*)output->data)[i] = val > 0.0f ? val : 0.0f;
-                break;
-            }
-            case DTYPE_FLOAT64: {
-                // 64位浮点数的ReLU计算
-                double val = ((double*)input->data)[i];
-                ((double*)output->data)[i] = val > 0.0 ? val : 0.0;
-                break;
-            }
-            case DTYPE_FLOAT16: {
-                // 16位浮点数的ReLU计算
-                uint16_t val = ((uint16_t*)input->data)[i];
-                float fval = float16_to_float(val);
-                ((uint16_t*)output->data)[i] = fval > 0.0f ? val : 0;
-                break;
-            }
-            case DTYPE_BFLOAT16: {
-                // bfloat16格式的ReLU计算
-                uint16_t val = ((uint16_t*)input->data)[i];
-                float fval = bfloat16_to_float(val);
-                ((uint16_t*)output->data)[i] = fval > 0.0f ? val : 0;
-                break;
-            }
-            case DTYPE_INT8: {
-                // 8位整数的ReLU计算
-                int8_t val = ((int8_t*)input->data)[i];
-                ((int8_t*)output->data)[i] = val > 0 ? val : 0;
-                break;
-            }
-            case DTYPE_INT16: {
-                // 16位整数的ReLU计算
-                int16_t val = ((int16_t*)input->data)[i];
-                ((int16_t*)output->data)[i] = val > 0 ? val : 0;
-                break;
-            }
-            case DTYPE_INT32: {
-                // 32位整数的ReLU计算
-                int32_t val = ((int32_t*)input->data)[i];
-                ((int32_t*)output->data)[i] = val > 0 ? val : 0;
-                break;
-            }
-            case DTYPE_INT64: {
-                // 64位整数的ReLU计算
-                int64_t val = ((int64_t*)input->data)[i];
-                ((int64_t*)output->data)[i] = val > 0 ? val : 0;
-                break;
-            }
-        }
-    }
-}
-
-/**
- * Abs函数前向传播实现
- * 
- * @param input 输入张量
- * @param output 输出张量
- */
-void abs_forward(const Tensor* input, Tensor* output) {
-    // 遍历张量中的每个元素
-    for (size_t i = 0; i < input->size; i++) {
-        // 根据数据类型进行Abs计算
-        switch (input->dtype) {
-            case DTYPE_FLOAT32: {
-                // 32位浮点数的Abs计算
-                ((float*)output->data)[i] = fabsf(((float*)input->data)[i]);
-                break;
-            }
-            case DTYPE_FLOAT64: {
-                // 64位浮点数的Abs计算
-                ((double*)output->data)[i] = fabs(((double*)input->data)[i]);
-                break;
-            }
-            case DTYPE_FLOAT16: {
-                // 16位浮点数的Abs计算 (移除符号位)
-                ((uint16_t*)output->data)[i] = ((uint16_t*)input->data)[i] & 0x7FFF;
-                break;
-            }
-            case DTYPE_BFLOAT16: {
-                // bfloat16格式的Abs计算 (移除符号位)
-                ((uint16_t*)output->data)[i] = ((uint16_t*)input->data)[i] & 0x7FFF;
-                break;
-            }
-            case DTYPE_INT8: {
-                // 8位整数的Abs计算
-                int8_t val = ((int8_t*)input->data)[i];
-                ((int8_t*)output->data)[i] = val < 0 ? -val : val;
-                break;
-            }
-            case DTYPE_INT16: {
-                // 16位整数的Abs计算
-                int16_t val = ((int16_t*)input->data)[i];
-                ((int16_t*)output->data)[i] = val < 0 ? -val : val;
-                break;
-            }
-            case DTYPE_INT32: {
-                // 32位整数的Abs计算
-                int32_t val = ((int32_t*)input->data)[i];
-                ((int32_t*)output->data)[i] = val < 0 ? -val : val;
-                break;
-            }
-            case DTYPE_INT64: {
-                // 64位整数的Abs计算
-                int64_t val = ((int64_t*)input->data)[i];
-                ((int64_t*)output->data)[i] = val < 0 ? -val : val;
-                break;
-            }
-        }
+        double val = get_value_as_double(input, i); // 输入转 double
+        double res = cos_lut_lookup(val);           // 查表
+        set_tensor_value_from_float(output, i, res); // 安全写入输出
     }
 }
 
@@ -521,67 +732,84 @@ void abs_forward(const Tensor* input, Tensor* output) {
  * @param B 输入张量B
  * @param O 输出张量 (决定了计算精度)
  */
-void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
-    // 核心逻辑：根据输出张量 O 的类型，来决定计算精度
+// void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+//     // 核心逻辑：根据输出张量 O 的类型，来决定计算精度
     
-    switch (O->dtype) {
-        case DTYPE_FLOAT32: {
-            float* out_data = (float*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                // 1. 将A和B都转为 float (32位)
-                float val_a = get_value_as_float(A, i);
-                float val_b = get_value_as_float(B, i);
-                // 2. 执行 32位 加法 (匹配CUDA)
-                out_data[i] = val_a + val_b;
-            }
-            break;
-        }
+//     switch (O->dtype) {
+//         case DTYPE_FLOAT32: {
+//             float* out_data = (float*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 // 1. 将A和B都转为 float (32位)
+//                 float val_a = get_value_as_float(A, i);
+//                 float val_b = get_value_as_float(B, i);
+//                 // 2. 执行 32位 加法 (匹配CUDA)
+//                 out_data[i] = val_a + val_b;
+//             }
+//             break;
+//         }
             
-        case DTYPE_FLOAT64: {
-            double* out_data = (double*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                // 1. 将A和B都转为 double (64位)
-                double val_a = get_value_as_double(A, i);
-                double val_b = get_value_as_double(B, i);
-                // 2. 执行 64位 加法
-                out_data[i] = val_a + val_b;
-            }
-            break;
-        }
+//         case DTYPE_FLOAT64: {
+//             double* out_data = (double*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 // 1. 将A和B都转为 double (64位)
+//                 double val_a = get_value_as_double(A, i);
+//                 double val_b = get_value_as_double(B, i);
+//                 // 2. 执行 64位 加法
+//                 out_data[i] = val_a + val_b;
+//             }
+//             break;
+//         }
 
-        case DTYPE_INT32: {
-            int32_t* out_data = (int32_t*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                // 只有 int + int 才会产生 int32 输出
-                int64_t val_a = get_value_as_int64(A, i);
-                int64_t val_b = get_value_as_int64(B, i);
-                // (为防止溢出，先用int64计算，再截断)
-                out_data[i] = (int32_t)(val_a + val_b);
-            }
-            break;
-        }
+//         case DTYPE_INT32: {
+//             int32_t* out_data = (int32_t*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 // 只有 int + int 才会产生 int32 输出
+//                 int64_t val_a = get_value_as_int64(A, i);
+//                 int64_t val_b = get_value_as_int64(B, i);
+//                 // (为防止溢出，先用int64计算，再截断)
+//                 out_data[i] = (int32_t)(val_a + val_b);
+//             }
+//             break;
+//         }
 
-        case DTYPE_INT64: {
-            int64_t* out_data = (int64_t*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                int64_t val_a = get_value_as_int64(A, i);
-                int64_t val_b = get_value_as_int64(B, i);
-                out_data[i] = val_a + val_b;
-            }
-            break;
-        }
+//         case DTYPE_INT64: {
+//             int64_t* out_data = (int64_t*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 int64_t val_a = get_value_as_int64(A, i);
+//                 int64_t val_b = get_value_as_int64(B, i);
+//                 out_data[i] = val_a + val_b;
+//             }
+//             break;
+//         }
         
-        // 其他类型 (float16, bfloat16, int8, int16)
-        // Python的NumPy层通常会将它们提升为至少 float32 或 int32
-        // 如果需要处理这些输出类型，可以在这里添加 case
-        default: {
+//         // 其他类型 (float16, bfloat16, int8, int16)
+//         // Python的NumPy层通常会将它们提升为至少 float32 或 int32
+//         // 如果需要处理这些输出类型，可以在这里添加 case
+//         default: {
+//             float* out_data = (float*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 float val_a = get_value_as_float(A, i);
+//                 float val_b = get_value_as_float(B, i);
+//                 out_data[i] = val_a + val_b;
+//             }
+//             break;
+//         }
+//     }
+// }
+
+void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (IS_INT_TYPE(O->dtype)) {
+        BINARY_OP_INT_LOGIC(op_add);
+    } else {
+        // 浮点路径 (保持原有的 switch 结构或简化)
+        if (O->dtype == DTYPE_FLOAT64) {
+            double* out_data = (double*)O->data;
+            for (size_t i = 0; i < O->size; i++) 
+                out_data[i] = get_value_as_double(A, i) + get_value_as_double(B, i);
+        } else { // 默认 float32
             float* out_data = (float*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                float val_a = get_value_as_float(A, i);
-                float val_b = get_value_as_float(B, i);
-                out_data[i] = val_a + val_b;
-            }
-            break;
+            for (size_t i = 0; i < O->size; i++) 
+                out_data[i] = get_value_as_float(A, i) + get_value_as_float(B, i);
         }
     }
 }
@@ -594,57 +822,73 @@ void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
  * @param B 输入张量B
  * @param O 输出张量 (决定了计算精度)
  */
-void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
-    switch (O->dtype) {
-        case DTYPE_FLOAT32: {
-            float* out_data = (float*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                float val_a = get_value_as_float(A, i);
-                float val_b = get_value_as_float(B, i);
-                out_data[i] = val_a - val_b;
-            }
-            break;
-        }
+// void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+//     switch (O->dtype) {
+//         case DTYPE_FLOAT32: {
+//             float* out_data = (float*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 float val_a = get_value_as_float(A, i);
+//                 float val_b = get_value_as_float(B, i);
+//                 out_data[i] = val_a - val_b;
+//             }
+//             break;
+//         }
             
-        case DTYPE_FLOAT64: {
-            double* out_data = (double*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                double val_a = get_value_as_double(A, i);
-                double val_b = get_value_as_double(B, i);
-                out_data[i] = val_a - val_b;
-            }
-            break;
-        }
+//         case DTYPE_FLOAT64: {
+//             double* out_data = (double*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 double val_a = get_value_as_double(A, i);
+//                 double val_b = get_value_as_double(B, i);
+//                 out_data[i] = val_a - val_b;
+//             }
+//             break;
+//         }
 
-        case DTYPE_INT32: {
-            int32_t* out_data = (int32_t*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                int64_t val_a = get_value_as_int64(A, i);
-                int64_t val_b = get_value_as_int64(B, i);
-                out_data[i] = (int32_t)(val_a - val_b);
-            }
-            break;
-        }
+//         case DTYPE_INT32: {
+//             int32_t* out_data = (int32_t*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 int64_t val_a = get_value_as_int64(A, i);
+//                 int64_t val_b = get_value_as_int64(B, i);
+//                 out_data[i] = (int32_t)(val_a - val_b);
+//             }
+//             break;
+//         }
 
-        case DTYPE_INT64: {
-            int64_t* out_data = (int64_t*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                int64_t val_a = get_value_as_int64(A, i);
-                int64_t val_b = get_value_as_int64(B, i);
-                out_data[i] = val_a - val_b;
-            }
-            break;
-        }
+//         case DTYPE_INT64: {
+//             int64_t* out_data = (int64_t*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 int64_t val_a = get_value_as_int64(A, i);
+//                 int64_t val_b = get_value_as_int64(B, i);
+//                 out_data[i] = val_a - val_b;
+//             }
+//             break;
+//         }
         
-        default: {
-            // 默认回退到 float32
+//         default: {
+//             // 默认回退到 float32
+//             float* out_data = (float*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 float val_a = get_value_as_float(A, i);
+//                 float val_b = get_value_as_float(B, i);
+//                 out_data[i] = val_a - val_b;
+//             }
+//             break;
+//         }
+//     }
+// }
+
+void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (IS_INT_TYPE(O->dtype)) {
+        BINARY_OP_INT_LOGIC(op_sub);
+    } else {
+        if (O->dtype == DTYPE_FLOAT64) {
+            double* out_data = (double*)O->data;
+            for (size_t i = 0; i < O->size; i++) 
+                out_data[i] = get_value_as_double(A, i) - get_value_as_double(B, i);
+        } else {
             float* out_data = (float*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                float val_a = get_value_as_float(A, i);
-                float val_b = get_value_as_float(B, i);
-                out_data[i] = val_a - val_b;
-            }
-            break;
+            for (size_t i = 0; i < O->size; i++) 
+                out_data[i] = get_value_as_float(A, i) - get_value_as_float(B, i);
         }
     }
 }
@@ -657,56 +901,72 @@ void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
  * @param B 输入张量B
  * @param O 输出张量 (决定了计算精度)
  */
-void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
-    switch (O->dtype) {
-        case DTYPE_FLOAT32: {
-            float* out_data = (float*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                float val_a = get_value_as_float(A, i);
-                float val_b = get_value_as_float(B, i);
-                out_data[i] = val_a * val_b; 
-            }
-            break;
-        }
+// void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+//     switch (O->dtype) {
+//         case DTYPE_FLOAT32: {
+//             float* out_data = (float*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 float val_a = get_value_as_float(A, i);
+//                 float val_b = get_value_as_float(B, i);
+//                 out_data[i] = val_a * val_b; 
+//             }
+//             break;
+//         }
             
-        case DTYPE_FLOAT64: {
-            double* out_data = (double*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                double val_a = get_value_as_double(A, i);
-                double val_b = get_value_as_double(B, i);
-                out_data[i] = val_a * val_b;
-            }
-            break;
-        }
+//         case DTYPE_FLOAT64: {
+//             double* out_data = (double*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 double val_a = get_value_as_double(A, i);
+//                 double val_b = get_value_as_double(B, i);
+//                 out_data[i] = val_a * val_b;
+//             }
+//             break;
+//         }
 
-        case DTYPE_INT32: {
-            int32_t* out_data = (int32_t*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                int64_t val_a = get_value_as_int64(A, i);
-                int64_t val_b = get_value_as_int64(B, i);
-                out_data[i] = (int32_t)(val_a * val_b);
-            }
-            break;
-        }
+//         case DTYPE_INT32: {
+//             int32_t* out_data = (int32_t*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 int64_t val_a = get_value_as_int64(A, i);
+//                 int64_t val_b = get_value_as_int64(B, i);
+//                 out_data[i] = (int32_t)(val_a * val_b);
+//             }
+//             break;
+//         }
 
-        case DTYPE_INT64: {
-            int64_t* out_data = (int64_t*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                int64_t val_a = get_value_as_int64(A, i);
-                int64_t val_b = get_value_as_int64(B, i);
-                out_data[i] = val_a * val_b;
-            }
-            break;
-        }
+//         case DTYPE_INT64: {
+//             int64_t* out_data = (int64_t*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 int64_t val_a = get_value_as_int64(A, i);
+//                 int64_t val_b = get_value_as_int64(B, i);
+//                 out_data[i] = val_a * val_b;
+//             }
+//             break;
+//         }
         
-        default: {
+//         default: {
+//             float* out_data = (float*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 float val_a = get_value_as_float(A, i);
+//                 float val_b = get_value_as_float(B, i);
+//                 out_data[i] = val_a * val_b;
+//             }
+//             break;
+//         }
+//     }
+// }
+
+void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (IS_INT_TYPE(O->dtype)) {
+        BINARY_OP_INT_LOGIC(op_mul);
+    } else {
+        if (O->dtype == DTYPE_FLOAT64) {
+            double* out_data = (double*)O->data;
+            for (size_t i = 0; i < O->size; i++) 
+                out_data[i] = get_value_as_double(A, i) * get_value_as_double(B, i);
+        } else {
             float* out_data = (float*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                float val_a = get_value_as_float(A, i);
-                float val_b = get_value_as_float(B, i);
-                out_data[i] = val_a * val_b;
-            }
-            break;
+            for (size_t i = 0; i < O->size; i++) 
+                out_data[i] = get_value_as_float(A, i) * get_value_as_float(B, i);
         }
     }
 }
@@ -719,69 +979,84 @@ void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
  * @param B 输入张量B
  * @param O 输出张量 (决定了计算精度)
  */
-void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
-    switch (O->dtype) {
-        case DTYPE_FLOAT32: {
-            float* out_data = (float*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                float val_a = get_value_as_float(A, i);
-                float val_b = get_value_as_float(B, i);
-                // 浮点数除法会自动产生 inf，无需检查
-                out_data[i] = val_a / val_b;
-            }
-            break;
-        }
+// void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+//     switch (O->dtype) {
+//         case DTYPE_FLOAT32: {
+//             float* out_data = (float*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 float val_a = get_value_as_float(A, i);
+//                 float val_b = get_value_as_float(B, i);
+//                 // 浮点数除法会自动产生 inf，无需检查
+//                 out_data[i] = val_a / val_b;
+//             }
+//             break;
+//         }
             
-        case DTYPE_FLOAT64: {
-            double* out_data = (double*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                double val_a = get_value_as_double(A, i);
-                double val_b = get_value_as_double(B, i);
-                // 浮点数除法会自动产生 inf，无需检查
-                out_data[i] = val_a / val_b;
-            }
-            break;
-        }
+//         case DTYPE_FLOAT64: {
+//             double* out_data = (double*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 double val_a = get_value_as_double(A, i);
+//                 double val_b = get_value_as_double(B, i);
+//                 // 浮点数除法会自动产生 inf，无需检查
+//                 out_data[i] = val_a / val_b;
+//             }
+//             break;
+//         }
 
-        case DTYPE_INT32: {
-            int32_t* out_data = (int32_t*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                int64_t val_a = get_value_as_int64(A, i);
-                int64_t val_b = get_value_as_int64(B, i);
-                // 整数除法必须检查除以零
-                if (val_b == 0) {
-                    out_data[i] = 0; // 安全策略：返回 0
-                } else {
-                    out_data[i] = (int32_t)(val_a / val_b);
-                }
-            }
-            break;
-        }
+//         case DTYPE_INT32: {
+//             int32_t* out_data = (int32_t*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 int64_t val_a = get_value_as_int64(A, i);
+//                 int64_t val_b = get_value_as_int64(B, i);
+//                 // 整数除法必须检查除以零
+//                 if (val_b == 0) {
+//                     out_data[i] = 0; // 安全策略：返回 0
+//                 } else {
+//                     out_data[i] = (int32_t)(val_a / val_b);
+//                 }
+//             }
+//             break;
+//         }
 
-        case DTYPE_INT64: {
-            int64_t* out_data = (int64_t*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                int64_t val_a = get_value_as_int64(A, i);
-                int64_t val_b = get_value_as_int64(B, i);
-                // 整数除法必须检查除以零
-                if (val_b == 0) {
-                    out_data[i] = 0; // 安全策略：返回 0
-                } else {
-                    out_data[i] = val_a / val_b;
-                }
-            }
-            break;
-        }
+//         case DTYPE_INT64: {
+//             int64_t* out_data = (int64_t*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 int64_t val_a = get_value_as_int64(A, i);
+//                 int64_t val_b = get_value_as_int64(B, i);
+//                 // 整数除法必须检查除以零
+//                 if (val_b == 0) {
+//                     out_data[i] = 0; // 安全策略：返回 0
+//                 } else {
+//                     out_data[i] = val_a / val_b;
+//                 }
+//             }
+//             break;
+//         }
         
-        default: {
+//         default: {
+//             float* out_data = (float*)O->data;
+//             for (size_t i = 0; i < O->size; i++) {
+//                 float val_a = get_value_as_float(A, i);
+//                 float val_b = get_value_as_float(B, i);
+//                 out_data[i] = val_a / val_b;
+//             }
+//             break;
+//         }
+//     }
+// }
+
+void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (IS_INT_TYPE(O->dtype)) {
+        BINARY_OP_INT_LOGIC(op_div);
+    } else {
+        if (O->dtype == DTYPE_FLOAT64) {
+            double* out_data = (double*)O->data;
+            for (size_t i = 0; i < O->size; i++) 
+                out_data[i] = get_value_as_double(A, i) / get_value_as_double(B, i);
+        } else {
             float* out_data = (float*)O->data;
-            for (size_t i = 0; i < O->size; i++) {
-                float val_a = get_value_as_float(A, i);
-                float val_b = get_value_as_float(B, i);
-                out_data[i] = val_a / val_b;
-            }
-            break;
+            for (size_t i = 0; i < O->size; i++) 
+                out_data[i] = get_value_as_float(A, i) / get_value_as_float(B, i);
         }
     }
 }
-

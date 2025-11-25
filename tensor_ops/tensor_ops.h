@@ -15,7 +15,8 @@ typedef enum {
     DTYPE_INT8,      // 8位整数
     DTYPE_INT16,     // 16位整数
     DTYPE_INT32,     // 32位整数
-    DTYPE_INT64      // 64位整数
+    DTYPE_INT64,      // 64位整数
+    DTYPE_INT4,      // 4位整数
 } DataType;
 
 /**

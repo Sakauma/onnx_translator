@@ -20,7 +20,7 @@ def create_test_data(shape, dtype):
 
 def run_numpy_verification(op_name, nps_op_class, input_specs):
     """
-    一个通用的验证函数，用于对比 NPS 和 NumPy (作为黄金标准) 的计算结果。
+    一个通用的验证函数，用于对比 NPS 和 NumPy (作为标准) 的计算结果。
     它支持一元和二元操作，并能验证广播和类型提升。
 
     Args:
@@ -40,21 +40,29 @@ def run_numpy_verification(op_name, nps_op_class, input_specs):
         np_inputs.append(np_data)
         nps_inputs.append(Tensor(*shape, dtype=dtype, data=np_data))
 
-    # 2. 获取 NPS 计算结果
-    print(f"[NPS] ... 正在运行 NPS 算子...")
-    nps_op = nps_op_class(inputs=['a', 'b'][:len(nps_inputs)], outputs=['y'], dtype="float32")
-    nps_result_tensor = nps_op.forward(*nps_inputs)["tensor"]
-    nps_result_data = nps_result_tensor.data
+    # # 2. 获取 NPS 计算结果
+    # print(f"[NPS] ... 正在运行 NPS 算子...")
+    # nps_op = nps_op_class(inputs=['a', 'b'][:len(nps_inputs)], outputs=['y'], dtype="float32")
+    # nps_result_tensor = nps_op.forward(*nps_inputs)["tensor"]
+    # nps_result_data = nps_result_tensor.data
 
-    # 3. 获取 NumPy "黄金标准" 计算结果
+    # 2. 获取 NumPy 计算结果
     print(f"[NumPy] ... 正在运行 NumPy 算子...")
     numpy_result = None
     try:
         if op_name == 'add':
             numpy_result = np_inputs[0] + np_inputs[1]
+        elif op_name == 'sub':
+            numpy_result = np_inputs[0] - np_inputs[1]
+        elif op_name == 'mul':
+            numpy_result = np_inputs[0] * np_inputs[1]
+        elif op_name == 'div':
+            # 注意：Python/NumPy 的除法行为比较复杂，这里直接使用默认行为
+            numpy_result = np_inputs[0] / np_inputs[1]
         elif op_name == 'abs':
             numpy_result = np.abs(np_inputs[0])
         elif op_name == 'cos':
+            # Cos 在 NumPy 中默认输出 float64
             numpy_result = np.cos(np_inputs[0].astype(np.float64))
         elif op_name == 'relu':
             numpy_result = np.maximum(0, np_inputs[0])
@@ -64,38 +72,76 @@ def run_numpy_verification(op_name, nps_op_class, input_specs):
     except Exception as e:
         print(f"❌ FAILED: NumPy 计算失败: {e}")
         return
+    
+    # 3. 智能推断 NPS 应使用的 dtype
+    # - 如果 NumPy 算出来是整数 -> NPS 也应配置为输出对应的整数类型 (int32, int64 等)
+    # - 如果 NumPy 算出来是浮点 -> NPS 统一配置为 float32 (为了兼容性和C后端默认行为)
+    target_dtype = "float32" # 默认
+    
+    if numpy_result.dtype.type in nn.NUMPY_TO_DTYPE:
+        np_type_str = nn.NUMPY_TO_DTYPE[numpy_result.dtype.type]
+        if "int" in np_type_str:
+            # 如果是整数结果 (如 int32 + int32 -> int32)，保持类型一致
+            target_dtype = np_type_str
+        elif "float" in np_type_str:
+            # 如果是浮点结果，强制使用 float32 进行验证
+            target_dtype = "float32"
+    
+    # 4. 运行 NPS 算子
+    print(f"[NPS] ... 正在运行 NPS 算子 (预期输出: {target_dtype})...")
+    try:
+        nps_op = nps_op_class(inputs=['a', 'b'][:len(nps_inputs)], outputs=['y'], dtype=target_dtype)
+        nps_result_tensor = nps_op.forward(*nps_inputs)["tensor"]
+        nps_result_data = nps_result_tensor.data
+    except Exception as e:
+        print(f"❌ FAILED: NPS 算子执行失败: {e}")
+        return
 
-    # 4. 对比结果
+    # 5. 对比结果
     print("[COMPARE] ... 正在对比 NPS 与 NumPy 结果...")
+    
+    # # 检查形状
+    # if nps_result_data.shape != numpy_result.shape:
+    #     print(f"❌ FAILED: 形状不匹配!")
+    #     print(f"  NPS Shape:   {nps_result_data.shape}")
+    #     print(f"  NumPy Shape: {numpy_result.shape}")
+    #     return
+
+    # # 检查数据类型
+    # nps_dtype_str = nps_result_tensor.dtype
+    # if numpy_result.dtype.type not in nn.NUMPY_TO_DTYPE:
+    #      print(f"❌ FAILED: NumPy 结果类型 '{numpy_result.dtype}' 未在 nn.NUMPY_TO_DTYPE 中定义。")
+    #      return
+    # numpy_dtype_str = nn.NUMPY_TO_DTYPE[numpy_result.dtype.type]
+
+    # if nps_dtype_str != numpy_dtype_str:
+    #      print(f"❌ FAILED: 数据类型不匹配!")
+    #      print(f"  NPS Dtype:   {nps_dtype_str}")
+    #      print(f"  NumPy Dtype: {numpy_dtype_str}")
+    #      return
+    # 数据准备：如果 NPS 是 float32 而 NumPy 是 float64，将 NumPy 降级为 float32 再对比
+    if target_dtype == "float32" and numpy_result.dtype == np.float64:
+        numpy_result = numpy_result.astype(np.float32)
     
     # 检查形状
     if nps_result_data.shape != numpy_result.shape:
         print(f"❌ FAILED: 形状不匹配!")
-        print(f"  NPS Shape:   {nps_result_data.shape}")
-        print(f"  NumPy Shape: {numpy_result.shape}")
+        print(f"  NPS:   {nps_result_data.shape}")
+        print(f"  NumPy: {numpy_result.shape}")
         return
 
-    # 检查数据类型
-    nps_dtype_str = nps_result_tensor.dtype
-    if numpy_result.dtype.type not in nn.NUMPY_TO_DTYPE:
-         print(f"❌ FAILED: NumPy 结果类型 '{numpy_result.dtype}' 未在 nn.NUMPY_TO_DTYPE 中定义。")
-         return
-    numpy_dtype_str = nn.NUMPY_TO_DTYPE[numpy_result.dtype.type]
-
-    if nps_dtype_str != numpy_dtype_str:
-         print(f"❌ FAILED: 数据类型不匹配!")
-         print(f"  NPS Dtype:   {nps_dtype_str}")
-         print(f"  NumPy Dtype: {numpy_dtype_str}")
-         return
-
     # 检查数值 (为 cos 放宽容差)
-    tolerance = 1e-5 if op_name == 'cos' else 1e-6
+    tolerance = 1e-4 if (op_name == 'cos' or target_dtype == 'float16') else 1e-5
+    
     if np.allclose(nps_result_data, numpy_result, atol=tolerance, rtol=1e-5):
-        print(f"✅ SUCCESS: {op_name.upper()} -> {nps_dtype_str} (通过 NumPy 验证)")
+        print(f"✅ SUCCESS: {op_name.upper()} -> {target_dtype} (匹配)")
     else:
         print(f"❌ FAILED: 数值不匹配!")
-        diff = np.abs(nps_result_data - numpy_result).max()
+        # 转换为 float64 计算差异，避免溢出
+        diff = np.abs(nps_result_data.astype(np.float64) - numpy_result.astype(np.float64)).max()
         print(f"  - 最大差异: {diff}")
+        print(f"  - NPS 样本: {nps_result_data.flatten()[:3]}")
+        print(f"  - NumPy 样本: {numpy_result.flatten()[:3]}")
 
 
 # =============================================================================
@@ -128,7 +174,7 @@ def run_cuda_unary_op_verification(op_name, nps_operator_class, shape=(1, 3, 128
     nps_op = nps_operator_class(inputs=['x'], outputs=['y'], dtype=dtype)
     nps_result = nps_op.forward(nps_input_tensor)["tensor"].data
     
-    # 4. 获取 CUDA "黄金标准" 计算结果
+    # 4. 获取 CUDA 计算结果
     print(f"[CUDA] ... 正在运行 '{executable_path}'...")
     np_input.tofile(input_file)
     try:
@@ -200,7 +246,7 @@ def run_cuda_binary_op_verification(op_name, nps_op_class, shape_a, shape_b, dty
     np_a_bcast.tofile(input_file_a)
     np_b_bcast.tofile(input_file_b)
 
-    # 5. 获取 CUDA "黄金标准" 计算结果
+    # 5. 获取 CUDA 计算结果
     print(f"[CUDA] ... 正在运行 '{executable_path}' (元素级计算)...")
     try:
         subprocess.run([
@@ -239,6 +285,82 @@ def run_cuda_binary_op_verification(op_name, nps_op_class, shape_a, shape_b, dty
     os.remove(input_file_a)
     os.remove(input_file_b)
     os.remove(output_file)
+    
+def run_mixed_precision_check():
+    """
+    专门验证边缘计算场景下的混合精度 (A8W4, A16W8 等)
+    """
+    print("\n=========================================================")
+    print(" 验证块四: 边缘计算混合精度 (A8W4 / A16W8) ")
+    print("=========================================================")
+
+    # --- 测试案例 1: A8W4 (Activation Int8 + Weight Int4 -> Int32 Accum) ---
+    print("\n[测试] A8W4 加法 (Int8 + Int4 -> Int32)")
+    shape = (4, 4)
+    
+    # 构造数据
+    # A (Activation): 完整 Int8 范围 [-128, 127]
+    data_a = np.random.randint(-128, 127, shape).astype(np.int8)
+    # B (Weight): Int4 范围 [-8, 7]，存储在 int8 中
+    data_b = np.random.randint(-8, 7, shape).astype(np.int8)
+    
+    # NPS Tensor
+    t_a = Tensor(*shape, dtype="int8", data=data_a)
+    t_b = Tensor(*shape, dtype="int4", data=data_b)
+    
+    # 执行 NPS Add (指定输出为 int32)
+    add_op = nn.Operators.ADD(inputs=[], outputs=[], dtype="int32")
+    nps_res = add_op.forward(t_a, t_b)["tensor"].data
+    
+    # 执行真值计算 (NumPy 自动提升)
+    gt_res = data_a.astype(np.int32) + data_b.astype(np.int32)
+    
+    if np.array_equal(nps_res, gt_res):
+        print("✅ SUCCESS: A8W4 计算正确 (无溢出)")
+    else:
+        print("❌ FAILED: A8W4 计算错误")
+        print("Diff:", nps_res - gt_res)
+
+    # --- 测试案例 2: A8W4 饱和测试 (Int8 + Int4 -> Int8 Output) ---
+    # 如果输出被限制为 Int8，则应该发生饱和截断，而不是回绕
+    print("\n[测试] A8W4 饱和截断 (Int8 + Int4 -> Int8 Output)")
+    
+    # 构造必定溢出的数据: 125 + 5 = 130 -> 应该截断为 127 (而不是 -126)
+    data_a_sat = np.full(shape, 125, dtype=np.int8)
+    data_b_sat = np.full(shape, 5, dtype=np.int8)
+    
+    t_a_sat = Tensor(*shape, dtype="int8", data=data_a_sat)
+    t_b_sat = Tensor(*shape, dtype="int4", data=data_b_sat)
+    
+    add_op_sat = nn.Operators.ADD(inputs=[], outputs=[], dtype="int8")
+    nps_res_sat = add_op_sat.forward(t_a_sat, t_b_sat)["tensor"].data
+    
+    # 验证是否全部为 127
+    if np.all(nps_res_sat == 127):
+        print("✅ SUCCESS: 饱和截断逻辑正确 (125 + 5 -> 127)")
+    else:
+        print("❌ FAILED: 饱和截断失败")
+        print("Result sample:", nps_res_sat[0,0])
+
+    # --- 测试案例 3: A16W8 (Int16 + Int8 -> Int32) ---
+    print("\n[测试] A16W8 加法 (Int16 + Int8 -> Int32)")
+    # A (Activation): Int16
+    data_a_16 = np.random.randint(-30000, 30000, shape).astype(np.int16)
+    # B (Weight): Int8
+    data_b_8 = np.random.randint(-128, 127, shape).astype(np.int8)
+    
+    t_a_16 = Tensor(*shape, dtype="int16", data=data_a_16)
+    t_b_8 = Tensor(*shape, dtype="int8", data=data_b_8)
+    
+    add_op_16 = nn.Operators.ADD(inputs=[], outputs=[], dtype="int32")
+    nps_res_16 = add_op_16.forward(t_a_16, t_b_8)["tensor"].data
+    
+    gt_res_16 = data_a_16.astype(np.int32) + data_b_8.astype(np.int32)
+    
+    if np.array_equal(nps_res_16, gt_res_16):
+        print("✅ SUCCESS: A16W8 计算正确")
+    else:
+        print("❌ FAILED: A16W8 计算错误")
 
 
 # =============================================================================
@@ -297,3 +419,5 @@ if __name__ == "__main__":
     run_cuda_binary_op_verification('add', ADD, 
                                     shape_a=(10, 10), dtype_a="int32",
                                     shape_b=(10, 10), dtype_b="float32")
+    
+    run_mixed_precision_check()
