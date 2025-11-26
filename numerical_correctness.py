@@ -129,7 +129,7 @@ def run_cuda_unary_op_verification(op_name, nps_operator_class, shape=(1, 3, 128
     print(f"\n--- [CUDA验证] 测试 (一元): {op_name.upper()} ({dtype}{shape}) ---")
 
     # 1. 准备资源
-    executable_path = f"./verify_{op_name.lower()}"
+    executable_path = f"./cache/verify_{op_name.lower()}"
     input_file = "temp_input.bin"
     output_file = "temp_output.bin"
 
@@ -190,7 +190,7 @@ def run_cuda_binary_op_verification(op_name, nps_op_class, shape_a, shape_b, dty
     print(f"\n--- [CUDA验证] 测试 (二元): {op_name.upper()} ({dtype_a}{shape_a} + {dtype_b}{shape_b}) ---")
 
     # 1. 准备资源
-    executable_path = f"./verify_{op_name.lower()}"
+    executable_path = f"./cache/verify_{op_name.lower()}"
     input_file_a = "temp_input_a.bin"
     input_file_b = "temp_input_b.bin"
     output_file = "temp_output.bin"

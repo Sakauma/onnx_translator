@@ -12,20 +12,17 @@
 
 在项目根目录运行：
 ```bash
-# -fPIC: 生成位置无关代码
-# -shared: 创建共享库
-# -lm: 链接数学库
-gcc -shared -o tensor_ops.so -fPIC tensor_ops/tensor_ops.c -lm
+make
 ```
 
 ### 3. 步骤二：编译 CUDA 验证程序
 
 在项目根目录运行：
 ```bash
-nvcc cuda/verify_relu.cu -o verify_relu
-nvcc cuda/verify_abs.cu -o verify_abs
-nvcc cuda/verify_add.cu -o verify_add
-nvcc cuda/verify_cos.cu -o verify_cos
+nvcc cuda/verify_relu.cu -o cache/verify_relu
+nvcc cuda/verify_abs.cu -o cache/verify_abs
+nvcc cuda/verify_add.cu -o cache/verify_add
+nvcc cuda/verify_cos.cu -o cache/verify_cos
 ```
 
 ### 4. 步骤三：生成 ONNX 测试模型

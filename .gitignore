@@ -210,6 +210,6 @@ __marimo__/
 .cache/
 .vscode/
 cache/
-onnx_models/
+onnx_model/
 results/
 bin/

@@ -176,6 +176,69 @@ class Ops:
         self.parameters = {}
         self.name = None
         self.lib = self._get_lib()
+    
+    def _execute_unary(self, input_tensor, c_func_name):
+        """通用一元算子执行模板"""
+        # 1. 准备连续内存输入
+        in_data = np.ascontiguousarray(input_tensor.data)
+        input_c = self._numpy_to_ctensor(in_data, input_tensor.dtype)
+        
+        # 2. 准备输出 (优先使用 self.dtype，否则沿用输入类型)
+        out_dtype = self.dtype if self.dtype else input_tensor.dtype
+        out_shape = (ctypes.c_int * len(input_tensor.size))(*input_tensor.size)
+        output_c = self.lib.create_tensor(out_shape, len(input_tensor.size), DTYPE_MAP[out_dtype])
+        
+        # 3. 动态调用 C 函数
+        getattr(self.lib, c_func_name)(input_c, output_c)
+        
+        # 4. 转换结果并释放
+        out_data = self._ctensor_to_numpy(output_c, out_dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+        
+        return Tensor(*input_tensor.size, dtype=out_dtype, data=out_data)
+    
+    def _execute_binary(self, input_a, input_b, c_func_name):
+        """通用二元算子执行模板 (含广播逻辑)"""
+        # 1. 广播处理
+        try:
+            a_bcast, b_bcast = np.broadcast_arrays(input_a.data, input_b.data)
+        except ValueError as e:
+            print(f"Broadcasting error: {input_a.size} vs {input_b.size}")
+            raise e
+            
+        out_shape = a_bcast.shape
+        
+        # 2. 类型推断 (优先 self.dtype -> 其次 numpy 推断 -> 默认 float32)
+        if self.dtype:
+            out_dtype = self.dtype
+        else:
+            res_type = np.result_type(a_bcast, b_bcast)
+            out_dtype = NUMPY_TO_DTYPE.get(res_type.type, "float32")
+
+        # 3. 转换为 C 张量
+        #a_c = self._numpy_to_ctensor(np.ascontiguousarray(a_bcast.astype(input_a.dtype, copy=False)), input_a.dtype)
+        #b_c = self._numpy_to_ctensor(np.ascontiguousarray(b_bcast.astype(input_b.dtype, copy=False)), input_b.dtype)
+        np_dtype_a = DTYPE_TO_NUMPY[input_a.dtype]
+        a_data_safe = a_bcast.astype(np_dtype_a, copy=False)
+        a_c = self._numpy_to_ctensor(np.ascontiguousarray(a_data_safe), input_a.dtype)
+        np_dtype_b = DTYPE_TO_NUMPY[input_b.dtype]
+        b_data_safe = b_bcast.astype(np_dtype_b, copy=False)
+        b_c = self._numpy_to_ctensor(np.ascontiguousarray(b_data_safe), input_b.dtype)
+        
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[out_dtype])
+
+        # 4. 调用 C 函数
+        getattr(self.lib, c_func_name)(a_c, b_c, output_c)
+
+        # 5. 清理
+        out_data = self._ctensor_to_numpy(output_c, out_dtype)
+        self.lib.free_tensor(a_c)
+        self.lib.free_tensor(b_c)
+        self.lib.free_tensor(output_c)
+
+        return Tensor(*out_shape, dtype=out_dtype, data=out_data)
 
     def forward(self, input):
         """
