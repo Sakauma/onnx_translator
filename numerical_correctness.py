@@ -269,37 +269,62 @@ def run_mixed_precision_check():
     专门验证边缘计算场景下的混合精度 (A8W4, A16W8 等)
     """
     
-    # --- 测试案例 1: A8W4 (Activation Int8 + Weight Int4 -> Int32 Accum) ---
-    print("\n[测试] A8W4 加法 (Int8 + Int4 -> Int32)")
     shape = (4, 4)
-    
-    # 构造数据
-    # A (Activation): 完整 Int8 范围 [-128, 127]
-    data_a = np.random.randint(-128, 127, shape).astype(np.int8)
-    # B (Weight): Int4 范围 [-8, 7]，存储在 int8 中
+    # A (Activation): Int8
+    data_a = np.random.randint(-120, 120, shape).astype(np.int8)
+    # B (Weight): Int4 (存于 int8)
     data_b = np.random.randint(-8, 7, shape).astype(np.int8)
-    
-    # NPS Tensor
+    # 避免除以0
+    data_b_no_zero = data_b.copy()
+    data_b_no_zero[data_b_no_zero == 0] = 1
+
     t_a = Tensor(*shape, dtype="int8", data=data_a)
     t_b = Tensor(*shape, dtype="int4", data=data_b)
+    t_b_nz = Tensor(*shape, dtype="int4", data=data_b_no_zero)
     
-    # 执行 NPS Add (指定输出为 int32)
+    # --- ADD (Int8 + Int4 -> Int32) ---
+    print("\n[测试] ADD A8W4 (Int8 + Int4 -> Int32)")
     add_op = nn.Operators.ADD(inputs=[], outputs=[], dtype="int32")
     nps_res = add_op.forward(t_a, t_b)["tensor"].data
-    
-    # 执行真值计算 (NumPy 自动提升)
     gt_res = data_a.astype(np.int32) + data_b.astype(np.int32)
-    
-    if np.array_equal(nps_res, gt_res):
-        print("✅ SUCCESS: A8W4 计算正确 (无溢出)")
-    else:
-        print("❌ FAILED: A8W4 计算错误")
-        print("Diff:", nps_res - gt_res)
+    if np.array_equal(nps_res, gt_res): print("✅ SUCCESS")
+    else: print("❌ FAILED", nps_res - gt_res)
 
-    # --- 测试案例 2: A8W4 饱和测试 (Int8 + Int4 -> Int8 Output) ---
-    # 如果输出被限制为 Int8，则应该发生饱和截断，而不是回绕
-    print("\n[测试] A8W4 饱和截断 (Int8 + Int4 -> Int8 Output)")
+    # --- SUB (Int8 - Int4 -> Int32) ---
+    print("\n[测试] SUB A8W4 (Int8 - Int4 -> Int32)")
+    sub_op = nn.Operators.SUB(inputs=[], outputs=[], dtype="int32")
+    nps_res = sub_op.forward(t_a, t_b)["tensor"].data
+    gt_res = data_a.astype(np.int32) - data_b.astype(np.int32)
+    if np.array_equal(nps_res, gt_res): print("✅ SUCCESS")
+    else: print("❌ FAILED", nps_res - gt_res)
+
+    # --- MUL (Int8 * Int4 -> Int32) ---
+    print("\n[测试] MUL A8W4 (Int8 * Int4 -> Int32)")
+    mul_op = nn.Operators.MUL(inputs=[], outputs=[], dtype="int32")
+    nps_res = mul_op.forward(t_a, t_b)["tensor"].data
+    gt_res = data_a.astype(np.int32) * data_b.astype(np.int32)
+    if np.array_equal(nps_res, gt_res): print("✅ SUCCESS")
+    else: print("❌ FAILED", nps_res - gt_res)
+
+    # --- DIV (Int8 / Int4 -> Int8) [注意: 结果通常较小，存回Int8] ---
+    print("\n[测试] DIV A8W4 (Int8 / Int4 -> Int8)")
+    # 注意: C语言整数除法是向零取整 (-5/2 = -2)，Python // 是向下取整 (-5//2 = -3)
+    # 验证时需要模拟 C 行为
+    div_op = nn.Operators.DIV(inputs=[], outputs=[], dtype="int8")
+    nps_res = div_op.forward(t_a, t_b_nz)["tensor"].data
     
+    # 模拟 C 语言除法
+    gt_res = (data_a.astype(np.float32) / data_b_no_zero.astype(np.float32)).astype(int)
+    # 截断到 int8
+    gt_res = np.clip(gt_res, -128, 127).astype(np.int8)
+
+    if np.array_equal(nps_res, gt_res): print("✅ SUCCESS")
+    else: 
+        print("❌ FAILED")
+        print("NPS:", nps_res.flatten()[:5])
+        print("GT :", gt_res.flatten()[:5])
+
+    print("\n[测试] A8W4 饱和截断 (Int8 + Int4 -> Int8 Output)")
     # 构造必定溢出的数据: 125 + 5 = 130 -> 应该截断为 127 (而不是 -126)
     data_a_sat = np.full(shape, 125, dtype=np.int8)
     data_b_sat = np.full(shape, 5, dtype=np.int8)
@@ -337,10 +362,8 @@ def run_mixed_precision_check():
     else:
         print("❌ FAILED: A16W8 计算错误")
         
-    # --- 测试案例 4: UINT8 输入与饱和 (Image Input Scenario) ---
     print("\n[测试] UINT8 输入加法 (UINT8 + INT8 -> INT32)")
     # 模拟：图像像素(0~255) + 负数偏置 -> 结果
-    
     data_img = np.array([[250, 10], [128, 0]], dtype=np.uint8)
     data_bias = np.array([[-50, -5], [0, 0]], dtype=np.int8)
     
@@ -356,7 +379,6 @@ def run_mixed_precision_check():
         print(f"✅ SUCCESS: UINT8 正确解析 (250 + -50 = {nps_res_u8[0,0]})")
     else:
         print(f"❌ FAILED: UINT8 解析错误 (期望 200, 实际 {nps_res_u8[0,0]})")
-
 
 # =============================================================================
 # 执行验证

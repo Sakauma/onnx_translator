@@ -22,6 +22,9 @@ make
 nvcc cuda/verify_relu.cu -o cache/verify_relu
 nvcc cuda/verify_abs.cu -o cache/verify_abs
 nvcc cuda/verify_add.cu -o cache/verify_add
+nvcc cuda/verify_sub.cu -o cache/verify_sub
+nvcc cuda/verify_mul.cu -o cache/verify_mul
+nvcc cuda/verify_div.cu -o cache/verify_div
 nvcc cuda/verify_cos.cu -o cache/verify_cos
 ```
 
