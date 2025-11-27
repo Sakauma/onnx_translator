@@ -17,20 +17,24 @@ class CTensor(ctypes.Structure):
 
 # 数据类型映射到整数编码
 DTYPE_MAP = {
-    "float16": 0,
-    "bfloat16": 1,
-    "float32": 2,
-    "float64": 3,
-    "int4": 4,
-    "int8": 5,
-    "uint8": 6,
-    "int16": 7,
-    "int32": 8,
-    "int64": 9,
+    "float8_e4m3": 0,
+    "float8_e5m2": 1,
+    "float16": 2,
+    "bfloat16": 3,
+    "float32": 4,
+    "float64": 5,
+    "int4": 6,
+    "int8": 7,
+    "uint8": 8,
+    "int16": 9,
+    "int32": 10,
+    "int64": 11,
 }
 
 # 数据类型映射到NumPy类型
 DTYPE_TO_NUMPY = {
+    "float8_e4m3": np.uint8, 
+    "float8_e5m2": np.uint8,
     "float16": np.float16,
     "bfloat16": np.uint16,
     "float32": np.float32,

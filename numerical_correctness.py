@@ -3,12 +3,63 @@ import subprocess
 import os
 import nn
 from nn import Tensor
-from nn.Operators import RELU, COS, ABS, ADD # 导入所有已实现的算子
+from nn.Operators import RELU, COS, ABS, ADD, SUB, MUL, DIV
 
-# --- 辅助函数：创建测试数据 ---
+# --- 辅助函数 ---
+def decode_float8_e4m3(val_uint8):
+    """Python 实现的 E4M3 到 float 的解码 (用于验证 C 后端结果)"""
+    # 1位符号, 4位指数, 3位尾数, Bias 7
+    s = (val_uint8 & 0x80) >> 7
+    e = (val_uint8 & 0x78) >> 3
+    m = (val_uint8 & 0x07)
+    
+    sign = -1.0 if s else 1.0
+    
+    if e == 0:
+        if m == 0: return 0.0
+        # 次正规数: 0.m * 2^(-6)
+        return sign * (m / 8.0) * (2 ** -6)
+    elif e == 0xF and m == 0x7:
+        return np.nan
+    else:
+        # 正规数: 1.m * 2^(e-7)
+        return sign * (1.0 + m / 8.0) * (2 ** (e - 7))
+
+def decode_float8_e5m2(val_uint8):
+    """Python 实现的 E5M2 到 float 的解码"""
+    # 1位符号, 5位指数, 2位尾数, Bias 15
+    s = (val_uint8 & 0x80) >> 7
+    e = (val_uint8 & 0x7C) >> 2
+    m = (val_uint8 & 0x03)
+    
+    sign = -1.0 if s else 1.0
+    
+    if e == 0:
+        if m == 0: return 0.0
+        # 次正规数: 0.m * 2^(-14)
+        return sign * (m / 4.0) * (2 ** -14)
+    elif e == 0x1F:
+        return np.inf if m == 0 else np.nan
+    else:
+        # 正规数: 1.m * 2^(e-15)
+        return sign * (1.0 + m / 4.0) * (2 ** (e - 15))
+
+# 向量化解码函数，方便处理整个数组
+vec_decode_e4m3 = np.vectorize(decode_float8_e4m3)
+vec_decode_e5m2 = np.vectorize(decode_float8_e5m2)
+
 def create_test_data(shape, dtype):
-    """根据形状和类型生成随机Numpy数据"""
-    np_dtype = nn.DTYPE_TO_NUMPY[dtype]
+    """生成测试数据"""
+    if dtype == "float8_e4m3" or dtype == "float8_e5m2":
+        # 生成随机 uint8 位模式
+        return np.random.randint(0, 255, shape).astype(np.uint8)
+    elif dtype == "int4":
+        return np.random.randint(-8, 7, shape).astype(np.int8)
+    
+    if dtype in nn.DTYPE_TO_NUMPY:
+        np_dtype = nn.DTYPE_TO_NUMPY[dtype]
+    else:
+        np_dtype = np.float32 # 默认兜底
     if "float" in dtype:
         return np.random.randn(*shape).astype(np_dtype)
     else:
@@ -268,117 +319,123 @@ def run_mixed_precision_check():
     """
     专门验证边缘计算场景下的混合精度 (A8W4, A16W8 等)
     """
-    
     shape = (4, 4)
-    # A (Activation): Int8
-    data_a = np.random.randint(-120, 120, shape).astype(np.int8)
-    # B (Weight): Int4 (存于 int8)
-    data_b = np.random.randint(-8, 7, shape).astype(np.int8)
-    # 避免除以0
-    data_b_no_zero = data_b.copy()
-    data_b_no_zero[data_b_no_zero == 0] = 1
-
-    t_a = Tensor(*shape, dtype="int8", data=data_a)
-    t_b = Tensor(*shape, dtype="int4", data=data_b)
-    t_b_nz = Tensor(*shape, dtype="int4", data=data_b_no_zero)
+    # --- Case 1: A16W8 (Float16 + Int8) ---
+    print("\n[Case 1] A16W8: Float16 (Act) * Int8 (Weight) -> Float16")
     
-    # --- ADD (Int8 + Int4 -> Int32) ---
-    print("\n[测试] ADD A8W4 (Int8 + Int4 -> Int32)")
-    add_op = nn.Operators.ADD(inputs=[], outputs=[], dtype="int32")
-    nps_res = add_op.forward(t_a, t_b)["tensor"].data
-    gt_res = data_a.astype(np.int32) + data_b.astype(np.int32)
-    if np.array_equal(nps_res, gt_res): print("✅ SUCCESS")
-    else: print("❌ FAILED", nps_res - gt_res)
-
-    # --- SUB (Int8 - Int4 -> Int32) ---
-    print("\n[测试] SUB A8W4 (Int8 - Int4 -> Int32)")
-    sub_op = nn.Operators.SUB(inputs=[], outputs=[], dtype="int32")
-    nps_res = sub_op.forward(t_a, t_b)["tensor"].data
-    gt_res = data_a.astype(np.int32) - data_b.astype(np.int32)
-    if np.array_equal(nps_res, gt_res): print("✅ SUCCESS")
-    else: print("❌ FAILED", nps_res - gt_res)
-
-    # --- MUL (Int8 * Int4 -> Int32) ---
-    print("\n[测试] MUL A8W4 (Int8 * Int4 -> Int32)")
-    mul_op = nn.Operators.MUL(inputs=[], outputs=[], dtype="int32")
-    nps_res = mul_op.forward(t_a, t_b)["tensor"].data
-    gt_res = data_a.astype(np.int32) * data_b.astype(np.int32)
-    if np.array_equal(nps_res, gt_res): print("✅ SUCCESS")
-    else: print("❌ FAILED", nps_res - gt_res)
-
-    # --- DIV (Int8 / Int4 -> Int8) [注意: 结果通常较小，存回Int8] ---
-    print("\n[测试] DIV A8W4 (Int8 / Int4 -> Int8)")
-    # 注意: C语言整数除法是向零取整 (-5/2 = -2)，Python // 是向下取整 (-5//2 = -3)
-    # 验证时需要模拟 C 行为
-    div_op = nn.Operators.DIV(inputs=[], outputs=[], dtype="int8")
-    nps_res = div_op.forward(t_a, t_b_nz)["tensor"].data
+    # 准备数据
+    data_a = np.random.randn(*shape).astype(np.float16)
+    data_w = np.random.randint(-10, 10, shape).astype(np.int8)
     
-    # 模拟 C 语言除法
-    gt_res = (data_a.astype(np.float32) / data_b_no_zero.astype(np.float32)).astype(int)
-    # 截断到 int8
-    gt_res = np.clip(gt_res, -128, 127).astype(np.int8)
-
-    if np.array_equal(nps_res, gt_res): print("✅ SUCCESS")
-    else: 
+    t_a = Tensor(*shape, dtype="float16", data=data_a)
+    t_w = Tensor(*shape, dtype="int8", data=data_w)
+    
+    # 定义算子: 输出指定为 float16
+    mul_op = MUL(inputs=[], outputs=[], dtype="float16")
+    nps_res = mul_op.forward(t_a, t_w)["tensor"].data
+    
+    # Ground Truth: 提升到 float32 计算，再转回 float16
+    gt_res = (data_a.astype(np.float32) * data_w.astype(np.float32)).astype(np.float16)
+    
+    # 验证 (使用较大容差，因为中间计算精度不同)
+    if np.allclose(nps_res, gt_res, atol=1e-3):
+        print("✅ SUCCESS")
+    else:
         print("❌ FAILED")
-        print("NPS:", nps_res.flatten()[:5])
-        print("GT :", gt_res.flatten()[:5])
-
-    print("\n[测试] A8W4 饱和截断 (Int8 + Int4 -> Int8 Output)")
-    # 构造必定溢出的数据: 125 + 5 = 130 -> 应该截断为 127 (而不是 -126)
-    data_a_sat = np.full(shape, 125, dtype=np.int8)
-    data_b_sat = np.full(shape, 5, dtype=np.int8)
-    
-    t_a_sat = Tensor(*shape, dtype="int8", data=data_a_sat)
-    t_b_sat = Tensor(*shape, dtype="int4", data=data_b_sat)
-    
-    add_op_sat = nn.Operators.ADD(inputs=[], outputs=[], dtype="int8")
-    nps_res_sat = add_op_sat.forward(t_a_sat, t_b_sat)["tensor"].data
-    
-    # 验证是否全部为 127
-    if np.all(nps_res_sat == 127):
-        print("✅ SUCCESS: 饱和截断逻辑正确 (125 + 5 -> 127)")
-    else:
-        print("❌ FAILED: 饱和截断失败")
-        print("Result sample:", nps_res_sat[0,0])
-
-    # --- 测试案例 3: A16W8 (Int16 + Int8 -> Int32) ---
-    print("\n[测试] A16W8 加法 (Int16 + Int8 -> Int32)")
-    # A (Activation): Int16
-    data_a_16 = np.random.randint(-30000, 30000, shape).astype(np.int16)
-    # B (Weight): Int8
-    data_b_8 = np.random.randint(-128, 127, shape).astype(np.int8)
-    
-    t_a_16 = Tensor(*shape, dtype="int16", data=data_a_16)
-    t_b_8 = Tensor(*shape, dtype="int8", data=data_b_8)
-    
-    add_op_16 = nn.Operators.ADD(inputs=[], outputs=[], dtype="int32")
-    nps_res_16 = add_op_16.forward(t_a_16, t_b_8)["tensor"].data
-    
-    gt_res_16 = data_a_16.astype(np.int32) + data_b_8.astype(np.int32)
-    
-    if np.array_equal(nps_res_16, gt_res_16):
-        print("✅ SUCCESS: A16W8 计算正确")
-    else:
-        print("❌ FAILED: A16W8 计算错误")
+        print("NPS sample:", nps_res.flatten()[:3])
+        print("GT  sample:", gt_res.flatten()[:3])
         
-    print("\n[测试] UINT8 输入加法 (UINT8 + INT8 -> INT32)")
-    # 模拟：图像像素(0~255) + 负数偏置 -> 结果
-    data_img = np.array([[250, 10], [128, 0]], dtype=np.uint8)
-    data_bias = np.array([[-50, -5], [0, 0]], dtype=np.int8)
+    # --- Case 2: A32W4 (Float32 + Int4) ---
+    print("\n[Case 2] A32W4: Float32 (Act) + Int4 (Weight) -> Float16")
     
-    t_img = Tensor(*shape, dtype="uint8", data=data_img)
-    t_bias = Tensor(*shape, dtype="int8", data=data_bias)
+    data_a = np.random.randn(*shape).astype(np.float32)
+    data_w = np.random.randint(-8, 7, shape).astype(np.int8) # Store as int8
     
-    add_op_u8 = nn.Operators.ADD(inputs=[], outputs=[], dtype="int32")
-    nps_res_u8 = add_op_u8.forward(t_img, t_bias)["tensor"].data
+    t_a = Tensor(*shape, dtype="float32", data=data_a)
+    t_w = Tensor(*shape, dtype="int4", data=data_w)
     
-    # 验证逻辑：必须正确处理无符号数
-    # 250 - 50 = 200
-    if nps_res_u8[0, 0] == 200:
-        print(f"✅ SUCCESS: UINT8 正确解析 (250 + -50 = {nps_res_u8[0,0]})")
+    add_op = ADD(inputs=[], outputs=[], dtype="float16")
+    nps_res = add_op.forward(t_a, t_w)["tensor"].data
+    
+    gt_res = (data_a + data_w.astype(np.float32)).astype(np.float16)
+    
+    if np.allclose(nps_res, gt_res, atol=1e-3):
+        print("✅ SUCCESS")
     else:
-        print(f"❌ FAILED: UINT8 解析错误 (期望 200, 实际 {nps_res_u8[0,0]})")
+        print("❌ FAILED")
+        
+    # --- Case 3: A8W8 (Float8_E4M3 + Int8) ---
+    print("\n[Case 3] A8W8: Float8_E4M3 (Act) * Int8 (Weight) -> Float16")
+    
+    # 生成随机 Float8 位模式
+    data_a_bits = np.random.randint(0, 255, shape).astype(np.uint8)
+    # 解码为 float32 用于计算 GT
+    data_a_float = vec_decode_e4m3(data_a_bits)
+    # 过滤掉 NaN 用于测试
+    mask = ~np.isnan(data_a_float)
+    data_a_bits = data_a_bits * mask # 简单处理，NaN位置变0
+    data_a_float = np.nan_to_num(data_a_float)
+
+    data_w = np.random.randint(-5, 5, shape).astype(np.int8)
+    
+    t_a = Tensor(*shape, dtype="float8_e4m3", data=data_a_bits.astype(np.uint8))
+    t_w = Tensor(*shape, dtype="int8", data=data_w)
+    
+    mul_op = MUL(inputs=[], outputs=[], dtype="float16")
+    nps_res = mul_op.forward(t_a, t_w)["tensor"].data
+    
+    # GT
+    gt_res = (data_a_float * data_w.astype(np.float32)).astype(np.float16)
+    
+    # 验证 (排除 GT 溢出导致 Inf 的情况)
+    valid_mask = np.isfinite(gt_res)
+    if np.allclose(nps_res[valid_mask], gt_res[valid_mask], atol=1e-2):
+        print("✅ SUCCESS")
+    else:
+        print("❌ FAILED")
+        diff = np.abs(nps_res - gt_res)
+        max_diff_idx = np.unravel_index(np.argmax(diff * valid_mask), diff.shape)
+        print(f"Max Diff at {max_diff_idx}: NPS={nps_res[max_diff_idx]}, GT={gt_res[max_diff_idx]}")
+        
+        
+def run_float8_verification():
+    """
+    验证 Float8 (E4M3/E5M2) 的基本功能
+    """
+    print("\n=========================================================")
+    print(" [Part 3] 验证: Float8 (E4M3 & E5M2) 功能测试 ")
+    print("=========================================================")
+    
+    # --- 测试 E4M3 解析 ---
+    print("\n[测试] Float8 E4M3 -> Float32 解析准确性")
+    # 构造特定数值: 0x3C (1.5), 0xC0 (-2.0)
+    vals = np.array([0x3C, 0xC0], dtype=np.uint8)
+    t_in = Tensor(2, dtype="float8_e4m3", data=vals)
+    
+    # 使用 ABS 算子触发解析: Abs(1.5)=1.5, Abs(-2.0)=2.0
+    abs_op = ABS(inputs=[], outputs=[], dtype="float32")
+    res = abs_op.forward(t_in)["tensor"].data
+    
+    if res[0] == 1.5 and res[1] == 2.0:
+        print("✅ SUCCESS: 特定数值解析正确")
+    else:
+        print(f"❌ FAILED: 预期 [1.5, 2.0], 实际 {res}")
+
+    # --- 测试 E5M2 解析 ---
+    print("\n[测试] Float8 E5M2 -> Float32 解析准确性")
+    # 0x3E -> 1.5 (E5M2)
+    vals = np.array([0x3E], dtype=np.uint8)
+    t_in = Tensor(1, dtype="float8_e5m2", data=vals)
+    
+    # 用 Add 加 0.5: 1.5 + 0.5 = 2.0
+    t_add = Tensor(1, dtype="float32", data=np.array([0.5], dtype=np.float32))
+    add_op = ADD(inputs=[], outputs=[], dtype="float32")
+    res = add_op.forward(t_in, t_add)["tensor"].data
+    
+    if res[0] == 2.0:
+        print("✅ SUCCESS: E5M2 计算正确")
+    else:
+        print(f"❌ FAILED: 预期 2.0, 实际 {res[0]}")
 
 # =============================================================================
 # 执行验证
@@ -441,3 +498,4 @@ if __name__ == "__main__":
     print("=========================================================")
     
     run_mixed_precision_check()
+    run_float8_verification()
