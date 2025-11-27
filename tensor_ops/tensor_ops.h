@@ -57,6 +57,12 @@ void free_tensor(Tensor* tensor);
 void relu_forward(const Tensor* input, Tensor* output);
 
 /**
+ * 初始化余弦查找表
+ * 使用泰勒级数展开计算余弦值并存储在查找表中
+ */
+void init_cos_lut(void);
+
+/**
  * 余弦函数前向传播
  * 
  * @param input 输入张量

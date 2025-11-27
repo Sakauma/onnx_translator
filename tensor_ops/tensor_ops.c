@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <omp.h>
+#include <pthread.h>
 
 // 余弦查找表大小
 #define COS_LUT_SIZE 4096
@@ -12,6 +13,8 @@
 static double cos_lut[COS_LUT_SIZE + 1];
 // 余弦查找表初始化标志
 static int cos_lut_initialized = 0;
+// 余弦查找表初始化互斥锁
+static pthread_mutex_t cos_lut_mutex = PTHREAD_MUTEX_INITIALIZER;
 // 圆周率常量
 #define PI 3.141592653589793238462643383279502884197
 // 两倍圆周率
@@ -65,18 +68,49 @@ static inline uint16_t float_to_float16(float value) {
     uint32_t bits = *(uint32_t*)&value;
     // 提取符号位
     uint16_t sign = (bits >> 16) & 0x8000;
-    // 提取指数位并调整偏移
-    int32_t exp = ((bits >> 23) & 0xFF) - 127 + 15;
+    // 提取指数位
+    uint32_t exp = (bits >> 23) & 0xFF;
     // 提取尾数位
-    uint16_t frac = (bits >> 13) & 0x3FF;
+    uint32_t frac = bits & 0x7FFFFF;
     
-    // 处理特殊情况：指数过小
-    if (exp <= 0) return sign;
+    // 处理特殊情况：NaN
+    if (exp == 0xFF && frac != 0) {
+        // 返回NaN
+        return sign | 0x7FFF;
+    }
+    // 处理特殊情况：无穷大
+    if (exp == 0xFF && frac == 0) {
+        // 返回无穷大
+        return sign | 0x7C00;
+    }
+    // 处理特殊情况：零
+    if (exp == 0 && frac == 0) {
+        // 返回零
+        return sign;
+    }
+    // 处理特殊情况：次正规数
+    if (exp == 0) {
+        // 次正规数，调整为正规数
+        int shift = __builtin_clz(frac) - 8; // 计算前导零的数量
+        frac <<= shift;
+        exp = 1 - shift - 127 + 15;
+        frac >>= 13;
+        return sign | (exp << 10) | frac;
+    }
+    // 正常情况：调整指数偏移
+    exp = exp - 127 + 15;
     // 处理特殊情况：指数过大
-    if (exp >= 31) return sign | 0x7C00;
-    
+    if (exp >= 31) {
+        // 返回无穷大
+        return sign | 0x7C00;
+    }
+    // 处理特殊情况：指数过小
+    if (exp <= 0) {
+        // 返回零
+        return sign;
+    }
     // 正常情况：组合符号位、指数位和尾数位
-    return sign | (exp << 10) | frac;
+    return sign | (exp << 10) | (frac >> 13);
 }
 
 /**
@@ -93,15 +127,26 @@ static inline float float16_to_float(uint16_t value) {
     // 提取尾数位
     uint32_t frac = value & 0x3FF;
     
-    // 处理特殊情况：指数为0
-    if (exp == 0) return *(float*)&sign;
-    
-    // 处理特殊情况：指数为31（无穷大或NaN）
-    if (exp == 31) {
+    // 处理特殊情况：零
+    if (exp == 0 && frac == 0) {
+        return *(float*)&sign;
+    }
+    // 处理特殊情况：无穷大或NaN
+    if (exp == 0x1F) {
         uint32_t bits = sign | 0x7F800000 | (frac << 13);
         return *(float*)&bits;
     }
-    // 调整指数偏移
+    // 处理特殊情况：次正规数
+    if (exp == 0) {
+        // 次正规数，调整为正规数
+        int shift = 14 - __builtin_clz(frac); // 计算前导零的数量
+        frac <<= shift;
+        exp = 1 - shift - 15 + 127;
+        frac >>= 13;
+        uint32_t bits = sign | (exp << 23) | (frac << 13);
+        return *(float*)&bits;
+    }
+    // 正常情况：调整指数偏移
     exp = exp - 15 + 127;
     // 组合符号位、指数位和尾数位
     uint32_t bits = sign | (exp << 23) | (frac << 13);
@@ -128,8 +173,14 @@ static inline uint16_t float_to_bfloat16(float value) {
  * @return 32位浮点数
  */
 static inline float bfloat16_to_float(uint16_t value) {
-    // 将16位数据左移16位，低位补0
-    uint32_t bits = ((uint32_t)value) << 16;
+    // 提取符号位
+    uint32_t sign = (value & 0x8000) << 16;
+    // 提取指数位
+    uint32_t exp = (value & 0x7F80) << 16;
+    // 提取尾数位
+    uint32_t frac = (value & 0x007F) << 16;
+    // 组合符号位、指数位和尾数位
+    uint32_t bits = sign | exp | frac;
     return *(float*)&bits;
 }
 
@@ -144,12 +195,19 @@ static inline float bfloat16_to_float(uint16_t value) {
 Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
     // 分配张量结构体内存
     Tensor* tensor = (Tensor*)malloc(sizeof(Tensor));
+    if (!tensor) {
+        return NULL;
+    }
     
     // 设置维度数
     tensor->ndim = ndim;
     
     // 分配并复制形状数组
     tensor->shape = (int*)malloc(ndim * sizeof(int));
+    if (!tensor->shape) {
+        free(tensor);
+        return NULL;
+    }
     memcpy(tensor->shape, shape, ndim * sizeof(int));
     
     // 设置数据类型
@@ -192,11 +250,19 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
         case DTYPE_INT64:
             elem_size = 8;  // 64位整数
             break;
+        default:
+            elem_size = 4;  // 默认32位
+            break;
     }
     
     // 分配数据内存
     //tensor->data = malloc(tensor->size * elem_size);
     tensor->data = calloc(tensor->size, elem_size);
+    if (!tensor->data) {
+        free(tensor->shape);
+        free(tensor);
+        return NULL;
+    }
     return tensor;
 }
 
@@ -227,7 +293,17 @@ static inline float get_value_as_float(const Tensor* tensor, size_t index) {
         case DTYPE_BFLOAT16: return bfloat16_to_float(((uint16_t*)tensor->data)[index]);
         case DTYPE_FLOAT32: return ((float*)tensor->data)[index];
         case DTYPE_FLOAT64: return (float)((double*)tensor->data)[index];
-        case DTYPE_INT4: return (float)((int8_t*)tensor->data)[index];
+        case DTYPE_INT4: {
+            // INT4: 符号扩展到int8_t
+            int8_t val = ((int8_t*)tensor->data)[index];
+            // 确保符号位正确扩展
+            if (val & 0x08) { // 检查第4位（符号位）
+                val |= 0xF0;  // 符号扩展到8位
+            } else {
+                val &= 0x0F;  // 清除高位
+            }
+            return (float)val;
+        }
         case DTYPE_INT8: return (float)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (float)((uint8_t*)tensor->data)[index];
         case DTYPE_INT16: return (float)((int16_t*)tensor->data)[index];
@@ -246,7 +322,17 @@ static inline double get_value_as_double(const Tensor* tensor, size_t index) {
         case DTYPE_FLOAT32: return (double)((float*)tensor->data)[index];
         case DTYPE_FLOAT16: return (double)float16_to_float(((uint16_t*)tensor->data)[index]);
         case DTYPE_BFLOAT16: return (double)bfloat16_to_float(((uint16_t*)tensor->data)[index]);
-        case DTYPE_INT4: return (double)((int8_t*)tensor->data)[index];
+        case DTYPE_INT4: {
+            // INT4: 符号扩展到int8_t
+            int8_t val = ((int8_t*)tensor->data)[index];
+            // 确保符号位正确扩展
+            if (val & 0x08) { // 检查第4位（符号位）
+                val |= 0xF0;  // 符号扩展到8位
+            } else {
+                val &= 0x0F;  // 清除高位
+            }
+            return (double)val;
+        }
         case DTYPE_INT8: return (double)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (double)((uint8_t*)tensor->data)[index];
         case DTYPE_INT16: return (double)((int16_t*)tensor->data)[index];
@@ -266,7 +352,17 @@ static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
         case DTYPE_FLOAT32: return (int64_t)roundf(((float*)tensor->data)[index]);
         case DTYPE_FLOAT16: return (int64_t)roundf(float16_to_float(((uint16_t*)tensor->data)[index]));
         case DTYPE_BFLOAT16: return (int64_t)roundf(bfloat16_to_float(((uint16_t*)tensor->data)[index]));
-        case DTYPE_INT4: return (int64_t)((int8_t*)tensor->data)[index];
+        case DTYPE_INT4: {
+            // INT4: 符号扩展到int8_t
+            int8_t val = ((int8_t*)tensor->data)[index];
+            // 确保符号位正确扩展
+            if (val & 0x08) { // 检查第4位（符号位）
+                val |= 0xF0;  // 符号扩展到8位
+            } else {
+                val &= 0x0F;  // 清除高位
+            }
+            return (int64_t)val;
+        }
         case DTYPE_INT8: return (int64_t)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (int64_t)((uint8_t*)tensor->data)[index];
         case DTYPE_INT16: return (int64_t)((int16_t*)tensor->data)[index];
@@ -300,18 +396,19 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
     switch (tensor->dtype) {
         case DTYPE_FLOAT32: ((float*)tensor->data)[index] = (float)value; break;
         case DTYPE_FLOAT64: ((double*)tensor->data)[index] = value; break;
-        // 如果目标是整数，进行截断 (Round or Cast)
-        case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = (int8_t)value; break; 
-        case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = (int8_t)value; break;
-        case DTYPE_UINT8: ((uint8_t*)tensor->data)[index] = (uint8_t)value; break;
-        case DTYPE_INT32:   ((int32_t*)tensor->data)[index] = (int32_t)value; break;
-        case DTYPE_INT64:   ((int64_t*)tensor->data)[index] = (int64_t)value; break;
+        // 如果目标是整数，使用饱和截断转换
+        case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = saturate_cast_int4((int64_t)round(value)); break; 
+        case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = saturate_cast_int8((int64_t)round(value)); break;
+        case DTYPE_UINT8: ((uint8_t*)tensor->data)[index] = saturate_cast_uint8((int64_t)round(value)); break;
+        case DTYPE_INT16:   ((int16_t*)tensor->data)[index] = saturate_cast_int16((int64_t)round(value)); break;
+        case DTYPE_INT32:   ((int32_t*)tensor->data)[index] = saturate_cast_int32((int64_t)round(value)); break;
+        case DTYPE_INT64:   ((int64_t*)tensor->data)[index] = (int64_t)round(value); break;
         default: break;
     }
 }
 
 /* 判断是否为整数类型 */
-#define IS_INT_TYPE(d) (d == DTYPE_INT8 || d == DTYPE_INT16 || d == DTYPE_INT32 || d == DTYPE_INT64 || d == DTYPE_INT4)
+#define IS_INT_TYPE(d) (d == DTYPE_INT8 || d == DTYPE_UINT8 || d == DTYPE_INT16 || d == DTYPE_INT32 || d == DTYPE_INT64 || d == DTYPE_INT4)
 
 /* 
    OP_FUNC: 执行计算的逻辑 (a + b, a - b 等)
@@ -351,6 +448,17 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
             } \
             break; \
         } \
+        case DTYPE_UINT8: { \
+            uint8_t* out_data = (uint8_t*)O->data; \
+            _Pragma("omp parallel for") \
+            for (size_t i = 0; i < O->size; i++) { \
+                int64_t val_a = get_value_as_int64(A, i); \
+                int64_t val_b = get_value_as_int64(B, i); \
+                int64_t res = OP_FUNC(val_a, val_b); \
+                out_data[i] = saturate_cast_uint8(res); \
+            } \
+            break; \
+        } \
         case DTYPE_INT4: { \
             int8_t* out_data = (int8_t*)O->data; \
             _Pragma("omp parallel for") \
@@ -379,7 +487,7 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
 static inline int64_t op_add(int64_t a, int64_t b) { return a + b; }
 static inline int64_t op_sub(int64_t a, int64_t b) { return a - b; }
 static inline int64_t op_mul(int64_t a, int64_t b) { return a * b; }
-static inline int64_t op_div(int64_t a, int64_t b) { return b == 0 ? 0 : a / b; }
+static inline int64_t op_div(int64_t a, int64_t b) { return b == 0 ? (a >= 0 ? INT64_MAX : INT64_MIN) : a / b; }
 
 /**
  * ReLU激活函数前向传播实现
@@ -388,6 +496,12 @@ static inline int64_t op_div(int64_t a, int64_t b) { return b == 0 ? 0 : a / b; 
  * @param output 输出张量
  */
 void relu_forward(const Tensor* input, Tensor* output) {
+    // 检查输入参数是否有效
+    if (!input || !output || !input->data || !output->data || input->size != output->size) {
+        return;
+    }
+    
+    #pragma omp parallel for
     for (size_t i = 0; i < input->size; i++) {
         if (IS_INT_TYPE(input->dtype)) {
             // 整数路径 
@@ -410,12 +524,18 @@ void relu_forward(const Tensor* input, Tensor* output) {
  * @param output 输出张量
  */
 void abs_forward(const Tensor* input, Tensor* output) {
+    // 检查输入参数是否有效
+    if (!input || !output || !input->data || !output->data || input->size != output->size) {
+        return;
+    }
+    
+    #pragma omp parallel for
     for (size_t i = 0; i < input->size; i++) {
         if (IS_INT_TYPE(input->dtype)) {
             // 整数路径
             int64_t val = get_value_as_int64(input, i);
-            // TODO: int64_min 的 abs 可能会溢出
-            int64_t res = val < 0 ? -val : val;
+            // 处理int64_min的特殊情况
+            int64_t res = (val == INT64_MIN) ? INT64_MAX : (val < 0 ? -val : val);
             set_tensor_value_from_int(output, i, res);
         } else {
             // 浮点路径
@@ -431,8 +551,18 @@ void abs_forward(const Tensor* input, Tensor* output) {
  * 使用泰勒级数展开计算余弦值并存储在查找表中
  */
 void init_cos_lut(void) {
-    // 如果已经初始化，则直接返回
+    // 首先检查是否已初始化，避免不必要的锁操作
     if (cos_lut_initialized) return;
+    
+    // 加锁保护初始化过程
+    pthread_mutex_lock(&cos_lut_mutex);
+    
+    // 再次检查是否已初始化，防止多个线程同时等待锁
+    if (cos_lut_initialized) {
+        pthread_mutex_unlock(&cos_lut_mutex);
+        return;
+    }
+    
     // 遍历查找表的每个位置
     for (int i = 0; i <= COS_LUT_SIZE; i++) {
         // 计算对应的角度值
@@ -468,6 +598,9 @@ void init_cos_lut(void) {
     }
     // 标记查找表已初始化
     cos_lut_initialized = 1;
+    
+    // 解锁
+    pthread_mutex_unlock(&cos_lut_mutex);
 }
 
 /**
@@ -481,16 +614,8 @@ static double cos_lut_lookup(double x) {
     if (!cos_lut_initialized) {
         init_cos_lut();
     }
-    // 处理负角度
-    double reduced = x;
-    if (reduced < 0) {
-        reduced = -reduced;
-    }
-    // 将角度归一化到[0, 2π]区间
-    if (reduced > TWO_PI) {
-        int n = (int)(reduced / TWO_PI);
-        reduced -= n * TWO_PI;
-    }
+    // 处理负角度并归一化到[0, 2π]区间
+    double reduced = fmod(fabs(x), TWO_PI);
     // 计算查找表索引和插值因子
     double idx_f = reduced * COS_LUT_SIZE / TWO_PI;
     int idx = (int)idx_f;
@@ -510,8 +635,14 @@ static double cos_lut_lookup(double x) {
  * @param output 输出张量
  */
 void cos_forward(const Tensor* input, Tensor* output) {
+    // 检查输入参数是否有效
+    if (!input || !output || !input->data || !output->data || input->size != output->size) {
+        return;
+    }
+    
     if (!cos_lut_initialized) init_cos_lut();
 
+    #pragma omp parallel for
     for (size_t i = 0; i < input->size; i++) {
         double val = get_value_as_double(input, i); // 输入转 double
         double res = cos_lut_lookup(val);           // 查表
@@ -528,6 +659,11 @@ void cos_forward(const Tensor* input, Tensor* output) {
  * @param O 输出张量 (决定了计算精度)
  */
 void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    // 检查输入参数是否有效
+    if (!A || !B || !O || !A->data || !B->data || !O->data || A->size != B->size || A->size != O->size) {
+        return;
+    }
+    
     if (IS_INT_TYPE(O->dtype)) {
         BINARY_OP_INT_LOGIC(op_add);
     } else {
@@ -555,6 +691,11 @@ void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
  * @param O 输出张量 (决定了计算精度)
  */
 void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    // 检查输入参数是否有效
+    if (!A || !B || !O || !A->data || !B->data || !O->data || A->size != B->size || A->size != O->size) {
+        return;
+    }
+    
     if (IS_INT_TYPE(O->dtype)) {
         BINARY_OP_INT_LOGIC(op_sub);
     } else {
@@ -581,6 +722,11 @@ void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
  * @param O 输出张量 (决定了计算精度)
  */
 void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    // 检查输入参数是否有效
+    if (!A || !B || !O || !A->data || !B->data || !O->data || A->size != B->size || A->size != O->size) {
+        return;
+    }
+    
     if (IS_INT_TYPE(O->dtype)) {
         BINARY_OP_INT_LOGIC(op_mul);
     } else {
@@ -607,19 +753,38 @@ void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
  * @param O 输出张量 (决定了计算精度)
  */
 void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    // 检查输入参数是否有效
+    if (!A || !B || !O || !A->data || !B->data || !O->data || A->size != B->size || A->size != O->size) {
+        return;
+    }
+    
     if (IS_INT_TYPE(O->dtype)) {
         BINARY_OP_INT_LOGIC(op_div);
     } else {
         if (O->dtype == DTYPE_FLOAT64) {
             double* out_data = (double*)O->data;
             #pragma omp parallel for
-            for (size_t i = 0; i < O->size; i++) 
-                out_data[i] = get_value_as_double(A, i) / get_value_as_double(B, i);
+            for (size_t i = 0; i < O->size; i++) {
+                double val_b = get_value_as_double(B, i);
+                if (val_b == 0.0) {
+                    // 除数为零，返回NaN
+                    out_data[i] = 0.0 / 0.0;
+                } else {
+                    out_data[i] = get_value_as_double(A, i) / val_b;
+                }
+            }
         } else {
             float* out_data = (float*)O->data;  
             #pragma omp parallel for
-            for (size_t i = 0; i < O->size; i++) 
-                out_data[i] = get_value_as_float(A, i) / get_value_as_float(B, i);
+            for (size_t i = 0; i < O->size; i++) {
+                float val_b = get_value_as_float(B, i);
+                if (val_b == 0.0f) {
+                    // 除数为零，返回NaN
+                    out_data[i] = 0.0f / 0.0f;
+                } else {
+                    out_data[i] = get_value_as_float(A, i) / val_b;
+                }
+            }
         }
     }
 }
