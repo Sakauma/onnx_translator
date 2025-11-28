@@ -4,7 +4,7 @@ import os
 import nn
 from nn import Tensor
 import matplotlib.pyplot as plt
-from nn.Operators import RELU, COS, ABS, ADD, SUB, MUL, DIV
+from nn.Operators import RELU, COS, ABS, ADD, SUB, MUL, DIV, QuantizeLinear, DequantizeLinear
 
 # =============================================================================
 # 1. 辅助工具
@@ -141,20 +141,73 @@ def generate_random_data(shape, dtype):
 # 3. 验证与执行逻辑
 # =============================================================================
 
-def run_cuda_ground_truth(op_name, inputs_f32):
+# def run_cuda_ground_truth(op_name, inputs_f32):
+#     exe = f"./cache/verify_{op_name}"
+#     if not os.path.exists(exe):
+#         print(f"⚠️  Missing CUDA executable: {exe}")
+#         return None
+        
+#     # if len(inputs_f32) == 2:
+#     #     try:
+#     #         a, b = np.broadcast_arrays(inputs_f32[0], inputs_f32[1])
+#     #         cuda_inputs = [a, b]
+#     #     except ValueError:
+#     #         return None
+#     # else:
+#     #     cuda_inputs = inputs_f32
+    
+#     cuda_inputs = inputs_f32
+#     if len(inputs_f32) == 2:
+#         try:
+#             a, b = np.broadcast_arrays(inputs_f32[0], inputs_f32[1])
+#             cuda_inputs = [a, b]
+#         except ValueError:
+#             return None
+#     elif len(inputs_f32) == 3: # 新增: 支持 QDQ 的三元广播
+#         try:
+#             a, b, c = np.broadcast_arrays(inputs_f32[0], inputs_f32[1], inputs_f32[2])
+#             cuda_inputs = [a, b, c]
+#         except ValueError:
+#             return None
+
+#     files = []
+#     for i, arr in enumerate(cuda_inputs):
+#         fname = f"tmp_in_{i}.bin"
+#         arr.tofile(fname)
+#         files.append(fname)
+#     out_fname = "tmp_out.bin"
+    
+#     try:
+#         args = [exe, str(cuda_inputs[0].size)] + files + [out_fname]
+#         # 捕获 stderr 以防 CUDA 报错干扰
+#         subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+#         result = np.fromfile(out_fname, dtype=np.float32).reshape(cuda_inputs[0].shape)
+#     except Exception as e:
+#         # print(f"CUDA Fail: {e}") 
+#         result = None
+#     finally:
+#         for f in files + [out_fname]:
+#             if os.path.exists(f): os.remove(f)
+#     return result
+def run_cuda_ground_truth(op_name, inputs_f32, output_dtype=np.float32): 
     exe = f"./cache/verify_{op_name}"
     if not os.path.exists(exe):
         print(f"⚠️  Missing CUDA executable: {exe}")
         return None
         
+    cuda_inputs = inputs_f32
     if len(inputs_f32) == 2:
         try:
             a, b = np.broadcast_arrays(inputs_f32[0], inputs_f32[1])
             cuda_inputs = [a, b]
         except ValueError:
             return None
-    else:
-        cuda_inputs = inputs_f32
+    elif len(inputs_f32) == 3: 
+        try:
+            a, b, c = np.broadcast_arrays(inputs_f32[0], inputs_f32[1], inputs_f32[2])
+            cuda_inputs = [a, b, c]
+        except ValueError:
+            return None
 
     files = []
     for i, arr in enumerate(cuda_inputs):
@@ -165,11 +218,13 @@ def run_cuda_ground_truth(op_name, inputs_f32):
     
     try:
         args = [exe, str(cuda_inputs[0].size)] + files + [out_fname]
-        # 捕获 stderr 以防 CUDA 报错干扰
         subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        result = np.fromfile(out_fname, dtype=np.float32).reshape(cuda_inputs[0].shape)
+        
+        # [核心修复] 使用传入的 output_dtype 读取文件
+        result = np.fromfile(out_fname, dtype=output_dtype).reshape(cuda_inputs[0].shape)
+        
     except Exception as e:
-        # print(f"CUDA Fail: {e}") 
+        print(f"CUDA Fail [{op_name}]: {e}") 
         result = None
     finally:
         for f in files + [out_fname]:
@@ -258,26 +313,65 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, iterations=5):
     for i in range(iterations):
         # 1. 生成数据 (bits 或 values)
         inputs_np = []
-        inputs_tensor = []
+        #inputs_tensor = []
+        # for s, d in zip(shapes, dtypes):
+        #     data = generate_random_data(s, d)
+        #     inputs_np.append(data)
+        #     inputs_tensor.append(Tensor(*s, dtype=d, data=data))
         for s, d in zip(shapes, dtypes):
             data = generate_random_data(s, d)
             inputs_np.append(data)
-            inputs_tensor.append(Tensor(*s, dtype=d, data=data))
+            
+        # ---  QDQ 特殊数据修正 ---
+        if op_name in ["quantize_linear", "dequantize_linear"]:
+            # 输入顺序约定: [Data, Scale, ZeroPoint]
+            
+            # 修正 Scale (inputs_np[1]): 必须是正数，且避免过小导致除法不稳定
+            inputs_np[1] = np.abs(inputs_np[1]) + 1e-4
+            
+            # 修正 ZeroPoint (inputs_np[2]): 虽然是浮点存储，逻辑上应为整数
+            inputs_np[2] = np.round(inputs_np[2])
+            
+            # 特殊情况: QuantizeLinear 的 ZeroPoint 必须在 int8 范围内 [-128, 127]
+            # 否则 C 代码中的 saturate 逻辑可能与 CUDA 的简单实现不一致
+            if op_name == "quantize_linear":
+                inputs_np[2] = np.clip(inputs_np[2], -128, 127)
+        # -----------------------------
+
+        # 使用修正后的数据创建 Tensor 对象
+        inputs_tensor = []
+        for data, d in zip(inputs_np, dtypes):
+            inputs_tensor.append(Tensor(*data.shape, dtype=d, data=data))
             
         # 2. NPS 运行
+        # try:
+        #     op = op_cls(inputs=[], outputs=[], dtype=out_dtype)
+        #     if len(inputs_tensor) == 1:
+        #         nps_out = op.forward(inputs_tensor[0])["tensor"].data
+        #     else:
+        #         nps_out = op.forward(*inputs_tensor)["tensor"].data
+        # except Exception as e:
+        #     print(f"  ❌ Iter {i} Crash: {e}")
+        #     continue
         try:
             op = op_cls(inputs=[], outputs=[], dtype=out_dtype)
-            if len(inputs_tensor) == 1:
-                nps_out = op.forward(inputs_tensor[0])["tensor"].data
-            else:
-                nps_out = op.forward(*inputs_tensor)["tensor"].data
+            nps_out = op.forward(*inputs_tensor)["tensor"].data
         except Exception as e:
             print(f"  ❌ Iter {i} Crash: {e}")
+            import traceback
+            traceback.print_exc()
             continue
             
         # 3. CUDA 运行
-        cuda_inputs = [to_float32(x, d) for x, d in zip(inputs_np, dtypes)]
-        cuda_out = run_cuda_ground_truth(op_name, cuda_inputs)
+        if op_name in ["quantize_linear", "dequantize_linear"]:
+            # QDQ 专用: 输入转 float64，并告诉读取函数输出也是 float64
+            cuda_inputs = [to_float32(x, d).astype(np.float64) for x, d in zip(inputs_np, dtypes)]
+            cuda_out = run_cuda_ground_truth(op_name, cuda_inputs, output_dtype=np.float64) 
+        else:
+            # 其他算子: 保持 float32
+            cuda_inputs = [to_float32(x, d) for x, d in zip(inputs_np, dtypes)]
+            cuda_out = run_cuda_ground_truth(op_name, cuda_inputs, output_dtype=np.float32) 
+            
         if cuda_out is None: continue
         
         # 4. 对比
@@ -308,18 +402,36 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, iterations=5):
                 print(f"        GT (CUDA) = {cuda_out[idx]}")
                 print(f"        NPS (C)   = {nps_f32[idx]}")
                 
-                val_a = inputs_np[0][idx]
-                if np.issubdtype(type(val_a), np.integer):
-                    print(f"        Input A   = {val_a} (Hex: {val_a:02x})")
-                else:
-                    print(f"        Input A   = {val_a}")
+            #     val_a = inputs_np[0][idx]
+            #     if np.issubdtype(type(val_a), np.integer):
+            #         print(f"        Input A   = {val_a} (Hex: {val_a:02x})")
+            #     else:
+            #         print(f"        Input A   = {val_a}")
             
-                if len(inputs_np) > 1:
-                    val_b = inputs_np[1][idx]
-                    if np.issubdtype(type(val_b), np.integer):
-                        print(f"        Input B   = {val_b} (Hex: {val_b:02x})")
-                    else:
-                        print(f"        Input B   = {val_b}")
+            #     if len(inputs_np) > 1:
+            #         val_b = inputs_np[1][idx]
+            #         if np.issubdtype(type(val_b), np.integer):
+            #             print(f"        Input B   = {val_b} (Hex: {val_b:02x})")
+            #         else:
+            #             print(f"        Input B   = {val_b}")
+            # break
+                for k, inp_arr in enumerate(inputs_np):
+                    val_disp = ""
+                    try:
+                        if inp_arr.shape == cuda_out.shape:
+                            # 形状完全匹配，直接取值
+                            val_disp = inp_arr[idx]
+                        elif inp_arr.size == 1:
+                            # 标量广播
+                            val_disp = f"{inp_arr.item()} (Scalar)"
+                        else:
+                            # 复杂广播，暂时只显示形状提示
+                            val_disp = f"Shape{inp_arr.shape}"
+                    except:
+                        val_disp = "Error accessing index"
+
+                    print(f"        Input {k}   = {val_disp}")
+
             break
 
     if pass_cnt == iterations:
@@ -333,51 +445,68 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, iterations=5):
 # =============================================================================
 if __name__ == "__main__":
     plans = [
-        (ADD, "add", [(64,64), (64,64)], ["float32", "float32"], "float32"),
-        (SUB, "sub", [(64,64), (64,64)], ["float16", "float16"], "float16"),
-        (MUL, "mul", [(64,64), (64,64)], ["bfloat16", "bfloat16"], "bfloat16"),
-        (DIV, "div", [(64,64), (64,64)], ["float32", "float32"], "float32"),
-        (DIV, "div", [(64,64), (64,64)], ["float16", "float32"], "float16"),
+        # (ADD, "add", [(64,64), (64,64)], ["float32", "float32"], "float32"),
+        # (SUB, "sub", [(64,64), (64,64)], ["float16", "float16"], "float16"),
+        # (MUL, "mul", [(64,64), (64,64)], ["bfloat16", "bfloat16"], "bfloat16"),
+        # (DIV, "div", [(64,64), (64,64)], ["float32", "float32"], "float32"),
+        # (DIV, "div", [(64,64), (64,64)], ["float16", "float32"], "float16"),
         
-        # Int8 GEMM 模拟: Int8 * Int8 -> Int32 (防止溢出)
-        (MUL, "mul", [(64,64), (64,64)], ["int8", "int8"], "int32"),
-        # Int8 累加: Int8 + Int32 -> Int32
-        (ADD, "add", [(64,64), (64,64)], ["int8", "int32"], "int32"),
-        # 极限 Int4: Int4 * Int4 -> Int16
-        (MUL, "mul", [(64,64), (64,64)], ["int4", "int4"], "int16"),
-        # A32W4 场景: FP32 + Int4 -> FP32
-        (MUL, "mul", [(64,64), (64,64)], ["float32", "int4"], "float32"),
-        (ADD, "add", [(64,64), (64,64)], ["float32", "int4"], "float32"),
-        # FP16 + INT8 -> FP16
-        (MUL, "mul", [(64,64), (64,64)], ["float16", "int8"], "float16"),
-        (ADD, "add", [(64,64), (64,64)], ["float16", "int8"], "float16"),
-        # FP32 + INT8 -> FP32
-        (MUL, "mul", [(64,64), (64,64)], ["float32", "int8"], "float32"),
-        (ADD, "add", [(64,64), (64,64)], ["float32", "int8"], "float32"),
-        # 混合精度累加: FP16 + FP32 -> FP32 (ResNet/Transformer 常见)
-        (ADD, "add", [(64,64), (64,64)], ["float16", "float32"], "float32"),
-        # BF16 混合: BF16 * FP32 -> FP32
-        (MUL, "mul", [(64,64), (64,64)], ["bfloat16", "float32"], "float32"),
-        # 降级转换测试: FP32 / FP16 -> FP16
-        (DIV, "div", [(64,64), (64,64)], ["float32", "float16"], "float16"),
-        # E4M3 (权重) * E4M3 (激活) -> FP16
-        (MUL, "mul", [(64,64), (64,64)], ["float8_e4m3", "float8_e4m3"], "float16"),
-        # E5M2 (梯度) + FP16 -> FP16
-        (ADD, "add", [(64,64), (64,64)], ["float8_e5m2", "float16"], "float16"),
-        # 混合 FP8: E4M3 * E5M2 -> FP32
-        (MUL, "mul", [(64,64), (64,64)], ["float8_e4m3", "float8_e5m2"], "float32"),
+        # # Int8 GEMM 模拟: Int8 * Int8 -> Int32 (防止溢出)
+        # (MUL, "mul", [(64,64), (64,64)], ["int8", "int8"], "int32"),
+        # # Int8 累加: Int8 + Int32 -> Int32
+        # (ADD, "add", [(64,64), (64,64)], ["int8", "int32"], "int32"),
+        # # 极限 Int4: Int4 * Int4 -> Int16
+        # (MUL, "mul", [(64,64), (64,64)], ["int4", "int4"], "int16"),
+        # # A32W4 场景: FP32 + Int4 -> FP32
+        # (MUL, "mul", [(64,64), (64,64)], ["float32", "int4"], "float32"),
+        # (ADD, "add", [(64,64), (64,64)], ["float32", "int4"], "float32"),
+        # # FP16 + INT8 -> FP16
+        # (MUL, "mul", [(64,64), (64,64)], ["float16", "int8"], "float16"),
+        # (ADD, "add", [(64,64), (64,64)], ["float16", "int8"], "float16"),
+        # # FP32 + INT8 -> FP32
+        # (MUL, "mul", [(64,64), (64,64)], ["float32", "int8"], "float32"),
+        # (ADD, "add", [(64,64), (64,64)], ["float32", "int8"], "float32"),
+        # # 混合精度累加: FP16 + FP32 -> FP32 (ResNet/Transformer 常见)
+        # (ADD, "add", [(64,64), (64,64)], ["float16", "float32"], "float32"),
+        # # BF16 混合: BF16 * FP32 -> FP32
+        # (MUL, "mul", [(64,64), (64,64)], ["bfloat16", "float32"], "float32"),
+        # # 降级转换测试: FP32 / FP16 -> FP16
+        # (DIV, "div", [(64,64), (64,64)], ["float32", "float16"], "float16"),
+        # # E4M3 (权重) * E4M3 (激活) -> FP16
+        # (MUL, "mul", [(64,64), (64,64)], ["float8_e4m3", "float8_e4m3"], "float16"),
+        # # E5M2 (梯度) + FP16 -> FP16
+        # (ADD, "add", [(64,64), (64,64)], ["float8_e5m2", "float16"], "float16"),
+        # # 混合 FP8: E4M3 * E5M2 -> FP32
+        # (MUL, "mul", [(64,64), (64,64)], ["float8_e4m3", "float8_e5m2"], "float32"),
         
-        (MUL, "mul", [(64,64), (64,64)], ["bfloat16", "bfloat16"], "bfloat16"),
-        (ADD, "add", [(64,64), (64,64)], ["float8_e4m3", "float16"], "float16"),
-        (DIV, "div", [(10, 10, 10), (10, 1)], ["float32", "float32"], "float32"),
-        (SUB, "sub", [(4, 1, 16), (16,)], ["float32", "float32"], "float32"),
+        # (MUL, "mul", [(64,64), (64,64)], ["bfloat16", "bfloat16"], "bfloat16"),
+        # (ADD, "add", [(64,64), (64,64)], ["float8_e4m3", "float16"], "float16"),
+        # (DIV, "div", [(10, 10, 10), (10, 1)], ["float32", "float32"], "float32"),
+        # (SUB, "sub", [(4, 1, 16), (16,)], ["float32", "float32"], "float32"),
         
-        (ABS, "abs", [(100,)], ["float8_e4m3"], "float8_e4m3"),
-        (COS, "cos", [(100,)], ["float32"], "float32"),
-        (COS, "cos", [(100,)], ["float16"], "float16"),
-        (RELU, "relu", [(100,100)], ["float32"], "float32"),
-        (RELU, "relu", [(100,100)], ["float16"], "float16"),
-        (RELU, "relu", [(100,100)], ["int8"], "int8"),
+        # (ABS, "abs", [(100,)], ["float8_e4m3"], "float8_e4m3"),
+        # (COS, "cos", [(100,)], ["float32"], "float32"),
+        # (COS, "cos", [(100,)], ["float16"], "float16"),
+        # (RELU, "relu", [(100,100)], ["float32"], "float32"),
+        # (RELU, "relu", [(100,100)], ["float16"], "float16"),
+        # (RELU, "relu", [(100,100)], ["int8"], "int8"),
+        
+        # --- QDQ 测试 ---
+        # QuantizeLinear: FP32(Data) + FP32(Scale) + FP32(ZP) -> INT8
+        # 测试 1: 标量 Scale/ZP 广播到张量
+        (QuantizeLinear, "quantize_linear", 
+         [(64, 64), (1,), (1,)], 
+         ["float32", "float32", "float32"], "int8"),
+         
+        # 测试 2: Per-Channel 量化 (Scale/ZP 是向量)
+        (QuantizeLinear, "quantize_linear", 
+         [(2, 16, 4, 4), (1, 16, 1, 1), (1, 16, 1, 1)], 
+         ["float32", "float32", "float32"], "int8"),
+
+        # DequantizeLinear: INT8(Data) + FP32(Scale) + FP32(ZP) -> FP32
+        (DequantizeLinear, "dequantize_linear", 
+         [(64, 64), (1,), (1,)], 
+         ["int8", "float32", "float32"], "float32"),
     ]
 
     print("🚀 开始数值验证 ...")

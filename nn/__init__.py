@@ -4,6 +4,7 @@ import ctypes
 import numpy as np
 from typing import List, Union
 import os
+import nn
 
 class CTensor(ctypes.Structure):
     """C张量结构体，用于与C库交互"""
@@ -159,6 +160,8 @@ class Ops:
             cls._lib.sub_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             cls._lib.mul_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             cls._lib.div_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.quantize_linear_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            cls._lib.dequantize_linear_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             
             # 初始化余弦查找表
             cls._lib.init_cos_lut.argtypes = []
@@ -233,13 +236,42 @@ class Ops:
         output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
         output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[out_dtype])
 
-        # 4. 调用 C 函数
         getattr(self.lib, c_func_name)(a_c, b_c, output_c)
 
-        # 5. 清理
         out_data = self._ctensor_to_numpy(output_c, out_dtype)
         self.lib.free_tensor(a_c)
         self.lib.free_tensor(b_c)
+        self.lib.free_tensor(output_c)
+
+        return Tensor(*out_shape, dtype=out_dtype, data=out_data)
+    
+    def _execute_ternary(self, in_a, in_b, in_c, c_func_name):
+        """通用三元算子执行模板 (含广播逻辑，用于 QDQ)"""
+        try:
+            a_bc, b_bc, c_bc = np.broadcast_arrays(in_a.data, in_b.data, in_c.data)
+        except ValueError as e:
+            print(f"Broadcasting error in ternary op: {in_a.size}, {in_b.size}, {in_c.size}")
+            raise e
+            
+        out_shape = a_bc.shape
+        out_dtype = self.dtype if self.dtype else "float32"
+        def prep_ctensor(arr_bcast, original_tensor):
+            np_dtype = nn.DTYPE_TO_NUMPY[original_tensor.dtype]
+            arr_safe = arr_bcast.astype(np_dtype, copy=False)
+            return self._numpy_to_ctensor(np.ascontiguousarray(arr_safe), original_tensor.dtype)
+
+        a_c = prep_ctensor(a_bc, in_a)
+        b_c = prep_ctensor(b_bc, in_b)
+        c_c = prep_ctensor(c_bc, in_c)
+        
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[out_dtype])
+        getattr(self.lib, c_func_name)(a_c, b_c, c_c, output_c)
+
+        out_data = self._ctensor_to_numpy(output_c, out_dtype)
+        self.lib.free_tensor(a_c)
+        self.lib.free_tensor(b_c)
+        self.lib.free_tensor(c_c)
         self.lib.free_tensor(output_c)
 
         return Tensor(*out_shape, dtype=out_dtype, data=out_data)

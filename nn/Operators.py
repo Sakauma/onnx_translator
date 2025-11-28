@@ -400,3 +400,51 @@ class DIV(Ops):
                   "graph": None}
         self.parameters = {"values": values}
         return values
+    
+class QuantizeLinear(Ops):
+    def __init__(self, inputs, outputs, dtype=None, version="17"):
+        super(QuantizeLinear, self).__init__(inputs, outputs)
+        self.dtype = dtype # 必填，通常为 int8/uint8
+        self.version = version
+
+    def forward(self, x, y_scale, y_zero_point) -> Tensor:
+        out_tensor = self._execute_ternary(x, y_scale, y_zero_point, "quantize_linear_forward")
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, x, y_scale, y_zero_point) -> Tensor_:
+        # 模拟广播形状
+        try:
+            bcast_shape = np.broadcast_shapes(x.size, y_scale.size, y_zero_point.size)
+        except:
+            bcast_shape = x.size
+        
+        # 量化算子的输出类型必须严格遵循 dtype 参数
+        output_tensor = Tensor_(*bcast_shape, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+class DequantizeLinear(Ops):
+    def __init__(self, inputs, outputs, dtype=None, version="17"):
+        super(DequantizeLinear, self).__init__(inputs, outputs)
+        self.dtype = dtype # 通常为 float32
+        self.version = version
+
+    def forward(self, x, x_scale, x_zero_point) -> Tensor:
+        out_tensor = self._execute_ternary(x, x_scale, x_zero_point, "dequantize_linear_forward")
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, x, x_scale, x_zero_point) -> Tensor_:
+        try:
+            bcast_shape = np.broadcast_shapes(x.size, x_scale.size, x_zero_point.size)
+        except:
+            bcast_shape = x.size
+
+        output_tensor = Tensor_(*bcast_shape, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values

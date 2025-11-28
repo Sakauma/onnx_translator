@@ -21,6 +21,11 @@ def get_tensor_dtype(tensor_name, model):
     inferred_model = shape_inference.infer_shapes(model)
     graph = inferred_model.graph
     
+    # 检查 Initializer (常量)
+    for init_tensor in model.graph.initializer:
+        if init_tensor.name == tensor_name:
+            return init_tensor.data_type
+        
     # 在图的输入中查找
     for input_tensor in graph.input:
         if input_tensor.name == tensor_name:
@@ -119,6 +124,34 @@ def ONNXImport(file_path):
                                                     node.output,
                                                     dtype=onnx_dtype_mapping[elem_type],
                                                     version="17"))
+        elif node.op_type == "QuantizeLinear":
+            # 关键：通过 ZeroPoint (input[2]) 确定输出类型
+            zp_name = node.input[2]
+            elem_type = get_tensor_dtype(zp_name, onnx_model)
+            
+            if elem_type is None:
+                # 尝试做一次 shape inference 作为最后手段
+                print(f"⚠️ Warning: Inferring shapes for {zp_name}...")
+                inferred_model = shape_inference.infer_shapes(onnx_model)
+                elem_type = get_tensor_dtype(zp_name, inferred_model)
+
+            if elem_type is None:
+                raise ValueError(f"❌ Error: Could not determine dtype for ZeroPoint '{zp_name}' in node {node.name}. "
+                                 "Cannot proceed with default, as it risks signed/unsigned mismatch.")
+            
+            target_dtype = onnx_dtype_mapping[elem_type]
+            
+            onnx_graph_list.append(
+                nn.Operators.QuantizeLinear(node.input, node.output, dtype=target_dtype))
+        elif node.op_type == "DequantizeLinear":
+            # Dequantize 通常输出 float32，但也可能根据后续节点不同
+            # 尝试推断 output[0] 的类型
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            # 如果找不到，Dequantize 默认为 float32 通常是安全的
+            target_dtype = onnx_dtype_mapping[elem_type] if elem_type else "float32"
+            
+            onnx_graph_list.append(
+                nn.Operators.DequantizeLinear(node.input, node.output, dtype=target_dtype))
         elif node.op_type.upper() == "OTHER_OPS":
             # 其他操作节点的处理占位符
             pass

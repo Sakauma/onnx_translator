@@ -116,4 +116,16 @@ void mul_forward(const Tensor* A, const Tensor* B, Tensor* O);
  */
 void div_forward(const Tensor* A, const Tensor* B, Tensor* O);
 
+/**
+ * QuantizeLinear 前向传播 (FP32 -> INT8/UINT8 等)
+ * 公式: y = saturate(round(x / scale) + zero_point)
+ */
+void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y);
+
+/**
+ * DequantizeLinear 前向传播 (INT8/UINT8 -> FP32 等)
+ * 公式: y = (x - zero_point) * scale
+ */
+void dequantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y);
+
 #endif

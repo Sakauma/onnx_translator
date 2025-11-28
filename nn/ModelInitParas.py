@@ -9,7 +9,6 @@ onnx_np_dtype_mapping = {
  "float32": np.float32
 }
 
-
 def get_tensor_dtype(tensor_name, model):
     """
     获取张量的数据类型
@@ -41,7 +40,6 @@ def get_tensor_dtype(tensor_name, model):
             return value_info_tensor.type.tensor_type.elem_type
             
     return None
-
 
 def ONNXParasGen(file_path):
     """
