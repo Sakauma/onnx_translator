@@ -64,53 +64,53 @@ static inline int32_t saturate_cast_int32(int64_t val) {
  * @return 16位浮点数
  */
 static inline uint16_t float_to_float16(float value) {
-    // 获取32位浮点数的位表示
     uint32_t bits = *(uint32_t*)&value;
-    // 提取符号位
     uint16_t sign = (bits >> 16) & 0x8000;
-    // 提取指数位
-    uint32_t exp = (bits >> 23) & 0xFF;
-    // 提取尾数位
-    uint32_t frac = bits & 0x7FFFFF;
+
+    int32_t exp = ((bits >> 23) & 0xFF);
+    uint32_t mant = bits & 0x7FFFFF;
+    if (exp == 255) {
+        if (mant != 0) return sign | 0x7FFF; // NaN
+        return sign | 0x7C00; // Inf
+    }
+    if (exp == 0 && mant == 0) return sign;
+    int32_t new_exp = exp - 127 + 15;
+    uint32_t full_mant = mant;
+    if (exp != 0) {
+        full_mant |= 0x800000; // 加上隐含的 1
+    } else {
+        new_exp++; 
+    }
+
+    int shift = 13;
+    if (new_exp <= 0) {
+        shift += (1 - new_exp);
+        new_exp = 0; // 编码指数设为 0
+    }
+    if (shift >= 24) return sign; 
     
-    // 处理特殊情况：NaN
-    if (exp == 0xFF && frac != 0) {
-        // 返回NaN
-        return sign | 0x7FFF;
+    uint32_t mant_10 = full_mant >> shift;
+    uint32_t guard = (full_mant >> (shift - 1)) & 1;
+    
+    uint32_t mask = (1 << (shift - 1)) - 1;
+    uint32_t sticky = (full_mant & mask) != 0;
+    uint32_t lsb = mant_10 & 1;
+
+    if (guard && (sticky || lsb)) {
+        mant_10++;
+        if (new_exp == 0) {
+            if (mant_10 & 0x400) {
+                new_exp = 1;
+            }
+        } else {
+            if (mant_10 & 0x800) { 
+                mant_10 = 0; 
+                new_exp++;  
+            }
+        }
     }
-    // 处理特殊情况：无穷大             
-    if (exp == 0xFF && frac == 0) {
-        // 返回无穷大
-        return sign | 0x7C00;
-    }
-    // 处理特殊情况：零
-    if (exp == 0 && frac == 0) {
-        // 返回零
-        return sign;
-    }
-    // 处理特殊情况：次正规数
-    if (exp == 0) {
-        // 次正规数，调整为正规数
-        int shift = __builtin_clz(frac) - 8; // 计算前导零的数量
-        frac <<= shift;
-        exp = 1 - shift - 127 + 15;
-        frac >>= 13;
-        return sign | (exp << 10) | frac;
-    }
-    // 正常情况：调整指数偏移
-    exp = exp - 127 + 15;
-    // 处理特殊情况：指数过大
-    if (exp >= 31) {
-        // 返回无穷大
-        return sign | 0x7C00;
-    }
-    // 处理特殊情况：指数过小
-    if (exp <= 0) {
-        // 返回零
-        return sign;
-    }
-    // 正常情况：组合符号位、指数位和尾数位
-    return sign | (exp << 10) | (frac >> 13);
+    if (new_exp >= 31) return sign | 0x7C00;
+    return sign | (new_exp << 10) | (mant_10 & 0x3FF);
 }
 
 /**
@@ -120,36 +120,28 @@ static inline uint16_t float_to_float16(float value) {
  * @return 32位浮点数
  */
 static inline float float16_to_float(uint16_t value) {
-    // 提取符号位并左移16位
-    uint32_t sign = (value & 0x8000) << 16;
-    // 提取指数位
-    uint32_t exp = (value >> 10) & 0x1F;
-    // 提取尾数位
+    uint32_t sign = ((uint32_t)value & 0x8000) << 16;
+    uint32_t exp  = (value >> 10) & 0x1F;
     uint32_t frac = value & 0x3FF;
-    
-    // 处理特殊情况：零
+
     if (exp == 0 && frac == 0) {
-        return *(float*)&sign;
+        return *(float*)&sign; 
     }
-    // 处理特殊情况：无穷大或NaN
-    if (exp == 0x1F) {
-        uint32_t bits = sign | 0x7F800000 | (frac << 13);
-        return *(float*)&bits;
+    if (exp == 31) {
+        return *(float*)&(uint32_t){sign | 0x7F800000 | (frac << 13)};
     }
-    // 处理特殊情况：次正规数
     if (exp == 0) {
-        // 次正规数，调整为正规数
-        int shift = 14 - __builtin_clz(frac); // 计算前导零的数量
-        frac <<= shift;
-        exp = 1 - shift - 15 + 127;
-        frac >>= 13;
-        uint32_t bits = sign | (exp << 23) | (frac << 13);
+        int32_t new_exp = -14 + 127; 
+        while ((frac & 0x400) == 0) { 
+            frac <<= 1;
+            new_exp--;
+        }
+        frac &= 0x3FF; 
+        uint32_t bits = sign | (new_exp << 23) | (frac << 13);
         return *(float*)&bits;
     }
-    // 正常情况：调整指数偏移
-    exp = exp - 15 + 127;
-    // 组合符号位、指数位和尾数位
-    uint32_t bits = sign | (exp << 23) | (frac << 13);
+    uint32_t new_exp = exp - 15 + 127;
+    uint32_t bits = sign | (new_exp << 23) | (frac << 13);
     return *(float*)&bits;
 }
 
@@ -160,10 +152,23 @@ static inline float float16_to_float(uint16_t value) {
  * @return 16位bfloat16格式数据
  */
 static inline uint16_t float_to_bfloat16(float value) {
-    // 获取32位浮点数的位表示
     uint32_t bits = *(uint32_t*)&value;
-    // 取高16位作为bfloat16
-    return (uint16_t)(bits >> 16);
+
+    if ((bits & 0x7F800000) == 0x7F800000 && (bits & 0x007FFFFF) != 0) {
+        return (uint16_t)(bits >> 16) | 0x0040; // 强制设为 Quiet NaN
+    }
+    
+    uint32_t lsb    = (bits >> 16) & 1;
+    uint32_t guard  = (bits >> 15) & 1;
+    uint32_t sticky = (bits & 0x7FFF) != 0;
+    uint32_t rnd = guard && (sticky || lsb);
+    uint32_t rounded = bits + (rnd << 16);
+
+    if ((bits & 0x7F800000) != 0x7F800000 && (rounded & 0x7F800000) == 0x7F800000) {
+         // 保持符号，设为 Inf
+        return (uint16_t)((bits & 0x80000000) >> 16) | 0x7F80;
+    }
+    return (uint16_t)(rounded >> 16);
 }
 
 /**
@@ -191,66 +196,56 @@ static inline float bfloat16_to_float(uint16_t value) {
  * @return 32位浮点数
  */
 static inline float fp8_e4m3_to_float(uint8_t val) {
-    uint32_t sign = (val & 0x80) << 24;
-    uint32_t exp = (val & 0x78) >> 3;
+    uint32_t sign = ((uint32_t)val & 0x80) << 24;
+    uint32_t exp  = (val & 0x78) >> 3;
     uint32_t mant = (val & 0x07);
+    if (exp == 0 && mant == 0) return *(float*)&sign;
+    if (exp == 15 && mant == 7) {
+        return *(float*)&(uint32_t){sign | 0x7F800000 | 0x400000};
+    }
 
     if (exp == 0) {
-        if (mant == 0) return *(float*)&sign;
-        // 次正规数处理: 0.mant * 2^(-6)
-        float result = (float)mant * powf(2.0f, -6.0f);
-        return (val & 0x80) ? -result : result;
-    } else if (exp == 0x0F && mant == 0x07) {
-        return NAN; // NaN
-    } else {
-        // 正规数: 1.mant * 2^(exp - 7)
-        // 转 float32: exp - 7 + 127 = exp + 120
-        uint32_t new_exp = exp + 120;
-        uint32_t new_mant = mant << 20; // 3位尾数左移填充23位
-        uint32_t bits = sign | (new_exp << 23) | new_mant;
-        return *(float*)&bits;
+        int32_t new_exp = -6 + 127; 
+        while ((mant & 0x08) == 0) {
+            mant <<= 1;
+            new_exp--;
+        }
+        mant &= 0x07;
+        return *(float*)&(uint32_t){sign | (new_exp << 23) | (mant << 20)};
     }
+    uint32_t new_exp = exp + 120;
+    return *(float*)&(uint32_t){sign | (new_exp << 23) | (mant << 20)};
 }
 
 static inline uint8_t float_to_fp8_e4m3(float f) {
     uint32_t bits = *(uint32_t*)&f;
-    uint32_t sign = (bits & 0x80000000) >> 24;
-    uint32_t exp = (bits & 0x7F800000) >> 23;
-    uint32_t mant = (bits & 0x007FFFFF);
+    uint32_t sign = (bits & 0x80000000) >> 24; 
+    int32_t exp = (int32_t)((bits & 0x7F800000) >> 23);
+    uint32_t mant = bits & 0x007FFFFF;
 
-    // 1. NaN 处理
-    if (exp == 0xFF && mant != 0) return 0x7F | sign;
-
-    // 2. 零处理
+    if (exp == 255 && mant != 0) return 0x7F | sign;
     if (exp == 0) return (uint8_t)sign;
+    exp = exp - 127 + 7;
+    if (exp < 1) return (uint8_t)sign; 
+    if (exp > 15) return 0x7E | sign;
+    uint32_t mant_3 = (mant >> 20) & 0x7; // 截断后的尾数
+    uint32_t guard  = (mant >> 19) & 1;
+    uint32_t sticky = (mant & 0x7FFFF) != 0;
+    uint32_t lsb    = mant_3 & 1;
 
-    // 3. 计算指数 (Bias 127 -> 7)
-    int e_fp8 = (int)exp - 127 + 7;
-
-    // 4. 下溢处理 (简化为0)
-    if (e_fp8 <= 0) return (uint8_t)sign;
-
-    // 5. 上溢/无穷大处理 (饱和到最大值 448 = 0x7E)
-    // E4M3 没有 Inf，通常饱和处理
-    if (e_fp8 > 15) return 0x7E | sign;
-
-    // 6. 尾数舍入
-    // 取高3位 (bit 22, 21, 20)
-    uint32_t m_fp8 = (mant >> 20) & 0x7;
-    // 检查第19位进行四舍五入
-    if ((mant >> 19) & 1) {
-        m_fp8++;
-        if (m_fp8 > 7) { // 尾数进位导致溢出
-            m_fp8 = 0;
-            e_fp8++;
+    if (guard && (sticky || lsb)) {
+        mant_3++;
+        // 进位处理
+        if (mant_3 > 7) {
+            mant_3 = 0;
+            exp++;
         }
     }
-    
-    // 再次检查指数溢出 (可能因为进位导致)
-    // 注意: E4M3 最大正规数 exp=15, mant=6 (0x7E)。Exp=15, Mant=7 是 NaN
-    if (e_fp8 > 15 || (e_fp8 == 15 && m_fp8 == 7)) return 0x7E | sign;
+    if (exp > 15 || (exp == 15 && mant_3 == 7)) {
+        return 0x7E | sign; // 饱和到最大值
+    }
 
-    return (uint8_t)(sign | (e_fp8 << 3) | m_fp8);
+    return (uint8_t)(sign | (exp << 3) | mant_3);
 }
 
 /**
@@ -260,68 +255,58 @@ static inline uint8_t float_to_fp8_e4m3(float f) {
  * @return 32位浮点数
  */
 static inline float fp8_e5m2_to_float(uint8_t val) {
-    uint32_t sign = (val & 0x80) << 24;
-    uint32_t exp = (val & 0x7C) >> 2;
+    uint32_t sign = ((uint32_t)val & 0x80) << 24;
+    uint32_t exp  = (val & 0x7C) >> 2;
     uint32_t mant = (val & 0x03);
-
-    if (exp == 0) {
-        if (mant == 0) return *(float*)&sign;
-        // 次正规数: 0.mant * 2^(-14)
-        float result = (float)mant * powf(2.0f, -14.0f);
-        return (val & 0x80) ? -result : result;
-    } else if (exp == 0x1F) {
-        // Inf 或 NaN
-        uint32_t bits = sign | 0x7F800000 | (mant ? (1 << 22) : 0);
-        return *(float*)&bits;
-    } else {
-        // 正规数: exp - 15 + 127 = exp + 112
-        uint32_t new_exp = exp + 112;
-        uint32_t new_mant = mant << 21;
-        uint32_t bits = sign | (new_exp << 23) | new_mant;
-        return *(float*)&bits;
+    if (exp == 0 && mant == 0) return *(float*)&sign;
+    if (exp == 31) {
+        uint32_t f32_mant = mant << 21;
+        if (mant != 0) f32_mant |= 0x400000; 
+        return *(float*)&(uint32_t){sign | 0x7F800000 | f32_mant};
     }
+    if (exp == 0) {
+        int32_t new_exp = -14 + 127;
+        while ((mant & 0x04) == 0) {
+            mant <<= 1;
+            new_exp--;
+        }
+        mant &= 0x03;
+        return *(float*)&(uint32_t){sign | (new_exp << 23) | (mant << 21)};
+    }
+    uint32_t new_exp = exp + 112;
+    return *(float*)&(uint32_t){sign | (new_exp << 23) | (mant << 21)};
 }
 
 static inline uint8_t float_to_fp8_e5m2(float f) {
     uint32_t bits = *(uint32_t*)&f;
     uint32_t sign = (bits & 0x80000000) >> 24;
-    uint32_t exp = (bits & 0x7F800000) >> 23;
-    uint32_t mant = (bits & 0x007FFFFF);
+    int32_t exp = (int32_t)((bits & 0x7F800000) >> 23);
+    uint32_t mant = bits & 0x007FFFFF;
 
-    // 1. NaN 和 Inf 处理
-    if (exp == 0xFF) {
-        // 保持符号，指数全1 (0x1F)
-        // 如果原 mant!=0 (NaN)，则设 m_fp8=1 (非零即可)
+    if (exp == 255) {
         return (uint8_t)(sign | 0x7C | (mant ? 1 : 0));
     }
-
-    // 2. 零处理
     if (exp == 0) return (uint8_t)sign;
+    exp = exp - 127 + 15;
+    if (exp < 1) return (uint8_t)sign;
+    if (exp >= 31) return (uint8_t)(sign | 0x7C);
 
-    // 3. 指数转换 (Bias 127 -> 15)
-    int e_fp8 = (int)exp - 127 + 15;
+    uint32_t mant_2 = (mant >> 21) & 0x3;
+    uint32_t guard  = (mant >> 20) & 1;
+    uint32_t sticky = (mant & 0xFFFFF) != 0;
+    uint32_t lsb    = mant_2 & 1;
 
-    // 4. 上溢处理 (变成 Inf)
-    if (e_fp8 >= 31) return (uint8_t)(sign | 0x7C);
-
-    // 5. 下溢处理
-    if (e_fp8 <= 0) return (uint8_t)sign;
-
-    // 6. 尾数舍入
-    uint32_t m_fp8 = (mant >> 21) & 0x3;
-    if ((mant >> 20) & 1) {
-        m_fp8++;
-        if (m_fp8 > 3) {
-            m_fp8 = 0;
-            e_fp8++;
+    if (guard && (sticky || lsb)) {
+        mant_2++;
+        if (mant_2 > 3) {
+            mant_2 = 0;
+            exp++;
         }
     }
-    
-    if (e_fp8 >= 31) return (uint8_t)(sign | 0x7C);
+    if (exp >= 31) return (uint8_t)(sign | 0x7C); 
 
-    return (uint8_t)(sign | (e_fp8 << 2) | m_fp8);
+    return (uint8_t)(sign | (exp << 2) | mant_2);
 }
-
 
 /**
  * 创建张量
@@ -496,11 +481,11 @@ static inline double get_value_as_double(const Tensor* tensor, size_t index) {
  */
 static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
     switch (tensor->dtype) {
-        case DTYPE_FLOAT32: return (int64_t)roundf(((float*)tensor->data)[index]);
-        case DTYPE_FLOAT16: return (int64_t)roundf(float16_to_float(((uint16_t*)tensor->data)[index]));
-        case DTYPE_BFLOAT16: return (int64_t)roundf(bfloat16_to_float(((uint16_t*)tensor->data)[index]));
-        case DTYPE_FLOAT8_E4M3: return (int64_t)roundf(fp8_e4m3_to_float(((uint8_t*)tensor->data)[index]));
-        case DTYPE_FLOAT8_E5M2: return (int64_t)roundf(fp8_e5m2_to_float(((uint8_t*)tensor->data)[index]));
+        case DTYPE_FLOAT32: return (int64_t)rintf(((float*)tensor->data)[index]);
+        case DTYPE_FLOAT16: return (int64_t)rintf(float16_to_float(((uint16_t*)tensor->data)[index]));
+        case DTYPE_BFLOAT16: return (int64_t)rintf(bfloat16_to_float(((uint16_t*)tensor->data)[index]));
+        case DTYPE_FLOAT8_E4M3: return (int64_t)rintf(fp8_e4m3_to_float(((uint8_t*)tensor->data)[index]));
+        case DTYPE_FLOAT8_E5M2: return (int64_t)rintf(fp8_e5m2_to_float(((uint8_t*)tensor->data)[index]));
         case DTYPE_INT4: {
             // INT4: 符号扩展到int8_t
             int8_t val = ((int8_t*)tensor->data)[index];
@@ -517,7 +502,7 @@ static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
         case DTYPE_INT16: return (int64_t)((int16_t*)tensor->data)[index];
         case DTYPE_INT32: return (int64_t)((int32_t*)tensor->data)[index];
         case DTYPE_INT64: return ((int64_t*)tensor->data)[index];
-        case DTYPE_FLOAT64: return (int64_t)round(((double*)tensor->data)[index]);
+        case DTYPE_FLOAT64: return (int64_t)rint(((double*)tensor->data)[index]);
         default: return 0;
     }
 }
@@ -537,6 +522,8 @@ static inline void set_tensor_value_from_int(Tensor* tensor, size_t index, int64
         // 如果目标是浮点，进行转换
         case DTYPE_FLOAT8_E4M3: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3((float)value); break;
         case DTYPE_FLOAT8_E5M2: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2((float)value); break;
+        case DTYPE_FLOAT16:     ((uint16_t*)tensor->data)[index] = float_to_float16((float)value); break;
+        case DTYPE_BFLOAT16:    ((uint16_t*)tensor->data)[index] = float_to_bfloat16((float)value); break;
         case DTYPE_FLOAT32: ((float*)tensor->data)[index] = (float)value; break;
         case DTYPE_FLOAT64: ((double*)tensor->data)[index] = (double)value; break;
         default: break;
@@ -547,15 +534,17 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
     switch (tensor->dtype) {
         case DTYPE_FLOAT8_E4M3: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3((float)value); break;
         case DTYPE_FLOAT8_E5M2: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2((float)value); break;
+        case DTYPE_FLOAT16:  ((uint16_t*)tensor->data)[index] = float_to_float16((float)value); break;
+        case DTYPE_BFLOAT16: ((uint16_t*)tensor->data)[index] = float_to_bfloat16((float)value); break;
         case DTYPE_FLOAT32: ((float*)tensor->data)[index] = (float)value; break;
         case DTYPE_FLOAT64: ((double*)tensor->data)[index] = value; break;
         // 如果目标是整数，使用饱和截断转换
-        case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = saturate_cast_int4((int64_t)round(value)); break; 
-        case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = saturate_cast_int8((int64_t)round(value)); break;
-        case DTYPE_UINT8: ((uint8_t*)tensor->data)[index] = saturate_cast_uint8((int64_t)round(value)); break;
-        case DTYPE_INT16:   ((int16_t*)tensor->data)[index] = saturate_cast_int16((int64_t)round(value)); break;
-        case DTYPE_INT32:   ((int32_t*)tensor->data)[index] = saturate_cast_int32((int64_t)round(value)); break;
-        case DTYPE_INT64:   ((int64_t*)tensor->data)[index] = (int64_t)round(value); break;
+        case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = saturate_cast_int4((int64_t)rint(value)); break; 
+        case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = saturate_cast_int8((int64_t)rint(value)); break;
+        case DTYPE_UINT8: ((uint8_t*)tensor->data)[index] = saturate_cast_uint8((int64_t)rint(value)); break;
+        case DTYPE_INT16:   ((int16_t*)tensor->data)[index] = saturate_cast_int16((int64_t)rint(value)); break;
+        case DTYPE_INT32:   ((int32_t*)tensor->data)[index] = saturate_cast_int32((int64_t)rint(value)); break;
+        case DTYPE_INT64:   ((int64_t*)tensor->data)[index] = (int64_t)rint(value); break;
         default: break;
     }
 }
@@ -930,13 +919,7 @@ void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
             double* out_data = (double*)O->data;
             #pragma omp parallel for
             for (size_t i = 0; i < O->size; i++) {
-                double val_b = get_value_as_double(B, i);
-                if (val_b == 0.0) {
-                    // 除数为零，返回NaN
-                    out_data[i] = 0.0 / 0.0;
-                } else {
-                    out_data[i] = get_value_as_double(A, i) / val_b;
-                }
+                out_data[i] = get_value_as_double(A, i) / get_value_as_double(B, i);
             }
         } else {
             // 对所有非double浮点类型使用统一处理，包括float8
@@ -945,12 +928,7 @@ void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
                 double val_a = get_value_as_double(A, i);
                 double val_b = get_value_as_double(B, i);
                 double res;
-                if (val_b == 0.0) {
-                    // 除数为零，返回NaN
-                    res = 0.0 / 0.0;
-                } else {
-                    res = val_a / val_b;
-                }
+                res = val_a / val_b;
                 set_tensor_value_from_float(O, i, res);
             }
         }
