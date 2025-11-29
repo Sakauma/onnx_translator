@@ -1,10 +1,25 @@
 from nn import Ops
-from nn import Tensor, Tensor_
+from nn import Tensor, Tensor_, DTYPE_MAP, CTensor
 import nn
 import ctypes
 import numpy as np
 from typing import List, Union
 import os
+
+class CConvParams(ctypes.Structure):
+    _fields_ = [
+        ("pads", ctypes.POINTER(ctypes.c_int)),
+        ("strides", ctypes.POINTER(ctypes.c_int)),
+        ("dilations", ctypes.POINTER(ctypes.c_int)),
+        ("group", ctypes.c_int)
+    ]
+
+class CPoolParams(ctypes.Structure):
+    _fields_ = [
+        ("pads", ctypes.POINTER(ctypes.c_int)),
+        ("strides", ctypes.POINTER(ctypes.c_int)),
+        ("kernel_shape", ctypes.POINTER(ctypes.c_int))
+    ]
 
 class RELU(Ops):
     """ReLU激活函数操作类"""
@@ -445,6 +460,225 @@ class DequantizeLinear(Ops):
             bcast_shape = x.size
 
         output_tensor = Tensor_(*bcast_shape, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+    
+class Conv(Ops):
+    def __init__(self, inputs, outputs, pads, strides, dilations, group, dtype, version="11"):
+        super(Conv, self).__init__(inputs, outputs)
+        # 必须完整保存所有参数
+        self.pads = pads         # [top, left, bottom, right]
+        self.strides = strides   # [h, w]
+        self.dilations = dilations # [h, w]
+        self.group = group
+        self.dtype = dtype
+        self.version = version
+
+        # 注册 C 函数参数类型
+        if self.lib:
+            self.lib.conv2d_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), 
+                ctypes.POINTER(CTensor), ctypes.POINTER(CConvParams)
+            ]
+
+    def forward(self, x: Tensor, w: Tensor, b: Tensor = None) -> dict:
+        # 1. 计算输出形状
+        N, C_in, H_in, W_in = x.size
+        M, C_in_g, K_h, K_w = w.size # W: [OutCh, InCh/Group, KH, KW]
+        
+        # Output Size 公式
+        H_out = (H_in + self.pads[0] + self.pads[2] - self.dilations[0] * (K_h - 1) - 1) // self.strides[0] + 1
+        W_out = (W_in + self.pads[1] + self.pads[3] - self.dilations[1] * (K_w - 1) - 1) // self.strides[1] + 1
+        out_shape = (N, M, H_out, W_out)
+        
+        # 2. 准备 C 参数
+        pads_arr = (ctypes.c_int * 4)(*self.pads)
+        strides_arr = (ctypes.c_int * 2)(*self.strides)
+        dilations_arr = (ctypes.c_int * 2)(*self.dilations)
+        
+        c_params = CConvParams()
+        c_params.pads = ctypes.cast(pads_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.strides = ctypes.cast(strides_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.dilations = ctypes.cast(dilations_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.group = self.group
+
+        # 3. 准备 Tensor
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        w_c = self._numpy_to_ctensor(w.data, w.dtype)
+        b_c = self._numpy_to_ctensor(b.data, b.dtype) if b is not None else ctypes.POINTER(CTensor)()
+        
+        # 创建输出 Tensor
+        output_shape_c = (ctypes.c_int * 4)(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, 4, DTYPE_MAP[self.dtype])
+        
+        # 4. 执行计算
+        self.lib.conv2d_forward(x_c, w_c, b_c, output_c, ctypes.byref(c_params))
+        
+        # 5. 回收与返回
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(x_c)
+        self.lib.free_tensor(w_c)
+        self.lib.free_tensor(output_c)
+        if b is not None: self.lib.free_tensor(b_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, x: Tensor_, w: Tensor_, b: Tensor_ = None) -> dict:
+        # 仅做形状推断
+        N, C_in, H_in, W_in = x.size
+        M, C_in_g, K_h, K_w = w.size
+        H_out = (H_in + self.pads[0] + self.pads[2] - self.dilations[0] * (K_h - 1) - 1) // self.strides[0] + 1
+        W_out = (W_in + self.pads[1] + self.pads[3] - self.dilations[1] * (K_w - 1) - 1) // self.strides[1] + 1
+        
+        output_tensor = Tensor_(N, M, H_out, W_out, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+class MaxPool(Ops):
+    def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, version="12"):
+        super(MaxPool, self).__init__(inputs, outputs)
+        self.kernel_shape = kernel_shape
+        self.pads = pads
+        self.strides = strides
+        self.dtype = dtype
+        self.version = version
+
+        if self.lib:
+            self.lib.max_pool_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CPoolParams)
+            ]
+
+    def forward(self, x: Tensor) -> dict:
+        # 1. 计算输出形状
+        N, C, H_in, W_in = x.size
+        K_h, K_w = self.kernel_shape
+        H_out = (H_in + self.pads[0] + self.pads[2] - 1 * (K_h - 1) - 1) // self.strides[0] + 1
+        W_out = (W_in + self.pads[1] + self.pads[3] - 1 * (K_w - 1) - 1) // self.strides[1] + 1
+        out_shape = (N, C, H_out, W_out)
+
+        # 2. 准备参数
+        pads_arr = (ctypes.c_int * 4)(*self.pads)
+        strides_arr = (ctypes.c_int * 2)(*self.strides)
+        kernel_arr = (ctypes.c_int * 2)(*self.kernel_shape)
+        
+        c_params = CPoolParams()
+        c_params.pads = ctypes.cast(pads_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.strides = ctypes.cast(strides_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.kernel_shape = ctypes.cast(kernel_arr, ctypes.POINTER(ctypes.c_int))
+
+        # 3. 准备 Tensor
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        output_shape_c = (ctypes.c_int * 4)(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, 4, DTYPE_MAP[self.dtype])
+
+        # 4. 执行
+        self.lib.max_pool_forward(x_c, output_c, ctypes.byref(c_params))
+
+        # 5. 返回
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(x_c)
+        self.lib.free_tensor(output_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, x: Tensor_) -> dict:
+        N, C, H_in, W_in = x.size
+        K_h, K_w = self.kernel_shape
+        H_out = (H_in + self.pads[0] + self.pads[2] - K_h) // self.strides[0] + 1
+        W_out = (W_in + self.pads[1] + self.pads[3] - K_w) // self.strides[1] + 1
+        output_tensor = Tensor_(N, C, H_out, W_out, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+class Gemm(Ops):
+    def __init__(self, inputs, outputs, alpha, beta, transA, transB, dtype, version="11"):
+        super(Gemm, self).__init__(inputs, outputs)
+        self.alpha = alpha
+        self.beta = beta
+        self.transA = transA
+        self.transB = transB
+        self.dtype = dtype
+
+        if self.lib:
+            self.lib.gemm_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                ctypes.c_float, ctypes.c_float, ctypes.c_int, ctypes.c_int
+            ]
+
+    def forward(self, A: Tensor, B: Tensor, C: Tensor = None) -> dict:
+        # 维度推断 (假设 A, B 至少 2D)
+        M = A.size[0] if self.transA == 0 else A.size[1]
+        N = B.size[1] if self.transB == 0 else B.size[0]
+        out_shape = (M, N)
+
+        a_c = self._numpy_to_ctensor(A.data, A.dtype)
+        b_c = self._numpy_to_ctensor(B.data, B.dtype)
+        c_c = self._numpy_to_ctensor(C.data, C.dtype) if C is not None else ctypes.POINTER(CTensor)()
+
+        output_shape_c = (ctypes.c_int * 2)(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, 2, DTYPE_MAP[self.dtype])
+
+        self.lib.gemm_forward(a_c, b_c, c_c, output_c, 
+                              ctypes.c_float(self.alpha), ctypes.c_float(self.beta), 
+                              ctypes.c_int(self.transA), ctypes.c_int(self.transB))
+
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(a_c); self.lib.free_tensor(b_c); self.lib.free_tensor(output_c)
+        if C is not None: self.lib.free_tensor(c_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, A: Tensor_, B: Tensor_, C: Tensor_ = None) -> dict:
+        M = A.size[0] if self.transA == 0 else A.size[1]
+        N = B.size[1] if self.transB == 0 else B.size[0]
+        output_tensor = Tensor_(M, N, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+class Softmax(Ops):
+    def __init__(self, inputs, outputs, axis, dtype, version="13"):
+        super(Softmax, self).__init__(inputs, outputs)
+        self.axis = axis
+        self.dtype = dtype
+        
+        if self.lib:
+            self.lib.softmax_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int
+            ]
+
+    def forward(self, input: Tensor) -> dict:
+        out_shape = input.size
+        
+        input_c = self._numpy_to_ctensor(input.data, input.dtype)
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[self.dtype])
+        
+        self.lib.softmax_forward(input_c, output_c, ctypes.c_int(self.axis))
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+        
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
         values = {"tensor": output_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values

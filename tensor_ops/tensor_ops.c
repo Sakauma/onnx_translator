@@ -4,6 +4,7 @@
 #include <math.h>
 #include <omp.h>
 #include <pthread.h>
+#include <float.h>
 
 // 余弦查找表大小
 #define COS_LUT_SIZE 4096
@@ -631,6 +632,22 @@ static inline int64_t op_sub(int64_t a, int64_t b) { return a - b; }
 static inline int64_t op_mul(int64_t a, int64_t b) { return a * b; }
 static inline int64_t op_div(int64_t a, int64_t b) { return b == 0 ? (a >= 0 ? INT64_MAX : INT64_MIN) : a / b; }
 
+// 安全获取4D张量的值
+static inline double get_val_4d_with_padding(const Tensor* T, int n, int c, int h, int w, double pad_val) {
+    int N = T->shape[0];
+    int C = T->shape[1];
+    int H = T->shape[2];
+    int W = T->shape[3];
+
+    // 越界检查：如果坐标在张量范围外，返回 padding 值
+    if (n < 0 || n >= N || c < 0 || c >= C || h < 0 || h >= H || w < 0 || w >= W) {
+        return pad_val;
+    }
+    // 计算平坦索引
+    size_t idx = ((size_t)n * C * H * W) + ((size_t)c * H * W) + ((size_t)h * W) + w;
+    return get_value_as_double(T, idx);
+}
+
 /**
  * ReLU激活函数前向传播实现
  * 
@@ -969,5 +986,229 @@ void dequantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tenso
         double res = (x_val - zp_val) * s_val;
         
         set_tensor_value_from_float(Y, i, res);
+    }
+}
+
+void conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params) {
+    // 形状解析
+    // X: [Batch, InChannel, InH, InW]
+    int batch = X->shape[0];
+    int in_c  = X->shape[1];
+    
+    // W: [OutChannel, InChannel/Group, KernelH, KernelW]
+    int out_c = W->shape[0];
+    int k_h   = W->shape[2];
+    int k_w   = W->shape[3];
+    
+    // Y: [Batch, OutChannel, OutH, OutW]
+    int out_h = Y->shape[2];
+    int out_w = Y->shape[3];
+
+    // 参数解析
+    int pad_top = params->pads[0];
+    int pad_left = params->pads[1];
+    int stride_h = params->strides[0];
+    int stride_w = params->strides[1];
+    int dilation_h = params->dilations[0];
+    int dilation_w = params->dilations[1];
+    int group = params->group;
+    
+    int in_c_per_group = in_c / group;
+    int out_c_per_group = out_c / group; 
+
+    // 核心计算循环
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < batch; n++) {
+        for (int m = 0; m < out_c; m++) {
+            // 当前 filter 属于第 g 个组
+            int g = m / (out_c / group);
+            
+            // 获取 Bias
+            double bias_val = 0.0;
+            if (B != NULL && B->data != NULL) {
+                bias_val = get_value_as_double(B, m);
+            }
+
+            for (int oh = 0; oh < out_h; oh++) {
+                for (int ow = 0; ow < out_w; ow++) {
+                    double sum = 0.0;
+                    // 卷积累加：在 Group 内遍历输入通道
+                    for (int ic_g = 0; ic_g < in_c_per_group; ic_g++) {
+                        // 实际的输入通道索引
+                        int ic = g * in_c_per_group + ic_g;
+                        for (int kh = 0; kh < k_h; kh++) {
+                            for (int kw = 0; kw < k_w; kw++) {
+                                // 计算输入特征图上的坐标 (包含 Dilation 和 Padding)
+                                int h_in = oh * stride_h + kh * dilation_h - pad_top;
+                                int w_in = ow * stride_w + kw * dilation_w - pad_left;
+                                
+                                // 获取输入值 (越界返回 0.0)
+                                double val_x = get_val_4d_with_padding(X, n, ic, h_in, w_in, 0.0);
+                                
+                                // 获取权重值
+                                // W 索引: m(out_c), ic_g(in_c_per_group), kh, kw
+                                size_t w_idx = ((size_t)m * in_c_per_group * k_h * k_w) + 
+                                               ((size_t)ic_g * k_h * k_w) + 
+                                               ((size_t)kh * k_w) + kw;
+                                double val_w = get_value_as_double(W, w_idx);
+                                
+                                sum += val_x * val_w;
+                            }
+                        }
+                    }
+                    
+                    // 加上 Bias 并写入输出
+                    size_t y_idx = ((size_t)n * out_c * out_h * out_w) + 
+                                   ((size_t)m * out_h * out_w) + 
+                                   ((size_t)oh * out_w) + ow;
+                    
+                    set_tensor_value_from_float(Y, y_idx, sum + bias_val);
+                }
+            }
+        }
+    }
+}
+
+void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params) {
+    int batch = X->shape[0];
+    int channels = X->shape[1];
+    int in_h = X->shape[2];
+    int in_w = X->shape[3];
+    
+    int out_h = Y->shape[2];
+    int out_w = Y->shape[3];
+    
+    int k_h = params->kernel_shape[0];
+    int k_w = params->kernel_shape[1];
+    int pad_top = params->pads[0];
+    int pad_left = params->pads[1];
+    int stride_h = params->strides[0];
+    int stride_w = params->strides[1];
+
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < batch; n++) {
+        for (int c = 0; c < channels; c++) {
+            for (int oh = 0; oh < out_h; oh++) {
+                for (int ow = 0; ow < out_w; ow++) {
+                    double max_val = -DBL_MAX; 
+                    
+                    // 遍历 Kernel
+                    for (int kh = 0; kh < k_h; kh++) {
+                        for (int kw = 0; kw < k_w; kw++) {
+                            int h_in = oh * stride_h + kh - pad_top;
+                            int w_in = ow * stride_w + kw - pad_left;
+                            
+                            // MaxPool padding 策略: 只处理边界内
+                            if (h_in >= 0 && h_in < in_h && w_in >= 0 && w_in < in_w) {
+                                size_t x_idx = ((size_t)n * channels * in_h * in_w) + 
+                                               ((size_t)c * in_h * in_w) + 
+                                               ((size_t)h_in * in_w) + w_in;
+                                double val = get_value_as_double(X, x_idx);
+                                if (val > max_val) {
+                                    max_val = val;
+                                }
+                            }
+                        }
+                    }
+                    size_t y_idx = ((size_t)n * channels * out_h * out_w) + 
+                                   ((size_t)c * out_h * out_w) + 
+                                   ((size_t)oh * out_w) + ow;
+                    set_tensor_value_from_float(Y, y_idx, max_val);
+                }
+            }
+        }
+    }
+}
+
+void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y, 
+                  float alpha, float beta, int transA, int transB) {
+    // 假设 A, B 已经是 2D 矩阵 (前端已处理 reshape)
+    int M = (transA == 0) ? A->shape[0] : A->shape[1];
+    int K = (transA == 0) ? A->shape[1] : A->shape[0];
+    int N = (transB == 0) ? B->shape[1] : B->shape[0];
+    
+    #pragma omp parallel for collapse(2)
+    for (int m = 0; m < M; m++) {
+        for (int n = 0; n < N; n++) {
+            
+            // 计算矩阵乘积: A' * B'
+            double sum = 0.0;
+            for (int k = 0; k < K; k++) {
+                // 计算 A 的索引
+                size_t idx_a = (transA == 0) ? ((size_t)m * A->shape[1] + k) 
+                                             : ((size_t)k * A->shape[1] + m);
+                
+                // 计算 B 的索引
+                size_t idx_b = (transB == 0) ? ((size_t)k * B->shape[1] + n) 
+                                             : ((size_t)n * B->shape[1] + k);
+                
+                sum += get_value_as_double(A, idx_a) * get_value_as_double(B, idx_b);
+            }
+            
+            double res = (double)alpha * sum;
+            
+            // 处理 Bias C (支持广播)
+            if (C != NULL && C->data != NULL) {
+                double val_c = 0.0;
+                
+                if (C->size == 1) { 
+                    val_c = get_value_as_double(C, 0);
+                } else if (C->ndim == 1 || (C->ndim == 2 && C->shape[0] == 1)) {
+                    if (C->size == N) val_c = get_value_as_double(C, n);
+                } else if (C->ndim == 2 && C->shape[1] == 1) {
+                    if (C->shape[0] == M) val_c = get_value_as_double(C, m);
+                } else {
+                    size_t idx_c = (size_t)m * N + n;
+                    if (idx_c < C->size) val_c = get_value_as_double(C, idx_c);
+                }
+                res += (double)beta * val_c;
+            }
+            
+            // 写入结果
+            size_t y_idx = (size_t)m * N + n;
+            set_tensor_value_from_float(Y, y_idx, res);
+        }
+    }
+}
+
+// ================== Softmax 实现 ==================
+void softmax_forward(const Tensor* input, Tensor* output, int axis) {
+    if (axis < 0) axis += input->ndim;
+    
+    // 将 Tensor 视为 [Outer, Inner, Remaining]
+    int inner_dim = input->shape[axis];
+    
+    int outer_dim = 1;
+    for (int i = 0; i < axis; i++) outer_dim *= input->shape[i];
+    
+    int remaining_dim = 1;
+    for (int i = axis + 1; i < input->ndim; i++) remaining_dim *= input->shape[i];
+
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < outer_dim; i++) {
+        for (int k = 0; k < remaining_dim; k++) {
+            
+            double max_val = -DBL_MAX;
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + 
+                             (size_t)j * remaining_dim + k;
+                double val = get_value_as_double(input, idx);
+                if (val > max_val) max_val = val;
+            }
+            double sum = 0.0;
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + 
+                             (size_t)j * remaining_dim + k;
+                double val = get_value_as_double(input, idx);
+                sum += exp(val - max_val);
+            }
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + 
+                             (size_t)j * remaining_dim + k;
+                double val = get_value_as_double(input, idx);
+                double res = exp(val - max_val) / sum;
+                set_tensor_value_from_float(output, idx, res);
+            }
+        }
     }
 }
