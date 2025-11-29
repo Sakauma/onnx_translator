@@ -124,6 +124,65 @@ def ONNXImport(file_path):
                                                     node.output,
                                                     dtype=onnx_dtype_mapping[elem_type],
                                                     version="17"))
+        elif node.op_type == "Conv":
+            pads = [0, 0, 0, 0]
+            strides = [1, 1]
+            dilations = [1, 1]
+            group = 1
+            for attr in node.attribute:
+                if attr.name == "pads": pads = attr.ints
+                elif attr.name == "strides": strides = attr.ints
+                elif attr.name == "dilations": dilations = attr.ints
+                elif attr.name == "group": group = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Conv(
+                    node.input, node.output, 
+                    pads=pads, strides=strides, dilations=dilations, group=group,
+                    dtype=onnx_dtype_mapping[elem_type],
+                    version="17"))
+        elif node.op_type == "MaxPool":
+            kernel_shape = [1, 1]
+            pads = [0, 0, 0, 0]
+            strides = [1, 1]
+            for attr in node.attribute:
+                if attr.name == "kernel_shape": kernel_shape = attr.ints
+                elif attr.name == "pads": pads = attr.ints
+                elif attr.name == "strides": strides = attr.ints
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.MaxPool(
+                    node.input, node.output, 
+                    kernel_shape=kernel_shape, pads=pads, strides=strides,
+                    dtype=onnx_dtype_mapping[elem_type],
+                    version="17"))  
+        elif node.op_type == "Gemm":
+            alpha = 1.0
+            beta = 1.0
+            transA = 0
+            transB = 0
+            for attr in node.attribute:
+                if attr.name == "alpha": alpha = attr.f
+                elif attr.name == "beta": beta = attr.f
+                elif attr.name == "transA": transA = attr.i
+                elif attr.name == "transB": transB = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Gemm(
+                    node.input, node.output, 
+                    alpha=alpha, beta=beta, transA=transA, transB=transB,
+                    dtype=onnx_dtype_mapping[elem_type],
+                    version="17"))  
+        elif node.op_type == "Softmax":
+            axis = -1 # 默认最后一维
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Softmax(
+                    node.input, node.output, axis=axis,
+                    dtype=onnx_dtype_mapping[elem_type],
+                    version="17"))  
         elif node.op_type == "QuantizeLinear":
             # 关键：通过 ZeroPoint (input[2]) 确定输出类型
             zp_name = node.input[2]
@@ -142,7 +201,7 @@ def ONNXImport(file_path):
             target_dtype = onnx_dtype_mapping[elem_type]
             
             onnx_graph_list.append(
-                nn.Operators.QuantizeLinear(node.input, node.output, dtype=target_dtype))
+                nn.Operators.QuantizeLinear(node.input, node.output, dtype=target_dtype, version="17"))
         elif node.op_type == "DequantizeLinear":
             # Dequantize 通常输出 float32，但也可能根据后续节点不同
             # 尝试推断 output[0] 的类型
@@ -151,7 +210,7 @@ def ONNXImport(file_path):
             target_dtype = onnx_dtype_mapping[elem_type] if elem_type else "float32"
             
             onnx_graph_list.append(
-                nn.Operators.DequantizeLinear(node.input, node.output, dtype=target_dtype))
+                nn.Operators.DequantizeLinear(node.input, node.output, dtype=target_dtype, version="17"))
         elif node.op_type.upper() == "OTHER_OPS":
             # 其他操作节点的处理占位符
             pass

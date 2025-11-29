@@ -34,6 +34,25 @@ typedef struct {
 } Tensor;
 
 /**
+ * 卷积参数结构体定义
+ */
+typedef struct {
+    int* pads;      // [top, left, bottom, right]
+    int* strides;   // [h, w]
+    int* dilations; // [h, w]
+    int group;
+} ConvParams;
+
+/**
+ * 池化参数结构体定义
+ */
+typedef struct {
+    int* pads;         // [top, left, bottom, right]
+    int* strides;      // [h, w]
+    int* kernel_shape; // [h, w]
+} PoolParams;
+
+/**
  * 创建张量
  * 
  * @param shape 张量形状数组
@@ -127,5 +146,29 @@ void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor*
  * 公式: y = (x - zero_point) * scale
  */
 void dequantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y);
+
+/**
+ * Conv2D 前向传播
+ * 公式: Y = Sum(X * W) + B
+ */
+void conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params);
+      
+/**
+ * MaxPool 前向传播
+ */
+void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params);
+
+/**
+ * Gemm (General Matrix Multiply) 前向传播
+ * 公式: Y = alpha * A' * B' + beta * C
+ * transA/transB: 0=不转置, 1=转置
+ */
+void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y, 
+                  float alpha, float beta, int transA, int transB);
+
+/**
+ * Softmax 前向传播
+ */
+void softmax_forward(const Tensor* input, Tensor* output, int axis);
 
 #endif
