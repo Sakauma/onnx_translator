@@ -252,4 +252,42 @@ void concat_forward(const Tensor** inputs, int num_inputs, Tensor* output, int a
  */
 void slice_forward(const Tensor* input, Tensor* output, int* starts, int* steps);
 
+/**
+ * Neg 取负 (Y = -X)
+ */
+void neg_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Reciprocal 倒数 (Y = 1 / X)
+ */
+void reciprocal_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Clip 数值截断
+ * min_val/max_val 为标量指针，如果为 NULL 表示无下界/无上界
+ */
+void clip_forward(const Tensor* input, Tensor* output, const Tensor* min, const Tensor* max);
+
+/**
+ * Cast 类型转换
+ * 本质上就是从 Input 读取 (自动转double) 再写入 Output (自动转目标类型)
+ */
+void cast_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Ceil 向上取整
+ */
+void ceil_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Floor 向下取整
+ */
+void floor_forward(const Tensor* input, Tensor* output);
+
+/**
+ * MatMul 矩阵乘法 (支持广播)
+ * Y = A @ B
+ */
+void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y);
+
 #endif

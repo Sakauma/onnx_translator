@@ -1188,3 +1188,220 @@ class Slice(Ops):
         values = {"tensor": output_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values
+    
+class Neg(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(Neg, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "neg_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class Reciprocal(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(Reciprocal, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "reciprocal_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class Ceil(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(Ceil, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "ceil_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class Floor(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(Floor, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "floor_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class Cast(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(Cast, self).__init__(inputs, outputs)
+        self.dtype = dtype # 这里的 dtype 就是目标类型
+        self.version = version
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "cast_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+    
+class Clip(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(Clip, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+             self.lib.clip_forward.argtypes = [
+                ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor), 
+                ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor)
+            ]
+
+    def forward(self, input: Tensor, min_val: Tensor = None, max_val: Tensor = None) -> dict:
+        # 1. 准备广播列表
+        # 注意：ONNX 中 min/max 是可选的，可能为 None
+        broadcast_list = [input.data]
+        if min_val is not None: broadcast_list.append(min_val.data)
+        if max_val is not None: broadcast_list.append(max_val.data)
+
+        # 2. 执行广播 (numpy 会自动处理标量与张量的广播)
+        try:
+            broadcasted = np.broadcast_arrays(*broadcast_list)
+        except ValueError:
+             raise ValueError(f"Clip inputs shape mismatch: input={input.size}, "
+                              f"min={min_val.size if min_val else 'None'}, "
+                              f"max={max_val.size if max_val else 'None'}")
+
+        # 3. 提取广播后的数据
+        # broadcasted[0] 对应 input
+        input_data = np.ascontiguousarray(broadcasted[0])
+        
+        idx = 1
+        min_data = None
+        if min_val is not None:
+            min_data = np.ascontiguousarray(broadcasted[idx])
+            idx += 1
+            
+        max_data = None
+        if max_val is not None:
+            max_data = np.ascontiguousarray(broadcasted[idx])
+        
+        # 4. 准备 C Tensor
+        # 此时 input_data, min_data, max_data 的 shape 应该完全一致
+        out_shape = input_data.shape
+        
+        input_c = self._numpy_to_ctensor(input_data, self.dtype) # 使用广播后的数据
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        min_c = self._numpy_to_ctensor(min_data, min_val.dtype if min_val else "float32") if min_data is not None else ctypes.POINTER(nn.CTensor)()
+        max_c = self._numpy_to_ctensor(max_data, max_val.dtype if max_val else "float32") if max_data is not None else ctypes.POINTER(nn.CTensor)()
+        
+        # 5. 调用 C 函数
+        self.lib.clip_forward(input_c, output_c, min_c, max_c)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        
+        # 6. 资源释放
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+        if min_data is not None: self.lib.free_tensor(min_c)
+        if max_data is not None: self.lib.free_tensor(max_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input: Tensor_, min_val: Tensor_ = None, max_val: Tensor_ = None) -> dict:
+        # 图推断模式：简单假设输出形状与输入一致（实际应考虑广播）
+        # 假设 min/max 是标量或可广播，输出 shape 由 input 主导
+        try:
+            shapes = [input.size]
+            if min_val: shapes.append(min_val.size)
+            if max_val: shapes.append(max_val.size)
+            out_shape = np.broadcast_shapes(*shapes)
+        except:
+            out_shape = input.size
+        output_tensor = Tensor_(*out_shape, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+    
+class MatMul(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(MatMul, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
+        # 1. 形状推断 (广播逻辑)
+        # 规则：最后两维做乘法，前面的维度做广播
+        shape_a = list(input_a.size)
+        shape_b = list(input_b.size)
+        
+        # 补齐维度（例如 A是2D，B是3D，给A前面补1）
+        ndim = max(len(shape_a), len(shape_b))
+        
+        # M, K, N
+        M = shape_a[-2]
+        K_a = shape_a[-1]
+        K_b = shape_b[-2]
+        N = shape_b[-1]
+        
+        if K_a != K_b:
+            raise ValueError(f"MatMul shape mismatch: {K_a} != {K_b}")
+            
+        # 提取 Batch 维度
+        batch_a = shape_a[:-2]
+        batch_b = shape_b[:-2]
+        
+        try:
+            batch_out = np.broadcast_shapes(batch_a, batch_b)
+        except ValueError:
+             # 手动 fallback 或报错
+            raise ValueError(f"MatMul batch broadcast failed: {batch_a} vs {batch_b}")
+            
+        out_shape = list(batch_out) + [M, N]
+        
+        # 2. 准备计算
+        input_a_c = self._numpy_to_ctensor(input_a.data, input_a.dtype)
+        input_b_c = self._numpy_to_ctensor(input_b.data, input_b.dtype)
+        
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        self.lib.matmul_forward(input_a_c, input_b_c, output_c)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_a_c)
+        self.lib.free_tensor(input_b_c)
+        self.lib.free_tensor(output_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, input_a: Tensor_, input_b: Tensor_) -> dict:
+        # 图推断模式
+        shape_a = list(input_a.size)
+        shape_b = list(input_b.size)
+        
+        M = shape_a[-2]
+        N = shape_b[-1]
+        
+        batch_a = shape_a[:-2]
+        batch_b = shape_b[:-2]
+        
+        try:
+            batch_out = np.broadcast_shapes(batch_a, batch_b)
+        except:
+            batch_out = batch_a # Fallback
+            
+        out_shape = list(batch_out) + [M, N]
+        
+        output_tensor = Tensor_(*out_shape, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values

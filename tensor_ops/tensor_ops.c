@@ -578,6 +578,7 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
 #define IS_INT_TYPE(d) (d == DTYPE_INT8 || d == DTYPE_UINT8 || d == DTYPE_INT16 || d == DTYPE_INT32 || d == DTYPE_INT64 || d == DTYPE_INT4)
 
 // --- 通用一元算子宏模板 ---
+#ifndef UNARY_OP_IMPL
 #define UNARY_OP_IMPL(FUNC_NAME, MATH_LOGIC) \
 void FUNC_NAME(const Tensor* input, Tensor* output) { \
     if (!input || !output || !input->data || !output->data || input->size != output->size) return; \
@@ -588,6 +589,7 @@ void FUNC_NAME(const Tensor* input, Tensor* output) { \
         set_tensor_value_from_float(output, i, res); \
     } \
 }
+#endif
 
 /* 
    OP_FUNC: 执行计算的逻辑 (a + b, a - b 等)
@@ -1450,5 +1452,105 @@ void slice_forward(const Tensor* input, Tensor* output, int* starts, int* steps)
         size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim);
         double val = get_value_as_double(input, in_idx);
         set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// Neg
+UNARY_OP_IMPL(neg_forward, -val)
+
+// Reciprocal
+UNARY_OP_IMPL(reciprocal_forward, 1.0 / val)
+
+// Ceil
+UNARY_OP_IMPL(ceil_forward, ceil(val))
+
+// Floor
+UNARY_OP_IMPL(floor_forward, floor(val))
+
+// Cast
+// 读取时自动转 double，写入 set_tensor_value 时会自动转为 output->dtype
+UNARY_OP_IMPL(cast_forward, val)
+
+// Clip：支持全广播
+// 调用此函数前，Python 端已将 input, min_t, max_t 广播为相同形状
+void clip_forward(const Tensor* input, Tensor* output, const Tensor* min_t, const Tensor* max_t) {
+    if (!input || !output) return;
+    
+    // 检查指针是否存在，避免空指针解引用
+    int has_min = (min_t && min_t->data);
+    int has_max = (max_t && max_t->data);
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        double val = get_value_as_double(input, i);
+        if (has_min) {
+            double min_val = get_value_as_double(min_t, i);
+            if (val < min_val) val = min_val;
+        }
+        if (has_max) {
+            double max_val = get_value_as_double(max_t, i);
+            if (val > max_val) val = max_val;
+        }
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// MatMul 实现 (无加速)
+void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
+    if (!A || !B || !Y) return;
+    int ndim = Y->ndim;
+    if (ndim < 2) return; // 至少是 2D
+    int M = A->shape[A->ndim - 2];
+    int K = A->shape[A->ndim - 1];
+    int N = B->shape[B->ndim - 1];
+    #pragma omp parallel for
+    for (size_t i = 0; i < Y->size; i++) {
+        int coords[8]; // 最大 8 维
+        get_coords_from_index(i, coords, Y->shape, ndim);
+        // 当前计算的是 Y[..., m, n]
+        int m = coords[ndim - 2];
+        int n = coords[ndim - 1];
+        double sum = 0.0;
+        // 内积循环 K
+        for (int k = 0; k < K; k++) {
+            size_t idx_a = 0;
+            size_t stride_a = 1;
+            int offset_a = ndim - A->ndim; // 维度对齐偏移量
+            for (int d = A->ndim - 1; d >= 0; d--) {
+                int val;
+                if (d == A->ndim - 1) val = k;       // 最后一维 K
+                else if (d == A->ndim - 2) val = m;  // 倒数第二维 M
+                else {
+                    // Batch 维
+                    int y_dim_idx = d + offset_a;
+                    // 如果 A 在此维是 1，则广播取 0；否则跟随 Y 的坐标
+                    val = (A->shape[d] == 1) ? 0 : coords[y_dim_idx];
+                }
+                idx_a += val * stride_a;
+                stride_a *= A->shape[d];
+            }
+            // 计算 B 的索引 (逻辑同上)
+            size_t idx_b = 0;
+            size_t stride_b = 1;
+            int offset_b = ndim - B->ndim;
+            for (int d = B->ndim - 1; d >= 0; d--) {
+                int val;
+                if (d == B->ndim - 1) val = n;       // 最后一维 N
+                else if (d == B->ndim - 2) val = k;  // 倒数第二维 K
+                else {
+                    int y_dim_idx = d + offset_b;
+                    val = (B->shape[d] == 1) ? 0 : coords[y_dim_idx];
+                }
+                idx_b += val * stride_b;
+                stride_b *= B->shape[d];
+            }
+            // 混合精度计算核心：
+            // get_value_as_double 自动处理了 float16/bfloat16/float8 到 double 的提升
+            double val_a = get_value_as_double(A, idx_a);
+            double val_b = get_value_as_double(B, idx_b);
+            sum += val_a * val_b;
+        }
+        // 结果存回
+        set_tensor_value_from_float(Y, i, sum);
     }
 }

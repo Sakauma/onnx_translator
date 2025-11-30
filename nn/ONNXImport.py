@@ -300,6 +300,39 @@ def ONNXImport(file_path):
             onnx_graph_list.append(
                 nn.Operators.Slice(node.input, node.output,
                                    dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Neg":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Neg(node.input, node.output, 
+                                   dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Reciprocal":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Reciprocal(node.input, node.output, 
+                                   dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Ceil":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Ceil(node.input, node.output, 
+                                   dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Floor":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Floor(node.input, node.output, 
+                                   dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Cast":
+            to = 1 # default float
+            for attr in node.attribute:
+                if attr.name == "to": to = attr.i
+            # Cast 的输出类型由 'to' 属性决定，不一定等于输入类型
+            target_dtype = onnx_dtype_mapping.get(to, "float32")
+            onnx_graph_list.append(nn.Operators.Cast(node.input, node.output, 
+                                   dtype=target_dtype, version="17"))
+        elif node.op_type == "Clip":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Clip(node.input, node.output, 
+                                   dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "MatMul":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.MatMul(node.input, node.output, 
+                                    dtype=onnx_dtype_mapping[elem_type], version="17"))
         else:
             # 忽略未支持的操作类型
             pass
