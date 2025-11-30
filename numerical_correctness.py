@@ -266,146 +266,101 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
     stats_rel = []
     
     for i in range(iterations):
-        # 1. 生成数据 (支持 None 输入，如 Bias)
+        # 1. 生成数据
         inputs_np = []
         for s, d in zip(shapes, dtypes):
-            if s is None: 
-                inputs_np.append(None)
-            else:
-                data = generate_random_data(s, d)
-                inputs_np.append(data)
+            if s is None: inputs_np.append(None)
+            else: inputs_np.append(generate_random_data(s, d))
             
         if op_name in ["quantize_linear", "dequantize_linear"]:
-            # 输入顺序: [Data, Scale, ZeroPoint]
-            if inputs_np[1] is not None:
-                inputs_np[1] = np.abs(inputs_np[1]) + 1e-4
+            if inputs_np[1] is not None: inputs_np[1] = np.abs(inputs_np[1]) + 1e-4
             if inputs_np[2] is not None:
                 inputs_np[2] = np.round(inputs_np[2])
-                if op_name == "quantize_linear":
-                    inputs_np[2] = np.clip(inputs_np[2], -128, 127)
-        # -----------------------------
+                if op_name == "quantize_linear": inputs_np[2] = np.clip(inputs_np[2], -128, 127)
 
-        # 创建 Tensor 对象
         inputs_tensor = []
         for data, d in zip(inputs_np, dtypes):
-            if data is not None:
-                inputs_tensor.append(Tensor(*data.shape, dtype=d, data=data))
-            else:
-                inputs_tensor.append(None)
+            if data is not None: inputs_tensor.append(Tensor(*data.shape, dtype=d, data=data))
+            else: inputs_tensor.append(None)
             
         # 2. NPS 运行
         try:
             op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **init_args)
-            
-            # 针对不同算子的 forward 签名进行适配
-            if op_name == "conv2d":
-                nps_out = op.forward(inputs_tensor[0], inputs_tensor[1], inputs_tensor[2])["tensor"].data
-            elif op_name == "gemm":
+            if op_name == "conv2d" or op_name == "gemm":
                 nps_out = op.forward(inputs_tensor[0], inputs_tensor[1], inputs_tensor[2])["tensor"].data
             else:
-                # 默认情况：过滤掉 None，解包传给 forward(*inputs)
                 valid_tensors = [t for t in inputs_tensor if t is not None]
                 nps_out = op.forward(*valid_tensors)["tensor"].data
-                
         except Exception as e:
             print(f"  ❌ Iter {i} Crash: {e}")
             import traceback
             traceback.print_exc()
             continue
             
-        # 3. CUDA 运行准备：打包 Params Binary
+        # 3. CUDA 参数打包
         params_bin = None
-        
         if op_name == "conv2d":
-            # 协议: [N, IC, IH, IW, OC, KH, KW, OH, OW, pad_t, pad_l, str_h, str_w, dil_h, dil_w, group]
             x, w = inputs_np[0], inputs_np[1]
-            pads = init_args['pads']
-            strides = init_args['strides']
-            dils = init_args['dilations']
-            grp = init_args['group']
-            
-            # 推断 output shape (需与 Operators.py 逻辑一致)
-            oh = (x.shape[2] + pads[0] + pads[2] - dils[0]*(w.shape[2]-1) - 1)//strides[0] + 1
-            ow = (x.shape[3] + pads[1] + pads[3] - dils[1]*(w.shape[3]-1) - 1)//strides[1] + 1
-            
-            p_list = [
-                x.shape[0], x.shape[1], x.shape[2], x.shape[3], # N, IC, IH, IW
-                w.shape[0], w.shape[2], w.shape[3],             # OC, KH, KW
-                oh, ow,                                         # OH, OW
-                pads[0], pads[1],                               # pad_t, pad_l
-                strides[0], strides[1],                         # str_h, str_w
-                dils[0], dils[1],                               # dil_h, dil_w
-                grp                                             # group
-            ]
+            pads, s, d, g = init_args['pads'], init_args['strides'], init_args['dilations'], init_args['group']
+            oh = (x.shape[2] + pads[0] + pads[2] - d[0]*(w.shape[2]-1) - 1)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - d[1]*(w.shape[3]-1) - 1)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], w.shape[0], w.shape[2], w.shape[3],
+                      oh, ow, pads[0], pads[1], s[0], s[1], d[0], d[1], g]
             params_bin = np.array(p_list, dtype=np.int32).tobytes()
-            
         elif op_name == "max_pool":
-            # 协议: [N, C, IH, IW, OH, OW, KH, KW, pad_t, pad_l, str_h, str_w]
             x = inputs_np[0]
-            k = init_args['kernel_shape']
-            pads = init_args['pads']
-            s = init_args['strides']
-            
+            k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
             oh = (x.shape[2] + pads[0] + pads[2] - k[0])//s[0] + 1
             ow = (x.shape[3] + pads[1] + pads[3] - k[1])//s[1] + 1
-            
-            p_list = [
-                x.shape[0], x.shape[1], x.shape[2], x.shape[3],
-                oh, ow,
-                k[0], k[1],
-                pads[0], pads[1],
-                s[0], s[1]
-            ]
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow, k[0], k[1], pads[0], pads[1], s[0], s[1]]
             params_bin = np.array(p_list, dtype=np.int32).tobytes()
-            
         elif op_name == "gemm":
-            # 协议: [M, N, K, tA, tB, c_type, has_c] (ints) + [alpha, beta] (floats)
-            a, b = inputs_np[0], inputs_np[1]
-            c = inputs_np[2]
+            a, b, c = inputs_np[0], inputs_np[1], inputs_np[2]
             tA, tB = init_args['transA'], init_args['transB']
-            
             M = a.shape[0] if tA==0 else a.shape[1]
             K = a.shape[1] if tA==0 else a.shape[0]
             N = b.shape[1] if tB==0 else b.shape[0]
-            
             has_c = 1 if c is not None else 0
             c_type = 0
             if has_c:
-                if c.size == 1: c_type=1 # Scalar
-                elif c.ndim==1 or (c.ndim==2 and c.shape[0]==1): c_type=2 # Row Broadcast
-                elif c.ndim==2 and c.shape[1]==1: c_type=3 # Col Broadcast
-                else: c_type=4 # Matrix
-            
+                if c.size == 1: c_type=1
+                elif c.ndim==1 or (c.ndim==2 and c.shape[0]==1): c_type=2
+                elif c.ndim==2 and c.shape[1]==1: c_type=3
+                else: c_type=4
             ints = np.array([M, N, K, tA, tB, c_type, has_c], dtype=np.int32).tobytes()
             floats = np.array([init_args['alpha'], init_args['beta']], dtype=np.float32).tobytes()
             params_bin = ints + floats
-            
         elif op_name == "softmax":
-            # 协议: [outer, inner, remaining]
-            x = inputs_np[0]
-            axis = init_args['axis']
+            x, axis = inputs_np[0], init_args['axis']
             if axis < 0: axis += x.ndim
-            
-            inner = x.shape[axis]
-            outer = int(np.prod(x.shape[:axis]))
+            inner, outer = x.shape[axis], int(np.prod(x.shape[:axis]))
             rem = int(np.prod(x.shape[axis+1:]))
-            
             params_bin = np.array([outer, inner, rem], dtype=np.int32).tobytes()
 
-        # 4. 转换输入为 float64 (适配新 CUDA kernel 的 double 精度)
-        # 兼容逻辑：新算子和QDQ使用 double，旧算子保持 float
-        is_double_kernel = op_name in ["quantize_linear", "dequantize_linear", "conv2d", "max_pool", "gemm", "softmax"]
+        # 4. 数据转换与 广播处理
+        expected_shape = nps_out.shape
+        is_complex_kernel = op_name in ["conv2d", "max_pool", "gemm", "softmax"] # 这些算子自己处理形状
+        is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
         
         cuda_inputs = []
-        for inp, d in zip(inputs_np, dtypes):
+        for i, (inp, d) in enumerate(zip(inputs_np, dtypes)):
             if inp is None:
                 cuda_inputs.append(None)
             else:
                 target_dtype = np.float64 if is_double_kernel else np.float32
-                cuda_inputs.append(to_float32(inp, d).astype(target_dtype))
+                val_f32 = to_float32(inp, d)
+                
+                # 广播逻辑
+                if not is_complex_kernel:
+                    try:
+                        if val_f32.shape != expected_shape:
+                            val_f32 = np.broadcast_to(val_f32, expected_shape)
+                    except Exception as e:
+                        print(f"Warning: Broadcast failed for input {i} in {op_name}: {e}")
+                
+                cuda_inputs.append(val_f32.astype(target_dtype))
         
         # 5. 执行 CUDA
-        expected_shape = nps_out.shape
         cuda_out = run_cuda_ground_truth(
             op_name, 
             cuda_inputs, 
@@ -427,34 +382,34 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
             pass_cnt += 1
         else:
             print(f"  ❌ Iter {i} FAILED")
-            if max_abs == -999.0:
-                print(f"     Failed due to Overflow/Inf Logic Mismatch")
-            elif max_abs == -1.0:
-                 print(f"     Failed due to NaN/Inf Mismatch")
+            if max_abs == -999.0: print(f"     Failed due to Overflow/Inf Logic Mismatch")
+            elif max_abs == -1.0: print(f"     Failed due to NaN/Inf Mismatch")
             else:
                 print(f"     Max Abs Diff: {max_abs:.6f} (Limit: {atol})")
                 print(f"     Max Rel Diff: {max_rel:.6f} (Limit: {rtol})")
             
-            # 打印错误样本
             if fail_mask is not None and np.any(fail_mask):
                 idx_flat = np.argmax(fail_mask)
                 idx = np.unravel_index(idx_flat, fail_mask.shape)
                 print(f"     🔍 Debug Sample at {idx}:")
                 print(f"        GT (CUDA) = {cuda_out[idx]}")
                 print(f"        NPS (C)   = {nps_f32[idx]}")
-                # 打印输入值
+                # 显示原始输入值
                 for k, inp_arr in enumerate(inputs_np):
                     val_disp = ""
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if inp_arr.shape == cuda_out.shape:
-                                val_disp = inp_arr[idx]
-                            elif inp_arr.size == 1:
-                                val_disp = f"{inp_arr.item()} (Scalar)"
+                            if not is_complex_kernel:
+                                val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
-                                val_disp = f"Shape{inp_arr.shape}"
-                        except: val_disp = "Error accessing index"
+                                if inp_arr.shape == expected_shape:
+                                    val_disp = inp_arr[idx]
+                                else:
+                                    val_disp = f"Shape{inp_arr.shape} (No direct mapping)"
+                        except Exception as e:
+                            val_disp = f"Error: {e}"
+                            
                     print(f"        Input {k}   = {val_disp}")
             break
 
@@ -625,6 +580,8 @@ if __name__ == "__main__":
         ops_stats[op_name]['rel'].extend(rel_errs)
     print("\n📊 正在按算子绘制误差分布直方图...")
     for op_name, stats in ops_stats.items():
+        valid_abs = [x for x in stats['abs'] if x >= 0]
+        valid_rel = [x for x in stats['rel'] if x >= 0]
         if len(stats['abs']) == 0:
             print(f"⚠️ [{op_name.upper()}] 没有收集到有效误差数据 (可能全为逻辑匹配)")
             continue     
