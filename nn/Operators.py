@@ -465,7 +465,7 @@ class DequantizeLinear(Ops):
         return values
     
 class Conv(Ops):
-    def __init__(self, inputs, outputs, pads, strides, dilations, group, dtype, version="11"):
+    def __init__(self, inputs, outputs, pads, strides, dilations, group, dtype, version="17"):
         super(Conv, self).__init__(inputs, outputs)
         # 必须完整保存所有参数
         self.pads = pads         # [top, left, bottom, right]
@@ -540,7 +540,7 @@ class Conv(Ops):
         return values
 
 class MaxPool(Ops):
-    def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, version="12"):
+    def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, version="17"):
         super(MaxPool, self).__init__(inputs, outputs)
         self.kernel_shape = kernel_shape
         self.pads = pads
@@ -600,7 +600,7 @@ class MaxPool(Ops):
         return values
 
 class Gemm(Ops):
-    def __init__(self, inputs, outputs, alpha, beta, transA, transB, dtype, version="11"):
+    def __init__(self, inputs, outputs, alpha, beta, transA, transB, dtype, version="17"):
         super(Gemm, self).__init__(inputs, outputs)
         self.alpha = alpha
         self.beta = beta
@@ -649,7 +649,7 @@ class Gemm(Ops):
         return values
 
 class Softmax(Ops):
-    def __init__(self, inputs, outputs, axis, dtype, version="13"):
+    def __init__(self, inputs, outputs, axis, dtype, version="17"):
         super(Softmax, self).__init__(inputs, outputs)
         self.axis = axis
         self.dtype = dtype
@@ -679,6 +679,512 @@ class Softmax(Ops):
 
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+    
+class EXP(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(EXP, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "exp_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class LOG(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(LOG, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "log_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class SQRT(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(SQRT, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "sqrt_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class SIGMOID(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(SIGMOID, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "sigmoid_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class TANH(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(TANH, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input: Tensor) -> dict:
+        out_tensor = self._execute_unary(input, "tanh_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input: Tensor_) -> dict:
+        output_tensor = Tensor_(*input.size, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+    
+class Flatten(Ops):
+    def __init__(self, inputs, outputs, axis=1, dtype="float32", version="17"):
+        super(Flatten, self).__init__(inputs, outputs)
+        self.axis = axis
+        self.dtype = dtype
+        self.version = version
+
+    def _calc_shape(self, input_shape):
+        # 处理 axis 负数情况
+        axis = self.axis if self.axis >= 0 else len(input_shape) + self.axis
+        dim_0 = 1
+        for i in range(axis):
+            dim_0 *= input_shape[i]
+        dim_1 = 1
+        for i in range(axis, len(input_shape)):
+            dim_1 *= input_shape[i]
+        return (dim_0, dim_1)
+
+    def forward(self, input: Tensor) -> dict:
+        out_shape = self._calc_shape(input.size)
+        
+        # 调用 C 的 Flatten (本质是 Copy)
+        input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        output_shape_c = (ctypes.c_int * 2)(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, 2, nn.DTYPE_MAP[self.dtype])
+        
+        self.lib.flatten_forward(input_c, output_c)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, input: Tensor_) -> dict:
+        out_shape = self._calc_shape(input.size)
+        output_tensor = Tensor_(*out_shape, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+class Reshape(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super(Reshape, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, data: Tensor, shape: Tensor) -> dict:
+        # 从 shape tensor 中读取目标形状
+        # shape tensor 通常是 int64，我们在 Python 层将其转为 list
+        target_shape = shape.data.astype(np.int64).flatten().tolist()
+        
+        # 处理 -1 (自动推断维度)
+        total_size = data.data_size
+        infer_idx = -1
+        current_size = 1
+        for i, s in enumerate(target_shape):
+            if s == -1:
+                infer_idx = i
+            else:
+                current_size *= s
+        
+        if infer_idx != -1:
+            target_shape[infer_idx] = total_size // current_size
+            
+        final_shape = tuple(target_shape)
+
+        # C 调用
+        input_c = self._numpy_to_ctensor(data.data, self.dtype)
+        output_shape_c = (ctypes.c_int * len(final_shape))(*final_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(final_shape), nn.DTYPE_MAP[self.dtype])
+        
+        self.lib.reshape_forward(input_c, output_c)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+
+        out_tensor = Tensor(*final_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, data: Tensor_, shape: Tensor_) -> dict:
+        # 在图推断模式下，如果不传真实数据，很难知道 shape tensor 的具体值
+        # 这里做个简化假设：如果是在 ModelInitParas 里生成的 Graph，Shape 应该是已知的
+        # 如果无法推断，返回一个占位符
+        # 为了演示，假设 output 是 Tensor_ 并拥有一个假定 shape
+        # 实际严谨实现需要 Constant Folding 支持
+        output_tensor = Tensor_(1, dtype=self.dtype) # 无法推断，给个 Dummy
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+class Transpose(Ops):
+    def __init__(self, inputs, outputs, perm, dtype="float32", version="17"):
+        super(Transpose, self).__init__(inputs, outputs)
+        self.perm = perm
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+            self.lib.transpose_forward.argtypes = [
+                ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor), ctypes.POINTER(ctypes.c_int)
+            ]
+
+    def forward(self, input: Tensor) -> dict:
+        # 计算输出形状
+        out_shape = [input.size[i] for i in self.perm]
+        
+        input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        # 传入 perm 数组
+        perm_arr = (ctypes.c_int * len(self.perm))(*self.perm)
+        
+        self.lib.transpose_forward(input_c, output_c, perm_arr)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, input: Tensor_) -> dict:
+        out_shape = [input.size[i] for i in self.perm]
+        output_tensor = Tensor_(*out_shape, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+    
+class Pow(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(Pow, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
+        out_tensor = self._execute_binary(input_a, input_b, "pow_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input_a: Tensor_, input_b: Tensor_) -> dict:
+        # 简单广播推断
+        try:
+            bcast = np.broadcast_shapes(input_a.size, input_b.size)
+        except:
+            bcast = input_a.size
+        output_tensor = Tensor_(*bcast, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class Max(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(Max, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
+        out_tensor = self._execute_binary(input_a, input_b, "max_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input_a: Tensor_, input_b: Tensor_) -> dict:
+        try:
+            bcast = np.broadcast_shapes(input_a.size, input_b.size)
+        except:
+            bcast = input_a.size
+        output_tensor = Tensor_(*bcast, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class Min(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super(Min, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
+        out_tensor = self._execute_binary(input_a, input_b, "min_forward")
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input_a: Tensor_, input_b: Tensor_) -> dict:
+        try:
+            bcast = np.broadcast_shapes(input_a.size, input_b.size)
+        except:
+            bcast = input_a.size
+        output_tensor = Tensor_(*bcast, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class Squeeze(Ops):
+    def __init__(self, inputs, outputs, axes=None, dtype="float32", version="17"):
+        super(Squeeze, self).__init__(inputs, outputs)
+        self.axes = axes
+        self.dtype = dtype
+        self.version = version
+
+    def _calc_shape(self, in_shape, axes):
+        # 如果 axes 为 None，挤压所有为 1 的维度
+        new_shape = []
+        # 处理 axes 归一化 (支持负数索引)
+        ndim = len(in_shape)
+        if axes is not None:
+            norm_axes = [ax + ndim if ax < 0 else ax for ax in axes]
+        else:
+            norm_axes = None
+
+        for i, dim in enumerate(in_shape):
+            if norm_axes is not None:
+                if i in norm_axes and dim == 1:
+                    continue # Squeeze
+                new_shape.append(dim)
+            else:
+                if dim != 1:
+                    new_shape.append(dim)
+        return tuple(new_shape)
+
+    def forward(self, data: Tensor, axes: Tensor = None) -> dict:
+        # axes 是输入 tensor，不是属性
+        target_axes = self.axes
+        if axes is not None:
+            target_axes = axes.data.flatten().tolist()
+        
+        out_shape = self._calc_shape(data.size, target_axes)
+        
+        # 复用 Reshape/Flatten 的逻辑：直接内存拷贝
+        input_c = self._numpy_to_ctensor(data.data, self.dtype)
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        # 借用 reshape_forward 
+        self.lib.reshape_forward(input_c, output_c)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, data: Tensor_, axes: Tensor_ = None) -> dict:
+        # 图推断模式下，如果 axes 是动态输入，很难推断 shape
+        # 这里做简化假设
+        out_shape = data.size # 无法推断时保持原样，或返回 Dummy
+        if self.axes is not None:
+             out_shape = self._calc_shape(data.size, self.axes)
+        
+        output_tensor = Tensor_(*out_shape, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+
+class Unsqueeze(Ops):
+    def __init__(self, inputs, outputs, axes=None, dtype="float32", version="17"):
+        super(Unsqueeze, self).__init__(inputs, outputs)
+        self.axes = axes
+        self.dtype = dtype
+        self.version = version
+
+    def _calc_shape(self, in_shape, axes):
+        # Unsqueeze: 在指定位置插入维度 1
+        # 排序 axes 以便按顺序插入
+        axes = sorted([ax + len(in_shape) + 1 if ax < 0 else ax for ax in axes])
+        new_shape = list(in_shape)
+        for ax in axes:
+            new_shape.insert(ax, 1)
+        return tuple(new_shape)
+
+    def forward(self, data: Tensor, axes: Tensor = None) -> dict:
+        target_axes = self.axes
+        if axes is not None:
+            target_axes = axes.data.flatten().tolist()
+            
+        out_shape = self._calc_shape(data.size, target_axes)
+        
+        input_c = self._numpy_to_ctensor(data.data, self.dtype)
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        self.lib.reshape_forward(input_c, output_c)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, data: Tensor_, axes: Tensor_ = None) -> dict:
+        out_shape = data.size
+        if self.axes is not None:
+            out_shape = self._calc_shape(data.size, self.axes)
+        output_tensor = Tensor_(*out_shape, dtype=self.dtype)
+        return {"tensor": output_tensor, "parameters": None, "graph": None}
+    
+class Concat(Ops):
+    def __init__(self, inputs, outputs, axis=0, dtype="float32", version="17"):
+        super(Concat, self).__init__(inputs, outputs)
+        self.axis = axis
+        self.dtype = dtype
+        self.version = version
+        
+        # 注册 C 函数参数类型
+        if self.lib:
+            self.lib.concat_forward.argtypes = [
+                ctypes.POINTER(ctypes.POINTER(nn.CTensor)), 
+                ctypes.c_int, 
+                ctypes.POINTER(nn.CTensor), 
+                ctypes.c_int
+            ]
+
+    def _calc_shape(self, input_tensors):
+        # 假设除 axis 外其他维度一致
+        base_shape = list(input_tensors[0].size)
+        ndim = len(base_shape)
+        axis = self.axis if self.axis >= 0 else self.axis + ndim
+        
+        total_dim = 0
+        for t in input_tensors:
+            total_dim += t.size[axis]
+        
+        base_shape[axis] = total_dim
+        return tuple(base_shape), axis
+
+    def forward(self, *inputs) -> dict:
+        input_list = list(inputs)
+        out_shape, axis = self._calc_shape(input_list)
+        
+        # 构建 C 指针数组
+        CTensorPtr = ctypes.POINTER(nn.CTensor)
+        InputArrayType = CTensorPtr * len(input_list)
+        input_array = InputArrayType()
+        
+        # 防止 GC 回收
+        c_refs = []
+        for idx, tensor in enumerate(input_list):
+            c_t = self._numpy_to_ctensor(tensor.data, tensor.dtype)
+            input_array[idx] = c_t
+            c_refs.append(c_t)
+            
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        self.lib.concat_forward(input_array, len(input_list), output_c, axis)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        
+        self.lib.free_tensor(output_c)
+        for c_t in c_refs:
+            self.lib.free_tensor(c_t)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, *inputs) -> dict:
+        input_list = list(inputs)
+        out_shape, _ = self._calc_shape(input_list)
+        output_tensor = Tensor_(*out_shape, dtype=self.dtype)
+        values = {"tensor": output_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+class Slice(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super(Slice, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+            self.lib.slice_forward.argtypes = [
+                ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor), 
+                ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)
+            ]
+
+    def forward(self, data: Tensor, starts: Tensor, ends: Tensor, axes: Tensor = None, steps: Tensor = None) -> dict:
+        _starts = starts.data.flatten().tolist()
+        _ends = ends.data.flatten().tolist()
+        _axes = axes.data.flatten().tolist() if axes is not None else list(range(len(_starts)))
+        _steps = steps.data.flatten().tolist() if steps is not None else [1] * len(_starts)
+        
+        ndim = len(data.size)
+        
+        # 扩展参数至完整维度
+        full_starts = [0] * ndim
+        full_ends = list(data.size)
+        full_steps = [1] * ndim
+        
+        for i, axis in enumerate(_axes):
+            if axis < 0: axis += ndim
+            s, e, st = _starts[i], _ends[i], _steps[i]
+            
+            dim_len = data.size[axis]
+            if s < 0: s += dim_len
+            if e < 0: e += dim_len
+            
+            s = max(0, min(s, dim_len))
+            e = max(0, min(e, dim_len))
+            
+            full_starts[axis] = s
+            full_ends[axis] = e
+            full_steps[axis] = st
+            
+        out_shape = []
+        for i in range(ndim):
+            length = max(0, (full_ends[i] - full_starts[i] + full_steps[i] - 1) // full_steps[i])
+            out_shape.append(length)
+        out_shape = tuple(out_shape)
+            
+        input_c = self._numpy_to_ctensor(data.data, self.dtype)
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        c_starts = (ctypes.c_int * ndim)(*full_starts)
+        c_steps = (ctypes.c_int * ndim)(*full_steps)
+        
+        self.lib.slice_forward(input_c, output_c, c_starts, c_steps)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+
+        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        values = {"tensor": out_tensor, "parameters": None, "graph": None}
+        self.parameters = {"values": values}
+        return values
+
+    def forward_(self, data: Tensor_, starts: Tensor_, ends: Tensor_, axes: Tensor_ = None, steps: Tensor_ = None) -> dict:
+        # 图推断模式下，暂时无法精确推断 Slice 输出形状，假设与输入一致
+        output_tensor = Tensor_(*data.size, dtype=self.dtype)
         values = {"tensor": output_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values

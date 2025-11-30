@@ -23,6 +23,30 @@ static pthread_mutex_t cos_lut_mutex = PTHREAD_MUTEX_INITIALIZER;
 // 半圆周率
 #define HALF_PI (PI / 2.0)
 
+// 获取数据类型的字节大小
+static inline size_t get_dtype_size(DataType dtype) {
+    switch (dtype) {
+        case DTYPE_FLOAT8_E4M3:
+        case DTYPE_FLOAT8_E5M2:
+        case DTYPE_INT4:
+        case DTYPE_INT8:
+        case DTYPE_UINT8:
+            return 1;
+        case DTYPE_FLOAT16:
+        case DTYPE_BFLOAT16:
+        case DTYPE_INT16:
+            return 2;
+        case DTYPE_FLOAT32:
+        case DTYPE_INT32:
+            return 4;
+        case DTYPE_FLOAT64:
+        case DTYPE_INT64:
+            return 8;
+        default:
+            return 4;
+    }
+}
+
 // 4-bit 饱和截断
 static inline int8_t saturate_cast_int4(int64_t val) {
     if (val > 7) return 7;
@@ -552,6 +576,18 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
 
 /* 判断是否为整数类型 */
 #define IS_INT_TYPE(d) (d == DTYPE_INT8 || d == DTYPE_UINT8 || d == DTYPE_INT16 || d == DTYPE_INT32 || d == DTYPE_INT64 || d == DTYPE_INT4)
+
+// --- 通用一元算子宏模板 ---
+#define UNARY_OP_IMPL(FUNC_NAME, MATH_LOGIC) \
+void FUNC_NAME(const Tensor* input, Tensor* output) { \
+    if (!input || !output || !input->data || !output->data || input->size != output->size) return; \
+    _Pragma("omp parallel for") \
+    for (size_t i = 0; i < input->size; i++) { \
+        double val = get_value_as_double(input, i); \
+        double res = MATH_LOGIC; \
+        set_tensor_value_from_float(output, i, res); \
+    } \
+}
 
 /* 
    OP_FUNC: 执行计算的逻辑 (a + b, a - b 等)
@@ -1210,5 +1246,209 @@ void softmax_forward(const Tensor* input, Tensor* output, int axis) {
                 set_tensor_value_from_float(output, idx, res);
             }
         }
+    }
+}
+
+// Exp 实现
+UNARY_OP_IMPL(exp_forward, exp(val))
+
+// Log 实现
+// 未需要处理 log(0) 或负数的情况
+UNARY_OP_IMPL(log_forward, log(val))
+
+// Sqrt 实现
+UNARY_OP_IMPL(sqrt_forward, sqrt(val))
+
+// Sigmoid 实现
+UNARY_OP_IMPL(sigmoid_forward, 1.0 / (1.0 + exp(-val)))
+
+// Tanh 实现
+UNARY_OP_IMPL(tanh_forward, tanh(val))
+
+// Flatten 实现
+void flatten_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output || input->size != output->size) return;
+    size_t elem_size = get_dtype_size(input->dtype);
+    size_t total_bytes = input->size * elem_size;
+    memcpy(output->data, input->data, total_bytes);
+}
+
+// Reshape 实现
+void reshape_forward(const Tensor* input, Tensor* output) {
+    flatten_forward(input, output);
+}
+
+// 从平坦索引反解 N 维坐标
+static inline void get_coords_from_index(size_t index, int* coords, int* shape, int ndim) {
+    for (int i = ndim - 1; i >= 0; i--) {
+        coords[i] = index % shape[i];
+        index /= shape[i];
+    }
+}
+
+// 从 N 维坐标计算平坦索引
+static inline size_t get_index_from_coords(int* coords, int* shape, int ndim) {
+    size_t index = 0;
+    size_t stride = 1;
+    for (int i = ndim - 1; i >= 0; i--) {
+        index += coords[i] * stride;
+        stride *= shape[i];
+    }
+    return index;
+}
+
+// Transpose 实现
+void transpose_forward(const Tensor* input, Tensor* output, int* perm) {
+    if (!input || !output || !perm) return;
+    int ndim = input->ndim;
+    if (ndim > 8) return; 
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[8]; // 输出坐标
+        int in_coords[8];  // 输入坐标
+        
+        // 1. 根据输出的平坦索引 i，反解出输出坐标
+        get_coords_from_index(i, out_coords, output->shape, ndim);
+        
+        // 2. 映射回输入坐标
+        // 规则：output[d] 对应 input[perm[d]]
+        for (int k = 0; k < ndim; k++) {
+            in_coords[perm[k]] = out_coords[k];
+        }
+        
+        // 3. 计算输入的平坦索引
+        size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim);
+        
+        // 4. 搬运数据
+        double val = get_value_as_double(input, in_idx);
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// 整数辅助函数
+static inline int64_t op_max(int64_t a, int64_t b) { return a > b ? a : b; }
+static inline int64_t op_min(int64_t a, int64_t b) { return a < b ? a : b; }
+
+// Pow 实现
+void pow_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (!A || !B || !O) return;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < O->size; i++) {
+        double val_a = get_value_as_double(A, i);
+        double val_b = get_value_as_double(B, i);
+        double res = pow(val_a, val_b);
+        set_tensor_value_from_float(O, i, res);
+    }
+}
+
+// Max 实现
+void max_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (!A || !B || !O) return;
+
+    if (IS_INT_TYPE(O->dtype)) {
+        // 整数路径
+        BINARY_OP_INT_LOGIC(op_max);
+    } else {
+        // 浮点路径
+        #pragma omp parallel for
+        for (size_t i = 0; i < O->size; i++) {
+            double val_a = get_value_as_double(A, i);
+            double val_b = get_value_as_double(B, i);
+            double res = (val_a > val_b ? val_a : val_b);
+            set_tensor_value_from_float(O, i, res);
+        }
+    }
+}
+
+// Min 实现
+void min_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (!A || !B || !O) return;
+
+    if (IS_INT_TYPE(O->dtype)) {
+        // 整数路径：
+        BINARY_OP_INT_LOGIC(op_min);
+    } else {
+        // 浮点路径
+        #pragma omp parallel for
+        for (size_t i = 0; i < O->size; i++) {
+            double val_a = get_value_as_double(A, i);
+            double val_b = get_value_as_double(B, i);
+            double res = (val_a < val_b ? val_a : val_b);
+            set_tensor_value_from_float(O, i, res);
+        }
+    }
+}
+
+void concat_forward(const Tensor** inputs, int num_inputs, Tensor* output, int axis) {
+    if (!inputs || !output || num_inputs < 1) return;
+
+    // 处理负轴
+    int ndim = output->ndim;
+    if (axis < 0) axis += ndim;
+    
+    // 缓存每个输入在 axis 维度的长度
+    int input_dims[128]; // 假设输入数量不超过 128
+    if (num_inputs > 128) return; 
+    for (int k = 0; k < num_inputs; k++) {
+        input_dims[k] = inputs[k]->shape[axis];
+    }
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        int coords[8]; // 假设最大维度为 8
+        
+        // 1. 反解输出坐标
+        get_coords_from_index(i, coords, output->shape, ndim);
+        
+        // 2. 确定当前坐标落在哪个输入张量中
+        int target_val = coords[axis];
+        int input_idx = -1;
+        int local_axis_val = target_val;
+        
+        for (int k = 0; k < num_inputs; k++) {
+            if (local_axis_val < input_dims[k]) {
+                input_idx = k;
+                break;
+            }
+            local_axis_val -= input_dims[k];
+        }
+        
+        if (input_idx >= 0) {
+            // 3. 修正为局部坐标
+            coords[axis] = local_axis_val;
+            
+            // 4. 读取源数据并写入
+            const Tensor* src = inputs[input_idx];
+            size_t src_idx = get_index_from_coords(coords, src->shape, ndim);
+            double val = get_value_as_double(src, src_idx);
+            set_tensor_value_from_float(output, i, val);
+        }
+    }
+}
+
+void slice_forward(const Tensor* input, Tensor* output, int* starts, int* steps) {
+    if (!input || !output || !starts || !steps) return;
+    
+    int ndim = input->ndim;
+    if (ndim > 8) return;
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[8];
+        int in_coords[8];
+        
+        // 1. 获取输出坐标
+        get_coords_from_index(i, out_coords, output->shape, ndim);
+        
+        // 2. 映射回输入坐标: in = start + out * step
+        for (int d = 0; d < ndim; d++) {
+            in_coords[d] = starts[d] + out_coords[d] * steps[d];
+        }
+        
+        // 3. 读写数据
+        size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim);
+        double val = get_value_as_double(input, in_idx);
+        set_tensor_value_from_float(output, i, val);
     }
 }

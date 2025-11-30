@@ -214,3 +214,4 @@ cache/
 onnx_model/
 results/
 bin/
+.VSCodeCounter/

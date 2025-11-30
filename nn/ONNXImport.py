@@ -187,19 +187,15 @@ def ONNXImport(file_path):
             # 关键：通过 ZeroPoint (input[2]) 确定输出类型
             zp_name = node.input[2]
             elem_type = get_tensor_dtype(zp_name, onnx_model)
-            
             if elem_type is None:
                 # 尝试做一次 shape inference 作为最后手段
                 print(f"⚠️ Warning: Inferring shapes for {zp_name}...")
                 inferred_model = shape_inference.infer_shapes(onnx_model)
                 elem_type = get_tensor_dtype(zp_name, inferred_model)
-
             if elem_type is None:
                 raise ValueError(f"❌ Error: Could not determine dtype for ZeroPoint '{zp_name}' in node {node.name}. "
                                  "Cannot proceed with default, as it risks signed/unsigned mismatch.")
-            
             target_dtype = onnx_dtype_mapping[elem_type]
-            
             onnx_graph_list.append(
                 nn.Operators.QuantizeLinear(node.input, node.output, dtype=target_dtype, version="17"))
         elif node.op_type == "DequantizeLinear":
@@ -208,12 +204,102 @@ def ONNXImport(file_path):
             elem_type = get_tensor_dtype(node.output[0], onnx_model)
             # 如果找不到，Dequantize 默认为 float32 通常是安全的
             target_dtype = onnx_dtype_mapping[elem_type] if elem_type else "float32"
-            
             onnx_graph_list.append(
                 nn.Operators.DequantizeLinear(node.input, node.output, dtype=target_dtype, version="17"))
-        elif node.op_type.upper() == "OTHER_OPS":
-            # 其他操作节点的处理占位符
-            pass
+        elif node.op_type.upper() == "EXP":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.EXP(node.input, node.output, 
+                                 dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type.upper() == "LOG":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.LOG(node.input, node.output, 
+                                 dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type.upper() == "SQRT":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.SQRT(node.input, node.output, 
+                                  dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type.upper() == "SIGMOID":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.SIGMOID(node.input, node.output, 
+                                     dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type.upper() == "TANH":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.TANH(node.input, node.output, 
+                                  dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Flatten":
+            axis = 1
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Flatten(node.input, node.output, axis=axis,
+                                     dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Reshape":
+            # Reshape 有两个输入: data, shape
+            # shape 是 tensor，不是属性
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Reshape(node.input, node.output, 
+                                     dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Transpose":
+            perm = []
+            for attr in node.attribute:
+                if attr.name == "perm": perm = attr.ints
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Transpose(node.input, node.output, perm=perm,
+                                       dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Pow":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Pow(node.input, node.output, 
+                                 dtype=onnx_dtype_mapping[elem_type], version="17"))
+
+        elif node.op_type == "Max":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Max(node.input, node.output, 
+                                 dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Min":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Min(node.input, node.output, 
+                                 dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Squeeze":
+            axes = None
+            for attr in node.attribute:
+                if attr.name == "axes": axes = attr.ints
+            
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Squeeze(node.input, node.output, axes=axes,
+                                     dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Unsqueeze":
+            axes = None
+            for attr in node.attribute:
+                if attr.name == "axes": axes = attr.ints
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Unsqueeze(node.input, node.output, axes=axes,
+                                       dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Concat":
+            axis = 1
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Concat(node.input, node.output, axis=axis,
+                                    dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Slice":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Slice(node.input, node.output,
+                                   dtype=onnx_dtype_mapping[elem_type], version="17"))
         else:
             # 忽略未支持的操作类型
             pass

@@ -171,4 +171,85 @@ void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y,
  */
 void softmax_forward(const Tensor* input, Tensor* output, int axis);
 
+/**
+ * Exp 指数函数前向传播 (y = e^x)
+ */
+void exp_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Log 自然对数函数前向传播 (y = ln(x))
+ */
+void log_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Sqrt 平方根函数前向传播 (y = x^0.5)
+ */
+void sqrt_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Sigmoid 激活函数前向传播 (y = 1 / (1 + e^-x))
+ */
+void sigmoid_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Tanh 激活函数前向传播 (y = tanh(x))
+ */
+void tanh_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Flatten 前向传播
+ * 将输入张量展平为 2D 输出 [batch, remaining]
+ */
+void flatten_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Reshape 前向传播
+ * 改变张量形状
+ */
+void reshape_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Transpose 前向传播
+ * 根据 perm 置换维度
+ * input: 输入张量
+ * output: 输出张量 (形状已在 Python 层计算好)
+ * perm: 维度置换数组 (例如 [0, 3, 1, 2])
+ */
+void transpose_forward(const Tensor* input, Tensor* output, int* perm);
+
+/**
+ * Pow 幂运算 (Y = A ^ B)
+ */
+void pow_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+/**
+ * Max 最大值 (Y = max(A, B))
+ */
+void max_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+/**
+ * Min 最小值 (Y = min(A, B))
+ */
+void min_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+/* Squeeze 和 Unsqueeze 本质是 Reshape，直接复用 reshape_forward 或 flatten_forward 即可，在 C 层不需要新函数 */
+
+/**
+ * Concat 拼接算子前向传播
+ * @param inputs 输入张量指针数组
+ * @param num_inputs 输入张量的数量
+ * @param output 输出张量
+ * @param axis 拼接的维度轴
+ */
+void concat_forward(const Tensor** inputs, int num_inputs, Tensor* output, int axis);
+
+/**
+ * Slice 切片算子前向传播
+ * @param input 输入张量
+ * @param output 输出张量
+ * @param starts 起始索引数组 (长度必须等于 ndim)
+ * @param steps 步长数组 (长度必须等于 ndim)
+ */
+void slice_forward(const Tensor* input, Tensor* output, int* starts, int* steps);
+
 #endif
