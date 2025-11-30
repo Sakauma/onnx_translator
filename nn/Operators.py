@@ -417,27 +417,23 @@ class DIV(Ops):
         return values
     
 class QuantizeLinear(Ops):
-    def __init__(self, inputs, outputs, dtype=None, version="17"):
+    def __init__(self, inputs, outputs, axis=1, dtype=None, version="17"):
         super(QuantizeLinear, self).__init__(inputs, outputs)
-        self.dtype = dtype # 必填，通常为 int8/uint8
+        self.dtype = dtype 
+        self.axis = axis # 保存 axis
         self.version = version
 
     def forward(self, x, y_scale, y_zero_point) -> Tensor:
+        if y_scale.data.ndim == 1 and x.data.ndim > 1:
+            new_shape = [1] * x.data.ndim
+            safe_axis = self.axis if self.axis >= 0 else self.axis + x.data.ndim
+            if safe_axis < x.data.ndim:
+                new_shape[safe_axis] = y_scale.data.size
+            y_scale.data = y_scale.data.reshape(new_shape)
+            y_zero_point.data = y_zero_point.data.reshape(new_shape)
+            
         out_tensor = self._execute_ternary(x, y_scale, y_zero_point, "quantize_linear_forward")
         values = {"tensor": out_tensor, "parameters": None, "graph": None}
-        self.parameters = {"values": values}
-        return values
-
-    def forward_(self, x, y_scale, y_zero_point) -> Tensor_:
-        # 模拟广播形状
-        try:
-            bcast_shape = np.broadcast_shapes(x.size, y_scale.size, y_zero_point.size)
-        except:
-            bcast_shape = x.size
-        
-        # 量化算子的输出类型必须严格遵循 dtype 参数
-        output_tensor = Tensor_(*bcast_shape, dtype=self.dtype)
-        values = {"tensor": output_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values
 
@@ -1160,7 +1156,10 @@ class Slice(Ops):
             
         out_shape = []
         for i in range(ndim):
-            length = max(0, (full_ends[i] - full_starts[i] + full_steps[i] - 1) // full_steps[i])
+            if full_steps[i] > 0:
+                length = max(0, (full_ends[i] - full_starts[i] + full_steps[i] - 1) // full_steps[i])
+            else:
+                length = max(0, (full_ends[i] - full_starts[i] + full_steps[i] + 1) // full_steps[i])
             out_shape.append(length)
         out_shape = tuple(out_shape)
             

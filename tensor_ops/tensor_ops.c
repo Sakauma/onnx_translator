@@ -1128,14 +1128,12 @@ void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params) {
         for (int c = 0; c < channels; c++) {
             for (int oh = 0; oh < out_h; oh++) {
                 for (int ow = 0; ow < out_w; ow++) {
-                    double max_val = -DBL_MAX; 
-                    
+                    double max_val = -INFINITY; 
                     // 遍历 Kernel
                     for (int kh = 0; kh < k_h; kh++) {
                         for (int kw = 0; kw < k_w; kw++) {
                             int h_in = oh * stride_h + kh - pad_top;
                             int w_in = ow * stride_w + kw - pad_left;
-                            
                             // MaxPool padding 策略: 只处理边界内
                             if (h_in >= 0 && h_in < in_h && w_in >= 0 && w_in < in_w) {
                                 size_t x_idx = ((size_t)n * channels * in_h * in_w) + 
@@ -1185,19 +1183,28 @@ void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y,
             
             double res = (double)alpha * sum;
             
-            // 处理 Bias C (支持广播)
+            // 处理 Bias C
             if (C != NULL && C->data != NULL) {
                 double val_c = 0.0;
-                
-                if (C->size == 1) { 
+                if (C->size == 1) {
+                    // 标量广播
                     val_c = get_value_as_double(C, 0);
-                } else if (C->ndim == 1 || (C->ndim == 2 && C->shape[0] == 1)) {
-                    if (C->size == N) val_c = get_value_as_double(C, n);
-                } else if (C->ndim == 2 && C->shape[1] == 1) {
-                    if (C->shape[0] == M) val_c = get_value_as_double(C, m);
+                } else if (C->ndim == 1) {
+                    // 1D 张量
+                    int idx = 0;
+                    if (C->shape[0] == N) idx = n;
+                    else if (C->shape[0] == M) idx = m;
+                    val_c = get_value_as_double(C, idx);
                 } else {
-                    size_t idx_c = (size_t)m * N + n;
-                    if (idx_c < C->size) val_c = get_value_as_double(C, idx_c);
+                    // 2D 张量
+                    int H = C->shape[0];
+                    int W = C->shape[1];
+                    int idx_h = (H == 1) ? 0 : m; // 处理 M 维广播
+                    int idx_w = (W == 1) ? 0 : n; // 处理 N 维广播
+                    // 边界保护
+                    if (idx_h < H && idx_w < W) {
+                        val_c = get_value_as_double(C, idx_h * W + idx_w);
+                    }
                 }
                 res += (double)beta * val_c;
             }

@@ -196,8 +196,11 @@ def ONNXImport(file_path):
                 raise ValueError(f"❌ Error: Could not determine dtype for ZeroPoint '{zp_name}' in node {node.name}. "
                                  "Cannot proceed with default, as it risks signed/unsigned mismatch.")
             target_dtype = onnx_dtype_mapping[elem_type]
+            axis = 1 
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
             onnx_graph_list.append(
-                nn.Operators.QuantizeLinear(node.input, node.output, dtype=target_dtype, version="17"))
+                nn.Operators.QuantizeLinear(node.input, node.output, axis=axis, dtype=target_dtype, version="17"))
         elif node.op_type == "DequantizeLinear":
             # Dequantize 通常输出 float32，但也可能根据后续节点不同
             # 尝试推断 output[0] 的类型

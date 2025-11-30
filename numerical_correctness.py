@@ -155,7 +155,8 @@ def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=
             files.append("null")
             continue
         fname = f"tmp_in_{i}.bin"
-        arr.tofile(fname)
+        #arr.tofile(fname)
+        np.ascontiguousarray(arr).tofile(fname)
         files.append(fname)
     
     if params_binary is not None:
