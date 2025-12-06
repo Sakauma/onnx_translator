@@ -1586,3 +1586,194 @@ class Constant(Ops):
         # 图推断模式
         shape = self.value.shape if hasattr(self.value, 'shape') else (1,)
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None, "graph": None}
+    
+class Equal(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "equal_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class Greater(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "greater_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class Less(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "less_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class GreaterOrEqual(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "greater_or_equal_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class LessOrEqual(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "less_or_equal_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class Not(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x):
+        return {"tensor": self._execute_unary(x, "not_forward"), "parameters": None}
+    def forward_(self, x):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class And(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "and_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class Or(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "or_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class Xor(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "xor_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class IsNaN(Ops):
+    def __init__(self, inputs, outputs, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x):
+        return {"tensor": self._execute_unary(x, "isnan_forward"), "parameters": None}
+    def forward_(self, x):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Sin(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x):
+        return {"tensor": self._execute_unary(x, "sin_forward"), "parameters": None}
+    def forward_(self, x):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Tan(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x):
+        return {"tensor": self._execute_unary(x, "tan_forward"), "parameters": None}
+    def forward_(self, x):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Atan(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x):
+        return {"tensor": self._execute_unary(x, "atan_forward"), "parameters": None}
+    def forward_(self, x):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Sign(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x):
+        return {"tensor": self._execute_unary(x, "sign_forward"), "parameters": None}
+    def forward_(self, x):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+        
+class Identity(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x):
+        return {"tensor": self._execute_unary(x, "identity_forward"), "parameters": None}
+    def forward_(self, x):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Mod(Ops):
+    def __init__(self, inputs, outputs, dtype, fmod=0, version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.fmod = fmod 
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "mod_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class Where(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, cond, x, y):
+        return {"tensor": self._execute_ternary(cond, x, y, "where_forward"), "parameters": None}
+    def forward_(self, cond, x, y):
+        try: shape = np.broadcast_shapes(cond.size, x.size, y.size)
+        except: shape = x.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}

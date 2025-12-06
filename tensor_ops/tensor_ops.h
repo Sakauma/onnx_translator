@@ -316,4 +316,38 @@ void shape_forward(const Tensor* input, Tensor* output);
 
 // Constant 复用 flatten_forward
 
+void equal_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void greater_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void less_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void greater_or_equal_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void less_or_equal_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void not_forward(const Tensor* input, Tensor* output);
+
+void and_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void or_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void xor_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void isnan_forward(const Tensor* input, Tensor* output);
+
+void sin_forward(const Tensor* input, Tensor* output);
+
+void tan_forward(const Tensor* input, Tensor* output);
+
+void atan_forward(const Tensor* input, Tensor* output);
+
+void sign_forward(const Tensor* input, Tensor* output);
+
+void identity_forward(const Tensor* input, Tensor* output);
+
+void mod_forward(const Tensor* A, const Tensor* B, Tensor* O);
+
+void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor* O);
+
 #endif

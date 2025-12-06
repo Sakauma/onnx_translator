@@ -376,6 +376,50 @@ def ONNXImport(file_path):
             onnx_graph_list.append(
                 nn.Operators.Constant(node.input, node.output, value=value,
                                       dtype=dtype, version="17"))
+        elif node.op_type == "Equal":
+            onnx_graph_list.append(nn.Operators.Equal(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "Greater":
+            onnx_graph_list.append(nn.Operators.Greater(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "Less":
+            onnx_graph_list.append(nn.Operators.Less(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "GreaterOrEqual":
+            onnx_graph_list.append(nn.Operators.GreaterOrEqual(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "LessOrEqual":
+            onnx_graph_list.append(nn.Operators.LessOrEqual(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "Not":
+            onnx_graph_list.append(nn.Operators.Not(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "And":
+            onnx_graph_list.append(nn.Operators.And(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "Or":
+            onnx_graph_list.append(nn.Operators.Or(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "Xor":
+            onnx_graph_list.append(nn.Operators.Xor(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "IsNaN":
+            onnx_graph_list.append(nn.Operators.IsNaN(node.input, node.output, dtype="bool", version="17"))
+        elif node.op_type == "Sin":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Sin(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Tan":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Tan(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Atan":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Atan(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Sign":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Sign(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Identity":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Identity(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Mod":
+            fmod = 0
+            for attr in node.attribute:
+                if attr.name == "fmod": fmod = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Mod(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], fmod=fmod, version="17"))
+        elif node.op_type == "Where":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Where(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
         else:
             # 忽略未支持的操作类型
             pass

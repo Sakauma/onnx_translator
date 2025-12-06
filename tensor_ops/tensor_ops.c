@@ -1673,3 +1673,119 @@ void shape_forward(const Tensor* input, Tensor* output) {
         out_data[i] = (int64_t)input->shape[i];
     }
 }
+
+// 比较 A 和 B，结果存入 O (通常是 uint8)
+#define BINARY_COMP_IMPL(FUNC_NAME, OPERATOR) \
+void FUNC_NAME(const Tensor* A, const Tensor* B, Tensor* O) { \
+    if (!A || !B || !O) return; \
+    size_t loop_size = O->size; \
+    _Pragma("omp parallel for") \
+    for (size_t i = 0; i < loop_size; i++) { \
+        double val_a = get_value_as_double(A, i); \
+        double val_b = get_value_as_double(B, i); \
+        /* ONNX 规范：True 为 1, False 为 0 */ \
+        uint8_t res = (val_a OPERATOR val_b) ? 1 : 0; \
+        ((uint8_t*)O->data)[i] = res; \
+    } \
+}
+
+BINARY_COMP_IMPL(equal_forward, ==)
+BINARY_COMP_IMPL(greater_forward, >)
+BINARY_COMP_IMPL(less_forward, <)
+BINARY_COMP_IMPL(greater_or_equal_forward, >=)
+BINARY_COMP_IMPL(less_or_equal_forward, <=)
+
+// Not: 按位取反 (bool/uint8) 或 逻辑非
+void not_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        // ONNX Not 对 bool 生效，这里做逻辑非
+        uint8_t res = (val == 0) ? 1 : 0; 
+        ((uint8_t*)output->data)[i] = res;
+    }
+}
+
+void isnan_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        uint8_t res = isnan(val) ? 1 : 0;
+        ((uint8_t*)output->data)[i] = res;
+    }
+}
+
+// 输入已经被看作 boolean
+#define BINARY_LOGIC_IMPL(FUNC_NAME, OP_LOGIC) \
+void FUNC_NAME(const Tensor* A, const Tensor* B, Tensor* O) { \
+    if (!A || !B || !O) return; \
+    _Pragma("omp parallel for") \
+    for (size_t i = 0; i < O->size; i++) { \
+        double val_a = get_value_as_double(A, i); \
+        double val_b = get_value_as_double(B, i); \
+        int bool_a = (val_a != 0); \
+        int bool_b = (val_b != 0); \
+        uint8_t res = (OP_LOGIC) ? 1 : 0; \
+        ((uint8_t*)O->data)[i] = res; \
+    } \
+}
+
+BINARY_LOGIC_IMPL(and_forward, bool_a && bool_b)
+BINARY_LOGIC_IMPL(or_forward,  bool_a || bool_b)
+BINARY_LOGIC_IMPL(xor_forward, bool_a != bool_b)
+
+UNARY_OP_IMPL(sin_forward, sin(val))
+UNARY_OP_IMPL(tan_forward, tan(val))
+UNARY_OP_IMPL(atan_forward, atan(val))
+
+void sign_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        double res;
+        if (isnan(val)) res = NAN;
+        else if (val > 0) res = 1.0;
+        else if (val < 0) res = -1.0;
+        else res = 0.0;
+        set_tensor_value_from_float(output, i, res);
+    }
+}
+
+void identity_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output || input->size != output->size) return;
+    size_t elem_size = get_dtype_size(input->dtype);
+    memcpy(output->data, input->data, input->size * elem_size);
+}
+
+void mod_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (!A || !B || !O) return;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < O->size; i++) {
+        double a = get_value_as_double(A, i);
+        double b = get_value_as_double(B, i);
+        double res;
+        if (b == 0) {
+            res = NAN; // 除零处理
+        } else {
+            res = a - floor(a / b) * b;
+        }
+        set_tensor_value_from_float(O, i, res);
+    }
+}
+
+void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor* O) {
+    if (!Cond || !X || !Y || !O) return;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < O->size; i++) {
+        double c_val = get_value_as_double(Cond, i);
+        double x_val = get_value_as_double(X, i);
+        double y_val = get_value_as_double(Y, i);
+        
+        // 条件非 0 即为 True
+        double res = (c_val != 0) ? x_val : y_val;
+        set_tensor_value_from_float(O, i, res);
+    }
+}

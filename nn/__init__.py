@@ -30,6 +30,7 @@ DTYPE_MAP = {
     "int16": 9,
     "int32": 10,
     "int64": 11,
+    "bool": 8,
 }
 
 # 数据类型映射到NumPy类型
@@ -46,6 +47,7 @@ DTYPE_TO_NUMPY = {
     "int16": np.int16,
     "int32": np.int32,
     "int64": np.int64,
+    "bool": np.bool_,
 }
 
 # NumPy 类型到 NPS 字符串类型的反向映射
