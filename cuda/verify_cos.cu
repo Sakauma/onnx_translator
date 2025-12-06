@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
-__global__ void relu_kernel(const float* in, float* out, size_t n) {
+__global__ void cos_kernel(const float* in, float* out, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) out[idx] = cosf(in[idx]);
 }
@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
     cudaMalloc(&d_in, bytes); cudaMalloc(&d_out, bytes);
     cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice);
     
-    relu_kernel<<<(n + 255)/256, 256>>>(d_in, d_out, n);
+    cos_kernel<<<(n + 255)/256, 256>>>(d_in, d_out, n);
     
     cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
     FILE *fout = fopen(argv[3], "wb"); fwrite(h_out, 1, bytes, fout); fclose(fout);

@@ -18,6 +18,7 @@ class CPoolParams(ctypes.Structure):
     _fields_ = [
         ("pads", ctypes.POINTER(ctypes.c_int)),
         ("strides", ctypes.POINTER(ctypes.c_int)),
+        ("dilations", ctypes.POINTER(ctypes.c_int)),
         ("kernel_shape", ctypes.POINTER(ctypes.c_int))
     ]
 
@@ -536,11 +537,12 @@ class Conv(Ops):
         return values
 
 class MaxPool(Ops):
-    def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, version="17"):
+    def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, dilations=[1, 1], version="17"):
         super(MaxPool, self).__init__(inputs, outputs)
         self.kernel_shape = kernel_shape
         self.pads = pads
         self.strides = strides
+        self.dilations = dilations
         self.dtype = dtype
         self.version = version
 
@@ -553,19 +555,21 @@ class MaxPool(Ops):
         # 1. 计算输出形状
         N, C, H_in, W_in = x.size
         K_h, K_w = self.kernel_shape
-        H_out = (H_in + self.pads[0] + self.pads[2] - 1 * (K_h - 1) - 1) // self.strides[0] + 1
-        W_out = (W_in + self.pads[1] + self.pads[3] - 1 * (K_w - 1) - 1) // self.strides[1] + 1
+        H_out = (H_in + self.pads[0] + self.pads[2] - self.dilations[0] * (K_h - 1) - 1) // self.strides[0] + 1
+        W_out = (W_in + self.pads[1] + self.pads[3] - self.dilations[1] * (K_w - 1) - 1) // self.strides[1] + 1
         out_shape = (N, C, H_out, W_out)
 
         # 2. 准备参数
         pads_arr = (ctypes.c_int * 4)(*self.pads)
         strides_arr = (ctypes.c_int * 2)(*self.strides)
         kernel_arr = (ctypes.c_int * 2)(*self.kernel_shape)
+        dilations_arr = (ctypes.c_int * 2)(*self.dilations)
         
         c_params = CPoolParams()
         c_params.pads = ctypes.cast(pads_arr, ctypes.POINTER(ctypes.c_int))
         c_params.strides = ctypes.cast(strides_arr, ctypes.POINTER(ctypes.c_int))
         c_params.kernel_shape = ctypes.cast(kernel_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.dilations = ctypes.cast(dilations_arr, ctypes.POINTER(ctypes.c_int))
 
         # 3. 准备 Tensor
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -1334,32 +1338,45 @@ class MatMul(Ops):
         self.version = version
 
     def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
-        # 最后两维做乘法，前面的维度做广播
-        shape_a = list(input_a.size)
-        shape_b = list(input_b.size)
+        data_a = input_a.data
+        data_b = input_b.data
+        
+        is_a_1d = (data_a.ndim == 1)
+        is_b_1d = (data_b.ndim == 1)
+
+        if is_a_1d:
+            data_a = data_a[np.newaxis, :]
+            
+        if is_b_1d:
+            data_b = data_b[:, np.newaxis]
+
+        shape_a = list(data_a.shape)
+        shape_b = list(data_b.shape)
         
         ndim = max(len(shape_a), len(shape_b))
         M = shape_a[-2]
         K_a = shape_a[-1]
         K_b = shape_b[-2]
         N = shape_b[-1]
+        
         if K_a != K_b:
-            raise ValueError(f"MatMul shape mismatch: {K_a} != {K_b}")
+            raise ValueError(f"MatMul shape mismatch: {K_a} != {K_b} (Original shapes: A={input_a.size}, B={input_b.size})")
+            
         batch_a = shape_a[:-2]
         batch_b = shape_b[:-2]
+        
         try:
             batch_out = np.broadcast_shapes(batch_a, batch_b)
         except ValueError:
             raise ValueError(f"MatMul batch broadcast failed: {batch_a} vs {batch_b}")
             
-        out_shape = list(batch_out) + [M, N]
+        out_shape_for_c = list(batch_out) + [M, N]
         
-        # 2. 准备计算
-        input_a_c = self._numpy_to_ctensor(input_a.data, input_a.dtype)
-        input_b_c = self._numpy_to_ctensor(input_b.data, input_b.dtype)
+        input_a_c = self._numpy_to_ctensor(data_a, input_a.dtype)
+        input_b_c = self._numpy_to_ctensor(data_b, input_b.dtype)
         
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        output_shape_c = (ctypes.c_int * len(out_shape_for_c))(*out_shape_for_c)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape_for_c), nn.DTYPE_MAP[self.dtype])
         
         self.lib.matmul_forward(input_a_c, input_b_c, output_c)
         
@@ -1368,16 +1385,33 @@ class MatMul(Ops):
         self.lib.free_tensor(input_b_c)
         self.lib.free_tensor(output_c)
 
-        out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
+        final_shape = list(out_shape_for_c)
+        
+        if is_b_1d:
+            final_shape.pop(-1) # 删除 N (此时 N=1)
+            
+        if is_a_1d:
+            final_shape.pop(-1) # 删除 M (此时 M=1，因为 N 已经被 pop 了或者还在最后)
+            
+        # 如果变成了标量或形状改变，reshape 数据
+        if tuple(final_shape) != tuple(out_shape_for_c):
+            out_data = out_data.reshape(final_shape)
+
+        out_tensor = Tensor(*final_shape, dtype=self.dtype, data=out_data)
         values = {"tensor": out_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values
 
     def forward_(self, input_a: Tensor_, input_b: Tensor_) -> dict:
-        # 图推断模式
-        shape_a = list(input_a.size)
-        shape_b = list(input_b.size)
+        shape_a = list(input_a.size) if isinstance(input_a.size, (list, tuple)) else [input_a.size]
+        shape_b = list(input_b.size) if isinstance(input_b.size, (list, tuple)) else [input_b.size]
         
+        is_a_1d = (len(shape_a) == 1)
+        is_b_1d = (len(shape_b) == 1)
+        
+        if is_a_1d: shape_a = [1] + shape_a
+        if is_b_1d: shape_b = shape_b + [1]
+            
         M = shape_a[-2]
         N = shape_b[-1]
         
@@ -1389,9 +1423,14 @@ class MatMul(Ops):
         except:
             batch_out = batch_a # Fallback
             
-        out_shape = list(batch_out) + [M, N]
+        temp_out_shape = list(batch_out) + [M, N]
         
-        output_tensor = Tensor_(*out_shape, dtype=self.dtype)
+        # 还原形状
+        final_shape = list(temp_out_shape)
+        if is_b_1d: final_shape.pop(-1)
+        if is_a_1d: final_shape.pop(-1)
+        
+        output_tensor = Tensor_(*final_shape, dtype=self.dtype)
         values = {"tensor": output_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values

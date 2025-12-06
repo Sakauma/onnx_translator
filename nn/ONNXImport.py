@@ -145,17 +145,20 @@ def ONNXImport(file_path):
             kernel_shape = [1, 1]
             pads = [0, 0, 0, 0]
             strides = [1, 1]
+            dilations = [1, 1]
             for attr in node.attribute:
                 if attr.name == "kernel_shape": kernel_shape = attr.ints
                 elif attr.name == "pads": pads = attr.ints
                 elif attr.name == "strides": strides = attr.ints
+                elif attr.name == "dilations": dilations = attr.ints
+                elif attr.name == "auto_pad": pass
             elem_type = get_tensor_dtype(node.output[0], onnx_model)
             onnx_graph_list.append(
                 nn.Operators.MaxPool(
                     node.input, node.output, 
-                    kernel_shape=kernel_shape, pads=pads, strides=strides,
+                    kernel_shape=kernel_shape, pads=pads, strides=strides, dilations=dilations,
                     dtype=onnx_dtype_mapping[elem_type],
-                    version="17"))  
+                    version="17")) 
         elif node.op_type == "Gemm":
             alpha = 1.0
             beta = 1.0

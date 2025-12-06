@@ -49,6 +49,7 @@ typedef struct {
 typedef struct {
     int* pads;         // [top, left, bottom, right]
     int* strides;      // [h, w]
+    int* dilations;    // [h, w]
     int* kernel_shape; // [h, w]
 } PoolParams;
 

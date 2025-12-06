@@ -1122,6 +1122,8 @@ void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params) {
     int pad_left = params->pads[1];
     int stride_h = params->strides[0];
     int stride_w = params->strides[1];
+    int dilation_h = params->dilations[0];
+    int dilation_w = params->dilations[1];
 
     #pragma omp parallel for collapse(2)
     for (int n = 0; n < batch; n++) {
@@ -1132,8 +1134,8 @@ void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params) {
                     // 遍历 Kernel
                     for (int kh = 0; kh < k_h; kh++) {
                         for (int kw = 0; kw < k_w; kw++) {
-                            int h_in = oh * stride_h + kh - pad_top;
-                            int w_in = ow * stride_w + kw - pad_left;
+                            int h_in = oh * stride_h + kh * dilation_h - pad_top;
+                            int w_in = ow * stride_w + kw * dilation_w - pad_left;
                             // MaxPool padding 策略: 只处理边界内
                             if (h_in >= 0 && h_in < in_h && w_in >= 0 && w_in < in_w) {
                                 size_t x_idx = ((size_t)n * channels * in_h * in_w) + 
@@ -1476,7 +1478,29 @@ UNARY_OP_IMPL(floor_forward, floor(val))
 
 // Cast
 // 读取时自动转 double，写入 set_tensor_value 时会自动转为 output->dtype
-UNARY_OP_IMPL(cast_forward, val)
+void cast_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output || !input->data || !output->data || input->size != output->size) return;
+    
+    // 检查是否是 "浮点 -> 整数" 的情况
+    int is_float_to_int = (input->dtype == DTYPE_FLOAT32 || input->dtype == DTYPE_FLOAT64 || 
+                           input->dtype == DTYPE_FLOAT16 || input->dtype == DTYPE_BFLOAT16) &&
+                          IS_INT_TYPE(output->dtype);
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        // 1. 读取输入 (统一转 double)
+        double val = get_value_as_double(input, i);
+        
+        // 2. 写入输出
+        if (is_float_to_int) {
+            int64_t trunc_val = (int64_t)val;
+            set_tensor_value_from_int(output, i, trunc_val);
+        } else {
+            // 其他情况 (Int->Float, Float->Float, Int->Int) 保持原有逻辑
+            set_tensor_value_from_float(output, i, val);
+        }
+    }
+}
 
 // Clip：支持全广播
 // 调用此函数前，Python 端已将 input, min_t, max_t 广播为相同形状

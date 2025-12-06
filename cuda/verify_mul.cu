@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 
 // 核心核函数：只处理 float32，保证最高精度真值
-__global__ void add_kernel(const float* a, const float* b, float* out, size_t n) {
+__global__ void mul_kernel(const float* a, const float* b, float* out, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         out[idx] = a[idx] * b[idx];
@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
     cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice);
     
-    add_kernel<<<(n + 255)/256, 256>>>(d_a, d_b, d_out, n);
+    mul_kernel<<<(n + 255)/256, 256>>>(d_a, d_b, d_out, n);
     cudaDeviceSynchronize();
     
     // 3. 写入结果
