@@ -290,4 +290,29 @@ void floor_forward(const Tensor* input, Tensor* output);
  */
 void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y);
 
+/**
+ * Gather 算子
+ * @param data 输入数据张量
+ * @param indices 索引张量 (必须是整数类型)
+ * @param output 输出张量
+ * @param axis 索引的轴
+ */
+void gather_forward(const Tensor* data, const Tensor* indices, Tensor* output, int axis);
+
+/**
+ * Expand 算子 (广播)
+ * @param input 输入张量
+ * @param output 输出张量 (形状已由 Python 端确定为广播后的形状)
+ */
+void expand_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Shape 算子
+ * @param input 输入张量
+ * @param output 输出张量 (1D int64，存储 input 的维度)
+ */
+void shape_forward(const Tensor* input, Tensor* output);
+
+// Constant 复用 flatten_forward
+
 #endif

@@ -529,7 +529,6 @@ if __name__ == "__main__":
          {"pads":[1,1,1,1], "strides":[1,1], "dilations":[1,1], "group":8}),
 
         # --- Gemm 混合精度场景 ---
-
         # 4. [Tensor Core 模式]: FP16 * FP16 + FP32 -> FP32
         # 典型的混合精度累加测试
         (Gemm, "gemm",

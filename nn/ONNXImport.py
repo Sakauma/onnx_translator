@@ -336,6 +336,43 @@ def ONNXImport(file_path):
             onnx_graph_list.append(
                 nn.Operators.MatMul(node.input, node.output, 
                                     dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Gather":
+            axis = 0
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Gather(node.input, node.output, axis=axis,
+                                    dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Expand":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Expand(node.input, node.output,
+                                    dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Shape":
+            start = 0
+            end = None
+            for attr in node.attribute:
+                if attr.name == "start": start = attr.i
+                if attr.name == "end": end = attr.i
+            # Shape 输出一定是 int64
+            onnx_graph_list.append(
+                nn.Operators.Shape(node.input, node.output, start=start, end=end,
+                                   dtype="int64", version="17"))
+        elif node.op_type == "Constant":
+            value = None
+            dtype = "float32"
+            for attr in node.attribute:
+                if attr.name == "value":
+                    # 解析 TensorProto
+                    t = attr.t
+                    np_dtype = onnx_dtype_mapping[t.data_type]
+                    val_np = numpy_helper.to_array(t)
+                    value = val_np
+                    dtype = np_dtype                
+            onnx_graph_list.append(
+                nn.Operators.Constant(node.input, node.output, value=value,
+                                      dtype=dtype, version="17"))
         else:
             # 忽略未支持的操作类型
             pass

@@ -1334,31 +1334,22 @@ class MatMul(Ops):
         self.version = version
 
     def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
-        # 1. 形状推断 (广播逻辑)
-        # 规则：最后两维做乘法，前面的维度做广播
+        # 最后两维做乘法，前面的维度做广播
         shape_a = list(input_a.size)
         shape_b = list(input_b.size)
         
-        # 补齐维度（例如 A是2D，B是3D，给A前面补1）
         ndim = max(len(shape_a), len(shape_b))
-        
-        # M, K, N
         M = shape_a[-2]
         K_a = shape_a[-1]
         K_b = shape_b[-2]
         N = shape_b[-1]
-        
         if K_a != K_b:
             raise ValueError(f"MatMul shape mismatch: {K_a} != {K_b}")
-            
-        # 提取 Batch 维度
         batch_a = shape_a[:-2]
         batch_b = shape_b[:-2]
-        
         try:
             batch_out = np.broadcast_shapes(batch_a, batch_b)
         except ValueError:
-             # 手动 fallback 或报错
             raise ValueError(f"MatMul batch broadcast failed: {batch_a} vs {batch_b}")
             
         out_shape = list(batch_out) + [M, N]
@@ -1404,3 +1395,155 @@ class MatMul(Ops):
         values = {"tensor": output_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values
+    
+class Gather(Ops):
+    def __init__(self, inputs, outputs, axis=0, dtype="float32", version="17"):
+        super(Gather, self).__init__(inputs, outputs)
+        self.axis = axis
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+            self.lib.gather_forward.argtypes = [
+                ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor), 
+                ctypes.POINTER(nn.CTensor), ctypes.c_int
+            ]
+
+    def forward(self, data: Tensor, indices: Tensor) -> dict:
+        # 计算输出形状: data.shape[:axis] + indices.shape + data.shape[axis+1:]
+        axis = self.axis if self.axis >= 0 else self.axis + len(data.size)
+        out_shape = data.size[:axis] + indices.size + data.size[axis+1:]
+        
+        data_c = self._numpy_to_ctensor(data.data, data.dtype)
+        indices_c = self._numpy_to_ctensor(indices.data, indices.dtype)
+        
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        self.lib.gather_forward(data_c, indices_c, output_c, ctypes.c_int(axis))
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(data_c); self.lib.free_tensor(indices_c); self.lib.free_tensor(output_c)
+        
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+    def forward_(self, data: Tensor_, indices: Tensor_) -> dict:
+        axis = self.axis if self.axis >= 0 else self.axis + len(data.size)
+        d_size = list(data.size) if isinstance(data.size, tuple) else data.size
+        i_size = list(indices.size) if isinstance(indices.size, tuple) else indices.size
+        
+        out_shape = tuple(d_size[:axis] + i_size + d_size[axis+1:])
+        return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None, "graph": None}
+    
+class Expand(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super(Expand, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input: Tensor, shape: Tensor) -> dict:
+        # 1. 获取目标形状
+        target_shape = shape.data.astype(np.int64).flatten().tolist()
+        input_shape = list(input.size)
+        
+        # 2. 检查维度数量 Target 维度不能少于 Input
+        if len(target_shape) < len(input_shape):
+             raise ValueError(f"Expand: Target shape dims ({len(target_shape)}) < Input dims ({len(input_shape)}). Input: {input_shape}, Target: {target_shape}")
+
+        # 3. 对齐输入维度 (Input 左侧补 1)
+        pad_len = len(target_shape) - len(input_shape)
+        aligned_input = [1] * pad_len + input_shape
+        
+        # 4. 逐维度计算最终形状并检查合法性
+        final_shape = []
+        for i, (t_dim, i_dim) in enumerate(zip(target_shape, aligned_input)):
+            # 情况 A: target 为 -1，表示维持 input 维度
+            if t_dim == -1:
+                final_shape.append(i_dim)
+            # 情况 B: input 为 1，广播到 target 维度
+            elif i_dim == 1:
+                final_shape.append(t_dim)
+            # 情况 C: 维度匹配，无需广播
+            elif i_dim == t_dim:
+                final_shape.append(t_dim)
+            # 情况 D: 维度不匹配且 input != 1 (Expand 不支持缩小或错配)
+            # 例如: input=5, target=1 (非法) 或 input=5, target=6 (非法)
+            else:
+                raise ValueError(f"Expand: Dimension mismatch at axis {i}. Input dim {i_dim} cannot be broadcast to target dim {t_dim}.")
+                
+        final_shape = tuple(final_shape)
+        
+        input_c = self._numpy_to_ctensor(input.data, input.dtype)
+        output_shape_c = (ctypes.c_int * len(final_shape))(*final_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(final_shape), nn.DTYPE_MAP[self.dtype])
+        
+        self.lib.expand_forward(input_c, output_c)
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+        
+        return {"tensor": Tensor(*final_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+    def forward_(self, input: Tensor_, shape: Tensor_) -> dict:
+        # 静态图推断较难知道 shape 的具体值，暂返回未知大小的 Tensor_
+        return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None, "graph": None}
+    
+class Shape(Ops):
+    def __init__(self, inputs, outputs, start=0, end=None, dtype="int64", version="17"):
+        super(Shape, self).__init__(inputs, outputs)
+        self.start = start
+        self.end = end
+        self.dtype = "int64" # Shape 输出永远是 int64
+        self.version = version
+
+    def forward(self, input: Tensor) -> dict:
+        dims = list(input.size)
+        # 处理 start/end
+        if self.end is None: self.end = len(dims)
+        sliced_dims = dims[self.start : self.end]
+        
+        out_data = np.array(sliced_dims, dtype=np.int64)
+        out_tensor = Tensor(len(sliced_dims), dtype="int64", data=out_data)
+        
+        return {"tensor": out_tensor, "parameters": None, "graph": None}
+
+    def forward_(self, input: Tensor_) -> dict:
+        # Shape 的输出形状取决于 input 的 rank
+        dims = list(input.size)
+        if self.end is None: self.end = len(dims)
+        out_len = len(dims[self.start : self.end])
+        return {"tensor": Tensor_(out_len, dtype="int64"), "parameters": None, "graph": None}
+    
+class Constant(Ops):
+    def __init__(self, inputs, outputs, value=None, dtype="float32", version="17"):
+        super(Constant, self).__init__(inputs, outputs)
+        self.value = value
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self) -> dict:
+        if isinstance(self.value, np.ndarray):
+            val_data = self.value
+            val_shape = self.value.shape
+        elif isinstance(self.value, Tensor):
+            val_data = self.value.data
+            val_shape = self.value.size
+        else: # Scalar
+            val_data = np.array([self.value])
+            val_shape = (1,)
+
+        input_c = self._numpy_to_ctensor(val_data, self.dtype)
+        output_shape_c = (ctypes.c_int * len(val_shape))(*val_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(val_shape), nn.DTYPE_MAP[self.dtype])
+        self.lib.flatten_forward(input_c, output_c)
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c)
+        self.lib.free_tensor(output_c)
+
+        return {"tensor": Tensor(*val_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+    def forward_(self) -> dict:
+        # 图推断模式
+        shape = self.value.shape if hasattr(self.value, 'shape') else (1,)
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None, "graph": None}

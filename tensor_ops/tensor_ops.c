@@ -1561,3 +1561,91 @@ void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
         set_tensor_value_from_float(Y, i, sum);
     }
 }
+
+// Gather 实现
+void gather_forward(const Tensor* data, const Tensor* indices, Tensor* output, int axis) {
+    if (!data || !indices || !output) return;
+    
+    int ndim_data = data->ndim;
+    int ndim_indices = indices->ndim;
+    int ndim_out = output->ndim;
+    
+    if (axis < 0) axis += ndim_data;
+    if (axis < 0 || axis >= ndim_data) return;
+
+    int axis_dim_limit = data->shape[axis];
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[8]; // 偷懒做法，最大维度不超过8
+        int data_coords[8];
+        int indices_coords[8];
+        
+        get_coords_from_index(i, out_coords, output->shape, ndim_out);
+        for (int j = 0; j < ndim_indices; j++) {
+            indices_coords[j] = out_coords[axis + j];
+        }
+        
+        size_t idx_idx = get_index_from_coords(indices_coords, indices->shape, ndim_indices);
+        int64_t index_val = get_value_as_int64(indices, idx_idx);
+
+        if (index_val < 0) index_val += axis_dim_limit;      
+        if (index_val < 0 || index_val >= axis_dim_limit) index_val = 0; 
+        
+        for (int j = 0; j < axis; j++) {
+            data_coords[j] = out_coords[j];
+        }
+        data_coords[axis] = (int)index_val;
+        for (int j = axis + 1; j < ndim_data; j++) {
+            data_coords[j] = out_coords[j - 1 + ndim_indices];
+        }
+        
+        size_t data_idx = get_index_from_coords(data_coords, data->shape, ndim_data);
+        double val = get_value_as_double(data, data_idx);
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// Expand 实现
+void expand_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    
+    int ndim_in = input->ndim;
+    int ndim_out = output->ndim;
+    
+    // 维度差 
+    int offset = ndim_out - ndim_in;
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[8];
+        int in_coords[8];
+        
+        get_coords_from_index(i, out_coords, output->shape, ndim_out);
+        
+        // 映射回输入坐标
+        for (int d = 0; d < ndim_in; d++) {
+            int out_dim_idx = d + offset; // 对应输出的维度索引
+            // 如果输入在该维度是1，则坐标固定为0（广播）；否则随输出变化
+            if (input->shape[d] == 1) {
+                in_coords[d] = 0;
+            } else {
+                in_coords[d] = out_coords[out_dim_idx];
+            }
+        }
+        
+        size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim_in);
+        double val = get_value_as_double(input, in_idx);
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// Shape 实现
+void shape_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    // Output 应该是一个 1D int64 张量，长度等于 input->ndim
+    int64_t* out_data = (int64_t*)output->data;
+    for (int i = 0; i < input->ndim; i++) {
+        out_data[i] = (int64_t)input->shape[i];
+    }
+}
