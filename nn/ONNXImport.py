@@ -457,6 +457,41 @@ def ONNXImport(file_path):
             elem_type = get_tensor_dtype(node.output[0], onnx_model)
             onnx_graph_list.append(
                 nn.Operators.Split(node.input, node.output, axis=axis, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type in ["ReduceMean", "ReduceSum", "ReduceMax", "ReduceMin", "ReduceProd"]:
+            axes = None
+            keepdims = 1
+            for attr in node.attribute:
+                if attr.name == "axes": axes = attr.ints
+                elif attr.name == "keepdims": keepdims = attr.i
+            # Reduce 操作通常保持输入类型
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            cls_map = {
+                "ReduceMean": nn.Operators.ReduceMean,
+                "ReduceSum": nn.Operators.ReduceSum,
+                "ReduceMax": nn.Operators.ReduceMax,
+                "ReduceMin": nn.Operators.ReduceMin,
+                "ReduceProd": nn.Operators.ReduceProd
+            }
+            onnx_graph_list.append(
+                cls_map[node.op_type](
+                    node.input, node.output, 
+                    axes=axes, keepdims=keepdims, 
+                    dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type in ["ArgMax", "ArgMin"]:
+            axis = 0
+            keepdims = 1
+            select_last_index = 0
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+                elif attr.name == "keepdims": keepdims = attr.i
+                elif attr.name == "select_last_index": select_last_index = attr.i
+            # ArgMax/ArgMin 输出固定为 int64
+            cls_map = {"ArgMax": nn.Operators.ArgMax, "ArgMin": nn.Operators.ArgMin}
+            onnx_graph_list.append(
+                cls_map[node.op_type](
+                    node.input, node.output, 
+                    axis=axis, keepdims=keepdims, select_last_index=select_last_index,
+                    dtype="int64", version="17"))
         else:
             # 忽略未支持的操作类型
             pass

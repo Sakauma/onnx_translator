@@ -21,6 +21,13 @@ class CPoolParams(ctypes.Structure):
         ("dilations", ctypes.POINTER(ctypes.c_int)),
         ("kernel_shape", ctypes.POINTER(ctypes.c_int))
     ]
+    
+class CReduceParams(ctypes.Structure):
+    _fields_ = [
+        ("axes", ctypes.POINTER(ctypes.c_int)),
+        ("num_axes", ctypes.c_int),
+        ("keepdims", ctypes.c_int)
+    ]
 
 class RELU(Ops):
     """ReLU激活函数操作类"""
@@ -1958,3 +1965,155 @@ class Split(Ops):
     def forward_(self, input, split=None):
         # 返回与输出数量相同的占位符列表
         return {"tensor": [Tensor_(1, dtype=self.dtype) for _ in self.outputs], "parameters": None}
+    
+# Reduce 基类，复用 Shape 计算逻辑
+class ReduceBase(Ops):
+    def __init__(self, inputs, outputs, axes=None, keepdims=1, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.axes = axes # 初始 axes，可能为 None
+        self.keepdims = keepdims
+        self.dtype = dtype
+        self.version = version
+
+        # 注册参数类型
+        if self.lib:
+            func_name = self._get_c_func_name()
+            if hasattr(self.lib, func_name):
+                getattr(self.lib, func_name).argtypes = [
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CReduceParams)
+                ]
+
+    def _get_c_func_name(self):
+        raise NotImplementedError
+
+    def _prepare_axes(self, input_shape, runtime_axes=None):
+        ndim = len(input_shape)
+        # 优先级: 运行时输入 > 属性 > 默认(全归约)
+        target_axes = None
+        
+        if runtime_axes is not None:
+            # 如果 axes 是作为 Tensor 输入传进来的
+            target_axes = runtime_axes.data.astype(np.int64).flatten().tolist()
+        elif self.axes is not None:
+            target_axes = self.axes
+        else:
+            # 默认归约所有维度
+            target_axes = list(range(ndim))
+            
+        # 归一化负索引
+        normalized_axes = []
+        for ax in target_axes:
+            if ax < 0: ax += ndim
+            normalized_axes.append(ax)
+        
+        # 去重并排序
+        return sorted(list(set(normalized_axes)))
+
+    def _calc_out_shape(self, input_shape, axes):
+        out_shape = []
+        for i in range(len(input_shape)):
+            if i in axes:
+                if self.keepdims:
+                    out_shape.append(1)
+            else:
+                out_shape.append(input_shape[i])
+        
+        if not out_shape and not self.keepdims:
+            # 这种情况下结果是标量，shape 为 ()
+            pass 
+            
+        return tuple(out_shape)
+
+    def forward(self, data, axes_tensor=None):
+        real_axes = self._prepare_axes(data.size, axes_tensor)
+        out_shape = self._calc_out_shape(data.size, real_axes)
+        
+        axes_arr = (ctypes.c_int * len(real_axes))(*real_axes)
+        c_params = CReduceParams()
+        c_params.axes = ctypes.cast(axes_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.num_axes = len(real_axes)
+        c_params.keepdims = self.keepdims
+        
+        input_c = self._numpy_to_ctensor(data.data, data.dtype)
+        # 处理标量输出形状
+        shape_len = len(out_shape) if out_shape else 0
+        output_shape_c = (ctypes.c_int * shape_len)(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, shape_len, nn.DTYPE_MAP[self.dtype])
+        
+        getattr(self.lib, self._get_c_func_name())(input_c, output_c, ctypes.byref(c_params))
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c); self.lib.free_tensor(output_c)
+        
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, data, axes_tensor=None):
+        # 静态推断：如果没有 axes_tensor 且 self.axes 为 None，假设全归约
+        # 如果有 axes_tensor，无法推断具体轴，只能假设输出 Rank (如果 keepdims=1)
+        real_axes = self._prepare_axes(data.size, None) # 忽略动态 axes
+        out_shape = self._calc_out_shape(data.size, real_axes)
+        return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
+
+class ReduceMean(ReduceBase):
+    def _get_c_func_name(self): return "reduce_mean_forward"
+
+class ReduceSum(ReduceBase):
+    def _get_c_func_name(self): return "reduce_sum_forward"
+
+class ReduceMax(ReduceBase):
+    def _get_c_func_name(self): return "reduce_max_forward"
+
+class ReduceMin(ReduceBase):
+    def _get_c_func_name(self): return "reduce_min_forward"
+
+class ReduceProd(ReduceBase):
+    def _get_c_func_name(self): return "reduce_prod_forward"
+    
+class ArgBase(Ops):
+    def __init__(self, inputs, outputs, axis=0, keepdims=1, select_last_index=0, dtype="int64", version="17"):
+        super().__init__(inputs, outputs)
+        self.axis = axis
+        self.keepdims = keepdims
+        self.select_last_index = select_last_index
+        self.dtype = "int64" # ArgMax 输出必定是索引
+        self.version = version
+
+    def _get_c_func_name(self): raise NotImplementedError
+
+    def forward(self, data):
+        ndim = len(data.size)
+        axis = self.axis if self.axis >= 0 else self.axis + ndim
+        
+        out_shape = list(data.size)
+        if self.keepdims:
+            out_shape[axis] = 1
+        else:
+            out_shape.pop(axis)
+        out_shape = tuple(out_shape)
+        
+        input_c = self._numpy_to_ctensor(data.data, data.dtype)
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        getattr(self.lib, self._get_c_func_name())(
+            input_c, output_c, ctypes.c_int(axis), ctypes.c_int(self.select_last_index)
+        )
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c); self.lib.free_tensor(output_c)
+        
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, data):
+        ndim = len(data.size)
+        axis = self.axis if self.axis >= 0 else self.axis + ndim
+        out_shape = list(data.size)
+        if self.keepdims: out_shape[axis] = 1
+        else: out_shape.pop(axis)
+        return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
+
+class ArgMax(ArgBase):
+    def _get_c_func_name(self): return "argmax_forward"
+
+class ArgMin(ArgBase):
+    def _get_c_func_name(self): return "argmin_forward"

@@ -53,6 +53,12 @@ typedef struct {
     int* kernel_shape; // [h, w]
 } PoolParams;
 
+typedef struct {
+    int* axes;       // 要归约的轴数组
+    int num_axes;    // 轴的数量
+    int keepdims;    // 是否保持维度
+} ReduceParams;
+
 /**
  * 创建张量
  * 
@@ -368,4 +374,18 @@ void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const T
 
 // Split 复用 slice
 
+void reduce_mean_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+
+void reduce_sum_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+
+void reduce_max_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+
+void reduce_min_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+
+void reduce_prod_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+
+void argmax_forward(const Tensor* input, Tensor* output, int axis, int select_last_index);
+
+void argmin_forward(const Tensor* input, Tensor* output, int axis, int select_last_index);
+ 
 #endif

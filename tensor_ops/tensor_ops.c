@@ -1915,3 +1915,134 @@ void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const T
         }
     }
 }
+
+// 检查某个轴是否在归约列表中
+static inline int is_axis_reduced(int axis, int* axes, int num_axes) {
+    for (int i = 0; i < num_axes; i++) {
+        if (axes[i] == axis) return 1;
+    }
+    return 0;
+}
+
+// 模板：通用归约内核
+// 遍历输出的每个元素 (out_idx)。
+// 根据 out_idx 反解出 "基准坐标" (base_coords)。
+// 对于被归约的轴，基准坐标暂时设为 0；对于保留的轴，就是输出的对应坐标。
+// 启动内层循环，遍历所有被归约维度的组合，更新 accumulator。
+#define REDUCE_OP_IMPL(FUNC_NAME, INIT_VAL, REDUCE_LOGIC, POST_PROC) \
+void FUNC_NAME(const Tensor* input, Tensor* output, ReduceParams* params) { \
+    if (!input || !output || !params) return; \
+    int ndim = input->ndim; \
+    int* axes = params->axes; \
+    int num_axes = params->num_axes; \
+    \
+    /* 预计算归约的总步数 */ \
+    size_t reduce_total_steps = 1; \
+    for (int i = 0; i < num_axes; i++) { \
+        reduce_total_steps *= input->shape[axes[i]]; \
+    } \
+    \
+    _Pragma("omp parallel for") \
+    for (size_t i = 0; i < output->size; i++) { \
+        int coords[8]; /* 当前处理的输入坐标 */ \
+        int out_coords[8]; /* 输出坐标 */ \
+        \
+        /* 反解输出坐标 */ \
+        get_coords_from_index(i, out_coords, output->shape, output->ndim); \
+        \
+        /* 初始化输入坐标：保留维度填入 out_coords，归约维度填 0 */ \
+        int out_dim_idx = 0; \
+        for (int d = 0; d < ndim; d++) { \
+            if (is_axis_reduced(d, axes, num_axes)) { \
+                coords[d] = 0; /* 归约轴初始化为 0 */ \
+            } else { \
+                coords[d] = out_coords[out_dim_idx++]; \
+            } \
+        } \
+        \
+        /* 初始化累加器 */ \
+        double acc = INIT_VAL; \
+        \
+        /* 内层循环：遍历归约空间 */ \
+        for (size_t r = 0; r < reduce_total_steps; r++) { \
+            /* 动态更新归约轴的坐标 */ \
+            size_t temp_r = r; \
+            for (int k = num_axes - 1; k >= 0; k--) { \
+                int axis_idx = axes[k]; \
+                int dim_size = input->shape[axis_idx]; \
+                coords[axis_idx] = temp_r % dim_size; \
+                temp_r /= dim_size; \
+            } \
+            \
+            /* 读取输入并归约 */ \
+            size_t in_idx = get_index_from_coords(coords, input->shape, ndim); \
+            double val = get_value_as_double(input, in_idx); \
+            REDUCE_LOGIC; \
+        } \
+        \
+        /* 后处理并写入 */ \
+        POST_PROC; \
+        set_tensor_value_from_float(output, i, acc); \
+    } \
+}
+
+// ReduceSum: Init=0, Acc+=val
+REDUCE_OP_IMPL(reduce_sum_forward, 0.0, acc += val, (void)0)
+// ReduceMean: Init=0, Acc+=val, Post=acc/count
+REDUCE_OP_IMPL(reduce_mean_forward, 0.0, acc += val, acc /= reduce_total_steps)
+// ReduceProd: Init=1, Acc*=val
+REDUCE_OP_IMPL(reduce_prod_forward, 1.0, acc *= val, (void)0)
+// ReduceMax: Init=-inf, Acc=max
+REDUCE_OP_IMPL(reduce_max_forward, -DBL_MAX, if(val > acc) acc = val, (void)0)
+// ReduceMin: Init=+inf, Acc=min
+REDUCE_OP_IMPL(reduce_min_forward, DBL_MAX, if(val < acc) acc = val, (void)0)
+
+#define ARG_OP_IMPL(FUNC_NAME, INIT_VAL, CMP_OP) \
+void FUNC_NAME(const Tensor* input, Tensor* output, int axis, int select_last_index) { \
+    if (!input || !output) return; \
+    int ndim = input->ndim; \
+    int axis_dim = input->shape[axis]; \
+    \
+    _Pragma("omp parallel for") \
+    for (size_t i = 0; i < output->size; i++) { \
+        int coords[8]; \
+        int out_coords[8]; \
+        get_coords_from_index(i, out_coords, output->shape, output->ndim); \
+        \
+        /* 映射坐标：输出坐标 -> 输入坐标 (归约轴置0) */ \
+        int out_ptr = 0; \
+        for (int d = 0; d < ndim; d++) { \
+            if (d == axis) coords[d] = 0; \
+            else coords[d] = out_coords[out_ptr++]; \
+        } \
+        \
+        /* 搜索最值 */ \
+        double best_val = INIT_VAL; \
+        int64_t best_idx = 0; \
+        \
+        for (int k = 0; k < axis_dim; k++) { \
+            coords[axis] = k; \
+            size_t in_idx = get_index_from_coords(coords, input->shape, ndim); \
+            double val = get_value_as_double(input, in_idx); \
+            \
+            /* 根据 select_last_index 决定相等时的行为 */ \
+            int update = 0; \
+            if (select_last_index) { \
+                if (val CMP_OP best_val || val == best_val) update = 1; /* >= 或 <= */ \
+            } else { \
+                if (val CMP_OP best_val) update = 1; /* > 或 < */ \
+            } \
+            \
+            if (update) { \
+                best_val = val; \
+                best_idx = k; \
+            } \
+        } \
+        set_tensor_value_from_int(output, i, best_idx); \
+    } \
+}
+
+//ArgMax和ArgMin
+ARG_OP_IMPL(argmax_forward, -DBL_MAX, >)
+
+ARG_OP_IMPL(argmin_forward, DBL_MAX, <)
