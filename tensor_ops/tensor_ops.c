@@ -7,6 +7,8 @@
 #include <pthread.h>
 #include <float.h>
 
+#define MAX_NDIM 16  
+
 // 余弦查找表大小
 #define COS_LUT_SIZE 4096
 // 余弦查找表位数
@@ -1319,12 +1321,14 @@ static inline size_t get_index_from_coords(int* coords, int* shape, int ndim) {
 void transpose_forward(const Tensor* input, Tensor* output, int* perm) {
     if (!input || !output || !perm) return;
     int ndim = input->ndim;
-    if (ndim > 8) return; 
+    if (ndim > MAX_NDIM) {
+        return;
+    }
 
     #pragma omp parallel for
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[8]; // 输出坐标
-        int in_coords[8];  // 输入坐标
+        int out_coords[MAX_NDIM]; // 输出坐标
+        int in_coords[MAX_NDIM];  // 输入坐标
         
         // 1. 根据输出的平坦索引 i，反解出输出坐标
         get_coords_from_index(i, out_coords, output->shape, ndim);
@@ -1403,7 +1407,10 @@ void concat_forward(const Tensor** inputs, int num_inputs, Tensor* output, int a
 
     // 处理负轴
     int ndim = output->ndim;
-    if (axis < 0) axis += ndim;
+    if (ndim > MAX_NDIM) {
+
+        return;
+    }
     
     // 缓存每个输入在 axis 维度的长度
     int input_dims[128]; // 假设输入数量不超过 128
@@ -1414,7 +1421,7 @@ void concat_forward(const Tensor** inputs, int num_inputs, Tensor* output, int a
 
     #pragma omp parallel for
     for (size_t i = 0; i < output->size; i++) {
-        int coords[8]; // 假设最大维度为 8
+        int coords[MAX_NDIM]; // 最大维度为 16
         
         // 1. 反解输出坐标
         get_coords_from_index(i, coords, output->shape, ndim);
@@ -1449,12 +1456,14 @@ void slice_forward(const Tensor* input, Tensor* output, int* starts, int* steps)
     if (!input || !output || !starts || !steps) return;
     
     int ndim = input->ndim;
-    if (ndim > 8) return;
+    if (ndim > MAX_NDIM) {
+        return;
+    }
 
     #pragma omp parallel for
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[8];
-        int in_coords[8];
+        int out_coords[MAX_NDIM];
+        int in_coords[MAX_NDIM];
         
         // 1. 获取输出坐标
         get_coords_from_index(i, out_coords, output->shape, ndim);
@@ -1537,13 +1546,16 @@ void clip_forward(const Tensor* input, Tensor* output, const Tensor* min_t, cons
 void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
     if (!A || !B || !Y) return;
     int ndim = Y->ndim;
+    if (ndim > MAX_NDIM) {
+        return;
+    }
     if (ndim < 2) return; // 至少是 2D
     int M = A->shape[A->ndim - 2];
     int K = A->shape[A->ndim - 1];
     int N = B->shape[B->ndim - 1];
     #pragma omp parallel for
     for (size_t i = 0; i < Y->size; i++) {
-        int coords[8]; // 最大 8 维
+        int coords[MAX_NDIM]; // 最大 16 维
         get_coords_from_index(i, coords, Y->shape, ndim);
         // 当前计算的是 Y[..., m, n]
         int m = coords[ndim - 2];
@@ -1608,9 +1620,9 @@ void gather_forward(const Tensor* data, const Tensor* indices, Tensor* output, i
 
     #pragma omp parallel for
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[8]; // 偷懒做法，最大维度不超过8
-        int data_coords[8];
-        int indices_coords[8];
+        int out_coords[MAX_NDIM]; // 偷懒做法，最大维度不超过8
+        int data_coords[MAX_NDIM];
+        int indices_coords[MAX_NDIM];
         
         get_coords_from_index(i, out_coords, output->shape, ndim_out);
         for (int j = 0; j < ndim_indices; j++) {
@@ -1649,8 +1661,8 @@ void expand_forward(const Tensor* input, Tensor* output) {
 
     #pragma omp parallel for
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[8];
-        int in_coords[8];
+        int out_coords[MAX_NDIM];
+        int in_coords[MAX_NDIM];
         
         get_coords_from_index(i, out_coords, output->shape, ndim_out);
         
@@ -1767,7 +1779,7 @@ void identity_forward(const Tensor* input, Tensor* output) {
     memcpy(output->data, input->data, input->size * elem_size);
 }
 
-void mod_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+void mod_forward(const Tensor* A, const Tensor* B, Tensor* O, int fmod_mode) {
     if (!A || !B || !O) return;
     _Pragma("omp parallel for")
     for (size_t i = 0; i < O->size; i++) {
@@ -1775,9 +1787,13 @@ void mod_forward(const Tensor* A, const Tensor* B, Tensor* O) {
         double b = get_value_as_double(B, i);
         double res;
         if (b == 0) {
-            res = NAN; // 除零处理
+            res = NAN;
         } else {
-            res = a - floor(a / b) * b;
+            if (fmod_mode) {
+                res = fmod(a, b); 
+            } else {
+                res = a - floor(a / b) * b;
+            }
         }
         set_tensor_value_from_float(O, i, res);
     }
@@ -1837,8 +1853,8 @@ void tile_forward(const Tensor* input, Tensor* output) {
 
     _Pragma("omp parallel for")
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[8];
-        int in_coords[8];
+        int out_coords[MAX_NDIM];
+        int in_coords[MAX_NDIM];
         
         get_coords_from_index(i, out_coords, output->shape, ndim);
         
@@ -1859,8 +1875,8 @@ void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const T
     
     int ndim = data->ndim;
     
-    int64_t pad_begins[8];
-    int64_t pad_ends[8];
+    int64_t pad_begins[MAX_NDIM];
+    int64_t pad_ends[MAX_NDIM];
     for (int d = 0; d < ndim; d++) {
         pad_begins[d] = get_value_as_int64(pads, d);
         pad_ends[d]   = get_value_as_int64(pads, d + ndim);
@@ -1873,8 +1889,8 @@ void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const T
 
     _Pragma("omp parallel for")
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[8];
-        int in_coords[8];
+        int out_coords[MAX_NDIM];
+        int in_coords[MAX_NDIM];
         int in_bounds = 1; // 标记是否在源数据范围内
         
         get_coords_from_index(i, out_coords, output->shape, ndim);
@@ -1951,8 +1967,8 @@ void FUNC_NAME(const Tensor* input, Tensor* output, ReduceParams* params) { \
     \
     _Pragma("omp parallel for") \
     for (size_t i = 0; i < output->size; i++) { \
-        int coords[8]; /* 当前处理的输入坐标 */ \
-        int out_coords[8]; /* 输出坐标 */ \
+        int coords[MAX_NDIM]; /* 当前处理的输入坐标 */ \
+        int out_coords[MAX_NDIM]; /* 输出坐标 */ \
         \
         /* 反解输出坐标 */ \
         get_coords_from_index(i, out_coords, output->shape, output->ndim); \
@@ -2012,8 +2028,8 @@ void FUNC_NAME(const Tensor* input, Tensor* output, int axis, int select_last_in
     \
     _Pragma("omp parallel for") \
     for (size_t i = 0; i < output->size; i++) { \
-        int coords[8]; \
-        int out_coords[8]; \
+        int coords[MAX_NDIM]; \
+        int out_coords[MAX_NDIM]; \
         get_coords_from_index(i, out_coords, output->shape, output->ndim); \
         \
         /* 映射坐标：输出坐标 -> 输入坐标 (归约轴置0) */ \
@@ -2075,9 +2091,9 @@ void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updat
     
     _Pragma("omp parallel for")
     for (size_t i = 0; i < loop_size; i++) {
-        int up_coords[8];
-        int data_coords[8];
-        int ind_coords[8]; // indices 坐标
+        int up_coords[MAX_NDIM];
+        int data_coords[MAX_NDIM];
+        int ind_coords[MAX_NDIM]; // indices 坐标
         
         // 反解 updates 坐标
         get_coords_from_index(i, up_coords, updates->shape, updates->ndim);
@@ -2156,9 +2172,9 @@ void gather_nd_forward(const Tensor* data, const Tensor* indices, Tensor* output
 
     _Pragma("omp parallel for")
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[8];
-        int ind_coords[8];
-        int data_coords[8];
+        int out_coords[MAX_NDIM];
+        int ind_coords[MAX_NDIM];
+        int data_coords[MAX_NDIM];
         
         get_coords_from_index(i, out_coords, output->shape, output->ndim);
         for (int b = 0; b < batch_dims; b++) {
@@ -2207,7 +2223,7 @@ void gather_elements_forward(const Tensor* data, const Tensor* indices, Tensor* 
     
     _Pragma("omp parallel for")
     for (size_t i = 0; i < output->size; i++) {
-        int coords[8];
+        int coords[MAX_NDIM];
         get_coords_from_index(i, coords, output->shape, ndim);
         
         // 获取 index 值
@@ -2234,7 +2250,7 @@ void nonzero_forward(const Tensor* input, Tensor* output) {
     int64_t* out_ptr = (int64_t*)output->data; // NonZero 输出必定是 int64
     
     size_t current_col = 0;
-    int coords[8];
+    int coords[MAX_NDIM];
     
     for (size_t i = 0; i < input->size; i++) {
         double val = get_value_as_double(input, i);
@@ -2259,11 +2275,11 @@ void resize_forward(const Tensor* input, Tensor* output, float* scales, int coor
     
     _Pragma("omp parallel for")
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[8];
+        int out_coords[MAX_NDIM];
         get_coords_from_index(i, out_coords, output->shape, ndim);
         
         if (mode == 0) { 
-            int in_coords[8];
+            int in_coords[MAX_NDIM];
             for (int d = 0; d < ndim; d++) {
                 float x_out = (float)out_coords[d];
                 float scale = scales[d];
@@ -2291,7 +2307,7 @@ void resize_forward(const Tensor* input, Tensor* output, float* scales, int coor
         } else {
             // --- Linear Interpolation (N-Linear) ---
             // 计算每个维度的浮点坐标 x_in
-            float real_coords[8];
+            float real_coords[MAX_NDIM];
             for (int d = 0; d < ndim; d++) {
                 float x_out = (float)out_coords[d];
                 float scale = scales[d];
@@ -2315,7 +2331,7 @@ void resize_forward(const Tensor* input, Tensor* output, float* scales, int coor
             
             for (int n = 0; n < num_neighbors; n++) {
                 double weight = 1.0;
-                int neighbor_coords[8];
+                int neighbor_coords[MAX_NDIM];
                 
                 for (int d = 0; d < ndim; d++) {
                     float x = real_coords[d];
@@ -2351,9 +2367,16 @@ void resize_forward(const Tensor* input, Tensor* output, float* scales, int coor
 int compare_desc(const void* a, const void* b) {
     TopKElement* e1 = (TopKElement*)a;
     TopKElement* e2 = (TopKElement*)b;
+
+    int nan1 = isnan(e1->value);
+    int nan2 = isnan(e2->value);
+    
+    if (nan1 && nan2) return (e1->index < e2->index) ? -1 : 1;
+    if (nan1) return -1; 
+    if (nan2) return 1; 
+
     if (e1->value > e2->value) return -1;
     if (e1->value < e2->value) return 1;
-    // 值相等时，索引小的在前 (保持稳定性)
     return (e1->index < e2->index) ? -1 : 1;
 }
 
@@ -2361,6 +2384,14 @@ int compare_desc(const void* a, const void* b) {
 int compare_asc(const void* a, const void* b) {
     TopKElement* e1 = (TopKElement*)a;
     TopKElement* e2 = (TopKElement*)b;
+
+    int nan1 = isnan(e1->value);
+    int nan2 = isnan(e2->value);
+    
+    if (nan1 && nan2) return (e1->index < e2->index) ? -1 : 1;
+    if (nan1) return 1; 
+    if (nan2) return -1;
+
     if (e1->value < e2->value) return -1;
     if (e1->value > e2->value) return 1;
     return (e1->index < e2->index) ? -1 : 1;

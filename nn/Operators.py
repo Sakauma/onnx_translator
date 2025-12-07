@@ -629,7 +629,13 @@ class Gemm(Ops):
 
         a_c = self._numpy_to_ctensor(A.data, A.dtype)
         b_c = self._numpy_to_ctensor(B.data, B.dtype)
-        c_c = self._numpy_to_ctensor(C.data, C.dtype) if C is not None else ctypes.POINTER(CTensor)()
+        #c_c = self._numpy_to_ctensor(C.data, C.dtype) if C is not None else ctypes.POINTER(CTensor)()
+        c_c = ctypes.POINTER(CTensor)()
+        if C is not None:
+            c_data = C.data
+            if C.data.ndim == 1:
+                c_data = C.data.reshape(1, -1)
+            c_c = self._numpy_to_ctensor(c_data, C.dtype)
 
         output_shape_c = (ctypes.c_int * 2)(*out_shape)
         output_c = self.lib.create_tensor(output_shape_c, 2, DTYPE_MAP[self.dtype])
@@ -1158,8 +1164,15 @@ class Slice(Ops):
             if s < 0: s += dim_len
             if e < 0: e += dim_len
             
-            s = max(0, min(s, dim_len))
-            e = max(0, min(e, dim_len))
+            if st > 0:
+                # 正向：区间 [0, dim_len]
+                s = max(0, min(s, dim_len))
+                e = max(0, min(e, dim_len))
+            else:
+                # 反向：区间 [-1, dim_len-1]
+                # end 可以是 -1，表示包含索引 0
+                s = max(0, min(s, dim_len - 1))
+                e = max(-1, min(e, dim_len - 1))
             
             full_starts[axis] = s
             full_ends[axis] = e
@@ -1766,8 +1779,49 @@ class Mod(Ops):
         self.dtype = dtype
         self.fmod = fmod 
         self.version = version
+        
+        if self.lib:
+            self.lib.mod_forward.argtypes = [
+                ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor), 
+                ctypes.POINTER(nn.CTensor), ctypes.c_int
+            ]
+
     def forward(self, a, b):
-        return {"tensor": self._execute_binary(a, b, "mod_forward"), "parameters": None}
+        try:
+            a_bc, b_bc = np.broadcast_arrays(a.data, b.data)
+        except ValueError:
+            raise ValueError(f"Mod operator broadcast failed: {a.size} vs {b.size}")
+        
+        out_shape = a_bc.shape
+        
+        if self.dtype:
+            out_dtype = self.dtype
+        else:
+            # 如果没指定 dtype，自动推断
+            res_type = np.result_type(a_bc, b_bc)
+            out_dtype = nn.NUMPY_TO_DTYPE.get(res_type.type, "float32")
+        
+        np_type_a = nn.DTYPE_TO_NUMPY[a.dtype]
+        np_type_b = nn.DTYPE_TO_NUMPY[b.dtype]
+        
+        a_data_safe = np.ascontiguousarray(a_bc.astype(np_type_a))
+        b_data_safe = np.ascontiguousarray(b_bc.astype(np_type_b))
+        
+        a_c = self._numpy_to_ctensor(a_data_safe, a.dtype)
+        b_c = self._numpy_to_ctensor(b_data_safe, b.dtype)
+        
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[out_dtype])
+    
+        self.lib.mod_forward(a_c, b_c, output_c, ctypes.c_int(self.fmod))
+        
+        out_data = self._ctensor_to_numpy(output_c, out_dtype)
+        self.lib.free_tensor(a_c)
+        self.lib.free_tensor(b_c)
+        self.lib.free_tensor(output_c)
+        
+        return {"tensor": Tensor(*out_shape, dtype=out_dtype, data=out_data), "parameters": None}
+
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size

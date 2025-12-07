@@ -352,7 +352,7 @@ void sign_forward(const Tensor* input, Tensor* output);
 
 void identity_forward(const Tensor* input, Tensor* output);
 
-void mod_forward(const Tensor* A, const Tensor* B, Tensor* O);
+void mod_forward(const Tensor* A, const Tensor* B, Tensor* O, int fmod_mode);
 
 void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor* O);
 

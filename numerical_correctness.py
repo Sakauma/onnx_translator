@@ -337,6 +337,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
             inner, outer = x.shape[axis], int(np.prod(x.shape[:axis]))
             rem = int(np.prod(x.shape[axis+1:]))
             params_bin = np.array([outer, inner, rem], dtype=np.int32).tobytes()
+        elif op_name == "quantize_linear":
+            is_signed = 1 if "int8" in out_dtype and "uint8" not in out_dtype else 0
+            params_bin = np.array([is_signed], dtype=np.int32).tobytes()
 
         # 4. 数据转换与 广播处理
         expected_shape = nps_out.shape

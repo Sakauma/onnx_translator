@@ -3,28 +3,45 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
-// 模拟 int8 饱和截断
 __device__ double saturate_cast_int8(double val) {
     if (val > 127.0) return 127.0;
     if (val < -128.0) return -128.0;
     return val;
 }
 
-__global__ void quantize_kernel(const double* x, const double* scale, const double* zp, double* out, size_t n) {
+__device__ double saturate_cast_uint8(double val) {
+    if (val > 255.0) return 255.0;
+    if (val < 0.0) return 0.0;
+    return val;
+}
+
+__global__ void quantize_kernel(const double* x, const double* scale, const double* zp, double* out, size_t n, int is_signed) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         double s = scale[idx];
         double z = zp[idx];
         double res = rint(x[idx] / s) + z;
-        out[idx] = saturate_cast_int8(res); 
+        
+        if (is_signed) {
+            out[idx] = saturate_cast_int8(res);
+        } else {
+            out[idx] = saturate_cast_uint8(res);
+        }
     }
 }
 
 int main(int argc, char** argv) {
-    if (argc != 6) return 1; 
+    if (argc < 7) return 1; 
     size_t n = atol(argv[1]);
     size_t bytes = n * sizeof(double);
     
+    int is_signed = 1;
+    FILE *fp = fopen(argv[5], "rb");
+    if (fp) {
+        fread(&is_signed, sizeof(int), 1, fp);
+        fclose(fp);
+    }
+
     double *h_x = (double*)malloc(bytes);
     double *h_s = (double*)malloc(bytes);
     double *h_z = (double*)malloc(bytes);
@@ -40,11 +57,11 @@ int main(int argc, char** argv) {
     cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_s, h_s, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_z, h_z, bytes, cudaMemcpyHostToDevice);
-    
-    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n);
+
+    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, is_signed);
     
     cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
-    FILE *fout = fopen(argv[5], "wb"); fwrite(h_out, 1, bytes, fout); fclose(fout);
+    FILE *fout = fopen(argv[6], "wb"); fwrite(h_out, 1, bytes, fout); fclose(fout);
     
     free(h_x); free(h_s); free(h_z); free(h_out);
     cudaFree(d_x); cudaFree(d_s); cudaFree(d_z); cudaFree(d_out);
