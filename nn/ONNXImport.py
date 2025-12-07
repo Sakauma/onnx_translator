@@ -573,6 +573,216 @@ def ONNXImport(file_path):
             onnx_graph_list.append(
                 nn.Operators.Resize(node.input, node.output, 
                                     mode=mode, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Elu":
+            alpha = 1.0
+            for attr in node.attribute:
+                if attr.name == "alpha": alpha = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Elu(node.input, node.output, alpha=alpha, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Selu":
+            alpha = 1.67326
+            gamma = 1.0507
+            for attr in node.attribute:
+                if attr.name == "alpha": alpha = attr.f
+                elif attr.name == "gamma": gamma = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Selu(node.input, node.output, alpha=alpha, gamma=gamma, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "LeakyRelu":
+            alpha = 0.01
+            for attr in node.attribute:
+                if attr.name == "alpha": alpha = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.LeakyRelu(node.input, node.output, alpha=alpha, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "ThresholdedRelu":
+            alpha = 1.0
+            for attr in node.attribute:
+                if attr.name == "alpha": alpha = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.ThresholdedRelu(node.input, node.output, alpha=alpha, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "HardSigmoid":
+            alpha = 0.2
+            beta = 0.5
+            for attr in node.attribute:
+                if attr.name == "alpha": alpha = attr.f
+                elif attr.name == "beta": beta = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.HardSigmoid(node.input, node.output, alpha=alpha, beta=beta, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Celu":
+            alpha = 1.0
+            for attr in node.attribute:
+                if attr.name == "alpha": alpha = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Celu(node.input, node.output, alpha=alpha, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Shrink":
+            bias = 0.0
+            lambd = 0.5
+            for attr in node.attribute:
+                if attr.name == "bias": bias = attr.f
+                elif attr.name == "lambd": lambd = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Shrink(node.input, node.output, bias=bias, lambd=lambd, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Softplus":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Softplus(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Softsign":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Softsign(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "HardSwish":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.HardSwish(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Acos":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Acos(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Asin":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Asin(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17")) 
+        elif node.op_type == "Cosh":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Cosh(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Sinh":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Sinh(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Asinh":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Asinh(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Acosh":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Acosh(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Atanh":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Atanh(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "BitwiseAnd":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.BitwiseAnd(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "BitwiseOr":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.BitwiseOr(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "BitwiseXor":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.BitwiseXor(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "BitwiseNot":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.BitwiseNot(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "BitShift":
+            direction = "LEFT"
+            for attr in node.attribute:
+                if attr.name == "direction": direction = attr.s.decode('utf-8')
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.BitShift(node.input, node.output, direction=direction, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        # 后面其他的归约也可以这么处理
+        elif node.op_type in ["ReduceL1", "ReduceL2", "ReduceLogSum", "ReduceLogSumExp", "ReduceSumSquare"]:
+            axes = None
+            keepdims = 1
+            for attr in node.attribute:
+                if attr.name == "axes": axes = attr.ints
+                elif attr.name == "keepdims": keepdims = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            cls_map = {
+                "ReduceL1": nn.Operators.ReduceL1,
+                "ReduceL2": nn.Operators.ReduceL2,
+                "ReduceLogSum": nn.Operators.ReduceLogSum,
+                "ReduceLogSumExp": nn.Operators.ReduceLogSumExp,
+                "ReduceSumSquare": nn.Operators.ReduceSumSquare
+            }
+            onnx_graph_list.append(
+                cls_map[node.op_type](
+                    node.input, node.output, 
+                    axes=axes, keepdims=keepdims, 
+                    dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "AveragePool":
+            kernel_shape = [1, 1]
+            pads = [0, 0, 0, 0]
+            strides = [1, 1]
+            dilations = [1, 1]
+            count_include_pad = 0
+            for attr in node.attribute:
+                if attr.name == "kernel_shape": kernel_shape = attr.ints
+                elif attr.name == "pads": pads = attr.ints
+                elif attr.name == "strides": strides = attr.ints
+                elif attr.name == "dilations": dilations = attr.ints
+                elif attr.name == "count_include_pad": count_include_pad = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.AveragePool(
+                    node.input, node.output, 
+                    kernel_shape=kernel_shape, pads=pads, strides=strides, dilations=dilations,
+                    count_include_pad=count_include_pad, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "LpPool":
+            kernel_shape = [1, 1]
+            pads = [0, 0, 0, 0]
+            strides = [1, 1]
+            dilations = [1, 1]
+            p = 2
+            for attr in node.attribute:
+                if attr.name == "kernel_shape": kernel_shape = attr.ints
+                elif attr.name == "pads": pads = attr.ints
+                elif attr.name == "strides": strides = attr.ints
+                elif attr.name == "dilations": dilations = attr.ints
+                elif attr.name == "p": p = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.LpPool(
+                    node.input, node.output, 
+                    kernel_shape=kernel_shape, pads=pads, strides=strides, dilations=dilations,
+                    p=p, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "GlobalAveragePool":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.GlobalAveragePool(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "GlobalMaxPool":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.GlobalMaxPool(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Mean":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Mean(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Size":
+            onnx_graph_list.append(nn.Operators.Size(node.input, node.output, dtype="int64", version="17"))
+        elif node.op_type == "IsInf":
+            detect_neg = 1
+            detect_pos = 1
+            for attr in node.attribute:
+                if attr.name == "detect_negative": detect_neg = attr.i
+                elif attr.name == "detect_positive": detect_pos = attr.i
+            onnx_graph_list.append(nn.Operators.IsInf(node.input, node.output, detect_negative=detect_neg, detect_positive=detect_pos, version="17"))
+        elif node.op_type == "OneHot":
+            axis = -1
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.input[2], onnx_model)
+            onnx_graph_list.append(nn.Operators.OneHot(node.input, node.output, axis=axis, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Tril":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Tril(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Triu":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Triu(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Round":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Round(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))  
+        elif node.op_type == "Erf":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Erf(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "BatchNormalization":
+            epsilon = 1e-5
+            momentum = 0.9
+            for attr in node.attribute:
+                if attr.name == "epsilon": epsilon = attr.f
+                elif attr.name == "momentum": momentum = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.BatchNormalization(node.input, node.output, epsilon=epsilon, momentum=momentum, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "InstanceNormalization":
+            epsilon = 1e-5
+            for attr in node.attribute:
+                if attr.name == "epsilon": epsilon = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.InstanceNormalization(node.input, node.output, epsilon=epsilon, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "LayerNormalization":
+            epsilon = 1e-5
+            axis = -1
+            for attr in node.attribute:
+                if attr.name == "epsilon": epsilon = attr.f
+                elif attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.LayerNormalization(node.input, node.output, axis=axis, epsilon=epsilon, dtype=onnx_dtype_mapping[elem_type], version="17"))
         else:
             # 忽略未支持的操作类型
             pass

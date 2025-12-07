@@ -431,5 +431,61 @@ void random_uniform_like_forward(Tensor* output, float low, float high, float se
 void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output, 
                     int iter_dims, int* loop_limits, 
                     int* input_strides, int* output_strides);
- 
+
+// 太好了可以开始灌水了，下面的都不写注释
+void elu_forward(const Tensor* input, Tensor* output, float alpha);
+void selu_forward(const Tensor* input, Tensor* output, float alpha, float gamma);
+void leaky_relu_forward(const Tensor* input, Tensor* output, float alpha);
+void thresholded_relu_forward(const Tensor* input, Tensor* output, float alpha);
+void hard_sigmoid_forward(const Tensor* input, Tensor* output, float alpha, float beta);
+void softplus_forward(const Tensor* input, Tensor* output);
+void softsign_forward(const Tensor* input, Tensor* output);
+void celu_forward(const Tensor* input, Tensor* output, float alpha);
+void hard_swish_forward(const Tensor* input, Tensor* output);
+void shrink_forward(const Tensor* input, Tensor* output, float bias, float lambd);
+void acos_forward(const Tensor* input, Tensor* output);
+void asin_forward(const Tensor* input, Tensor* output);
+void cosh_forward(const Tensor* input, Tensor* output);
+void sinh_forward(const Tensor* input, Tensor* output);
+void asinh_forward(const Tensor* input, Tensor* output);
+void acosh_forward(const Tensor* input, Tensor* output);
+void atanh_forward(const Tensor* input, Tensor* output);
+ void bitwise_and_forward(const Tensor* A, const Tensor* B, Tensor* O);
+void bitwise_or_forward(const Tensor* A, const Tensor* B, Tensor* O);
+void bitwise_xor_forward(const Tensor* A, const Tensor* B, Tensor* O);
+void bitwise_not_forward(const Tensor* input, Tensor* output);
+// direction: 0 = LEFT, 1 = RIGHT
+void bit_shift_forward(const Tensor* A, const Tensor* B, Tensor* O, int direction);
+void reduce_l1_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+void reduce_l2_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+void reduce_log_sum_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+void reduce_log_sum_exp_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+void reduce_sum_square_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+void average_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int count_include_pad);
+void lp_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int p);
+void global_average_pool_forward(const Tensor* input, Tensor* output);
+void global_max_pool_forward(const Tensor* input, Tensor* output);
+void mean_forward(const Tensor** inputs, int num_inputs, Tensor* output);
+void size_forward(const Tensor* input, Tensor* output);
+void isinf_forward(const Tensor* input, Tensor* output, int detect_pos, int detect_neg);
+void one_hot_forward(const Tensor* indices, const Tensor* values, Tensor* output, int axis);
+void triangular_forward(const Tensor* input, Tensor* output, int k, int upper);
+
+// BatchNormalization (Inference)
+void batch_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
+                        const Tensor* mean, const Tensor* var, Tensor* output, float epsilon);
+
+// InstanceNormalization
+void instance_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
+                           Tensor* output, float epsilon);
+
+// LayerNormalization
+// axis: 归一化的轴（通常是最后一维 -1）
+void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
+                        Tensor* output, int axis, float epsilon);
+
+// Simple Math
+void round_forward(const Tensor* input, Tensor* output);
+void erf_forward(const Tensor* input, Tensor* output);
+
 #endif

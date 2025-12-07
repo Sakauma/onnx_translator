@@ -2569,3 +2569,777 @@ class Einsum(Ops):
     def forward_(self, *inputs):
         # 不解析等式了，太麻烦
         return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
+    
+class Elu(Ops):
+    def __init__(self, inputs, outputs, alpha=1.0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.alpha = alpha
+        self.dtype = dtype
+        self.version = version
+        if self.lib: self.lib.elu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
+
+    def forward(self, x):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.elu_forward(x_c, out_c, ctypes.c_float(self.alpha))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+    
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Selu(Ops):
+    def __init__(self, inputs, outputs, alpha=1.67326, gamma=1.0507, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.alpha = alpha
+        self.gamma = gamma
+        self.dtype = dtype
+        self.version = version
+        if self.lib: self.lib.selu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_float]
+
+    def forward(self, x):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.selu_forward(x_c, out_c, ctypes.c_float(self.alpha), ctypes.c_float(self.gamma))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+    
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class LeakyRelu(Ops):
+    def __init__(self, inputs, outputs, alpha=0.01, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.alpha = alpha
+        self.dtype = dtype
+        self.version = version
+        if self.lib: self.lib.leaky_relu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
+
+    def forward(self, x):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.leaky_relu_forward(x_c, out_c, ctypes.c_float(self.alpha))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+    
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class ThresholdedRelu(Ops):
+    def __init__(self, inputs, outputs, alpha=1.0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.alpha = alpha
+        self.dtype = dtype
+        self.version = version
+        if self.lib: self.lib.thresholded_relu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
+
+    def forward(self, x):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.thresholded_relu_forward(x_c, out_c, ctypes.c_float(self.alpha))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+    
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class HardSigmoid(Ops):
+    def __init__(self, inputs, outputs, alpha=0.2, beta=0.5, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.alpha = alpha
+        self.beta = beta
+        self.dtype = dtype
+        self.version = version
+        if self.lib: self.lib.hard_sigmoid_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_float]
+
+    def forward(self, x):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.hard_sigmoid_forward(x_c, out_c, ctypes.c_float(self.alpha), ctypes.c_float(self.beta))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+    
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Celu(Ops):
+    def __init__(self, inputs, outputs, alpha=1.0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.alpha = alpha
+        self.dtype = dtype
+        self.version = version
+        if self.lib: self.lib.celu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
+
+    def forward(self, x):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.celu_forward(x_c, out_c, ctypes.c_float(self.alpha))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+    
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Shrink(Ops):
+    def __init__(self, inputs, outputs, bias=0.0, lambd=0.5, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.bias = bias
+        self.lambd = lambd
+        self.dtype = dtype
+        self.version = version
+        if self.lib: self.lib.shrink_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_float]
+
+    def forward(self, x):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.shrink_forward(x_c, out_c, ctypes.c_float(self.bias), ctypes.c_float(self.lambd))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+    
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Softplus(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "softplus_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Softsign(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "softsign_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class HardSwish(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "hard_swish_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Acos(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "acos_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Asin(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "asin_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Cosh(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "cosh_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Sinh(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "sinh_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Asinh(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "asinh_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Acosh(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "acosh_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Atanh(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "atanh_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class BitwiseAnd(Ops):
+    def __init__(self, inputs, outputs, dtype="int32", version="18"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "bitwise_and_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class BitwiseOr(Ops):
+    def __init__(self, inputs, outputs, dtype="int32", version="18"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "bitwise_or_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class BitwiseXor(Ops):
+    def __init__(self, inputs, outputs, dtype="int32", version="18"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, a, b):
+        return {"tensor": self._execute_binary(a, b, "bitwise_xor_forward"), "parameters": None}
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+
+class BitwiseNot(Ops):
+    def __init__(self, inputs, outputs, dtype="int32", version="18"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x):
+        return {"tensor": self._execute_unary(x, "bitwise_not_forward"), "parameters": None}
+    def forward_(self, x):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class BitShift(Ops):
+    def __init__(self, inputs, outputs, direction="LEFT", dtype="int32", version="11"):
+        super().__init__(inputs, outputs)
+        self.direction = direction.upper() # "LEFT" or "RIGHT"
+        self.direction_int = 0 if self.direction == "LEFT" else 1
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+            self.lib.bit_shift_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), 
+                ctypes.POINTER(CTensor), ctypes.c_int
+            ]
+
+    def forward(self, a, b):
+        out_tensor = self._execute_binary_custom(a, b)
+        return {"tensor": out_tensor, "parameters": None}
+
+    def _execute_binary_custom(self, input_a, input_b):
+        try:
+            a_bc, b_bc = np.broadcast_arrays(input_a.data, input_b.data)
+        except ValueError as e:
+            raise e
+        
+        out_shape = a_bc.shape
+        out_dtype = self.dtype
+        
+        a_c = self._numpy_to_ctensor(np.ascontiguousarray(a_bc), input_a.dtype)
+        b_c = self._numpy_to_ctensor(np.ascontiguousarray(b_bc), input_b.dtype)
+        
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[out_dtype])
+        
+        self.lib.bit_shift_forward(a_c, b_c, output_c, ctypes.c_int(self.direction_int))
+        
+        out_data = self._ctensor_to_numpy(output_c, out_dtype)
+        self.lib.free_tensor(a_c); self.lib.free_tensor(b_c); self.lib.free_tensor(output_c)
+        
+        return Tensor(*out_shape, dtype=out_dtype, data=out_data)
+
+    def forward_(self, a, b):
+        try: shape = np.broadcast_shapes(a.size, b.size)
+        except: shape = a.size
+        return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+    
+class ReduceL1(ReduceBase):
+    def _get_c_func_name(self): return "reduce_l1_forward"
+
+class ReduceL2(ReduceBase):
+    def _get_c_func_name(self): return "reduce_l2_forward"
+
+class ReduceLogSum(ReduceBase):
+    def _get_c_func_name(self): return "reduce_log_sum_forward"
+
+class ReduceLogSumExp(ReduceBase):
+    def _get_c_func_name(self): return "reduce_log_sum_exp_forward"
+
+class ReduceSumSquare(ReduceBase):
+    def _get_c_func_name(self): return "reduce_sum_square_forward"
+
+class AveragePool(Ops):
+    def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, dilations=[1, 1], count_include_pad=0, version="17"):
+        super().__init__(inputs, outputs)
+        self.kernel_shape = kernel_shape
+        self.pads = pads
+        self.strides = strides
+        self.dilations = dilations
+        self.count_include_pad = count_include_pad
+        self.dtype = dtype
+        self.version = version
+
+        if self.lib:
+            self.lib.average_pool_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CPoolParams), ctypes.c_int
+            ]
+
+    def forward(self, x):
+        # 形状推断复用 MaxPool 逻辑
+        N, C, H_in, W_in = x.size
+        K_h, K_w = self.kernel_shape
+        H_out = (H_in + self.pads[0] + self.pads[2] - self.dilations[0] * (K_h - 1) - 1) // self.strides[0] + 1
+        W_out = (W_in + self.pads[1] + self.pads[3] - self.dilations[1] * (K_w - 1) - 1) // self.strides[1] + 1
+        out_shape = (N, C, H_out, W_out)
+
+        pads_arr = (ctypes.c_int * 4)(*self.pads)
+        strides_arr = (ctypes.c_int * 2)(*self.strides)
+        kernel_arr = (ctypes.c_int * 2)(*self.kernel_shape)
+        dilations_arr = (ctypes.c_int * 2)(*self.dilations)
+        
+        c_params = CPoolParams()
+        c_params.pads = ctypes.cast(pads_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.strides = ctypes.cast(strides_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.kernel_shape = ctypes.cast(kernel_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.dilations = ctypes.cast(dilations_arr, ctypes.POINTER(ctypes.c_int))
+
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_shape_c = (ctypes.c_int * 4)(*out_shape)
+        out_c = self.lib.create_tensor(out_shape_c, 4, DTYPE_MAP[self.dtype])
+
+        self.lib.average_pool_forward(x_c, out_c, ctypes.byref(c_params), ctypes.c_int(self.count_include_pad))
+
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, x):
+        N, C, H_in, W_in = x.size
+        K_h, K_w = self.kernel_shape
+        H_out = (H_in + self.pads[0] + self.pads[2] - self.dilations[0] * (K_h - 1) - 1) // self.strides[0] + 1
+        W_out = (W_in + self.pads[1] + self.pads[3] - self.dilations[1] * (K_w - 1) - 1) // self.strides[1] + 1
+        return {"tensor": Tensor_(N, C, H_out, W_out, dtype=self.dtype), "parameters": None}
+
+class LpPool(Ops):
+    def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, p=2, dilations=[1, 1], version="17"):
+        super().__init__(inputs, outputs)
+        self.kernel_shape = kernel_shape
+        self.pads = pads
+        self.strides = strides
+        self.dilations = dilations
+        self.p = p
+        self.dtype = dtype
+        self.version = version
+
+        if self.lib:
+            self.lib.lp_pool_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CPoolParams), ctypes.c_int
+            ]
+
+    def forward(self, x):
+        N, C, H_in, W_in = x.size
+        K_h, K_w = self.kernel_shape
+        H_out = (H_in + self.pads[0] + self.pads[2] - self.dilations[0] * (K_h - 1) - 1) // self.strides[0] + 1
+        W_out = (W_in + self.pads[1] + self.pads[3] - self.dilations[1] * (K_w - 1) - 1) // self.strides[1] + 1
+        out_shape = (N, C, H_out, W_out)
+
+        pads_arr = (ctypes.c_int * 4)(*self.pads)
+        strides_arr = (ctypes.c_int * 2)(*self.strides)
+        kernel_arr = (ctypes.c_int * 2)(*self.kernel_shape)
+        dilations_arr = (ctypes.c_int * 2)(*self.dilations)
+        
+        c_params = CPoolParams()
+        c_params.pads = ctypes.cast(pads_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.strides = ctypes.cast(strides_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.kernel_shape = ctypes.cast(kernel_arr, ctypes.POINTER(ctypes.c_int))
+        c_params.dilations = ctypes.cast(dilations_arr, ctypes.POINTER(ctypes.c_int))
+
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_shape_c = (ctypes.c_int * 4)(*out_shape)
+        out_c = self.lib.create_tensor(out_shape_c, 4, DTYPE_MAP[self.dtype])
+
+        self.lib.lp_pool_forward(x_c, out_c, ctypes.byref(c_params), ctypes.c_int(self.p))
+
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, x):
+        N, C, H_in, W_in = x.size
+        K_h, K_w = self.kernel_shape
+        H_out = (H_in + self.pads[0] + self.pads[2] - self.dilations[0] * (K_h - 1) - 1) // self.strides[0] + 1
+        W_out = (W_in + self.pads[1] + self.pads[3] - self.dilations[1] * (K_w - 1) - 1) // self.strides[1] + 1
+        return {"tensor": Tensor_(N, C, H_out, W_out, dtype=self.dtype), "parameters": None}
+
+class GlobalAveragePool(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    
+    def forward(self, x):
+        # NCHW -> NC11
+        out_shape = list(x.size)
+        out_shape[-1] = 1
+        out_shape[-2] = 1
+        out_shape = tuple(out_shape)
+        
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        out_c = self.lib.create_tensor(out_shape_c, len(out_shape), DTYPE_MAP[self.dtype])
+        
+        self.lib.global_average_pool_forward(x_c, out_c)
+        
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, x):
+        out_shape = list(x.size)
+        out_shape[-1] = 1
+        out_shape[-2] = 1
+        return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
+
+class GlobalMaxPool(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    
+    def forward(self, x):
+        out_shape = list(x.size)
+        out_shape[-1] = 1
+        out_shape[-2] = 1
+        out_shape = tuple(out_shape)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        out_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[self.dtype])
+        self.lib.global_max_pool_forward(x_c, out_c)
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, x):
+        out_shape = list(x.size)
+        out_shape[-1] = 1
+        out_shape[-2] = 1
+        return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
+
+class Mean(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+            self.lib.mean_forward.argtypes = [
+                ctypes.POINTER(ctypes.POINTER(CTensor)), ctypes.c_int, ctypes.POINTER(CTensor)
+            ]
+
+    def forward(self, *inputs):
+        out_shape = inputs[0].size
+        
+        CTensorPtr = ctypes.POINTER(CTensor)
+        in_array = (CTensorPtr * len(inputs))()
+        c_refs = []
+        for i, t in enumerate(inputs):
+            c_t = self._numpy_to_ctensor(t.data, t.dtype)
+            in_array[i] = c_t
+            c_refs.append(c_t)
+            
+        out_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        out_c = self.lib.create_tensor(out_shape_c, len(out_shape), DTYPE_MAP[self.dtype])
+        
+        self.lib.mean_forward(in_array, len(inputs), out_c)
+        
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(out_c)
+        for t in c_refs: self.lib.free_tensor(t)
+        
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, *inputs):
+        return {"tensor": Tensor_(*inputs[0].size, dtype=self.dtype), "parameters": None}
+
+class Size(Ops):
+    def __init__(self, inputs, outputs, dtype="int64", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = "int64" # Size always returns int64
+        self.version = version
+
+        if self.lib:
+            self.lib.size_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)
+            ]
+
+    def forward(self, x):
+        out_tensor = Tensor(1, dtype=self.dtype)
+        
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.size_forward(x_c, out_c)
+
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        out_tensor.data = out_data
+        
+        self.lib.free_tensor(x_c)
+        self.lib.free_tensor(out_c)
+        
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, x):
+        return {"tensor": Tensor_(1, dtype="int64"), "parameters": None}
+    
+class IsInf(Ops):
+    def __init__(self, inputs, outputs, detect_negative=1, detect_positive=1, dtype="bool", version="17"):
+        super().__init__(inputs, outputs)
+        self.detect_neg = detect_negative
+        self.detect_pos = detect_positive
+        self.dtype = "bool"
+        self.version = version
+        
+        if self.lib:
+            self.lib.isinf_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int
+            ]
+
+    def forward(self, x):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.isinf_forward(x_c, out_c, ctypes.c_int(self.detect_pos), ctypes.c_int(self.detect_neg))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class OneHot(Ops):
+    def __init__(self, inputs, outputs, axis=-1, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.axis = axis
+        self.dtype = dtype # 由 values 决定，或者外部指定
+        self.version = version
+        
+        if self.lib:
+            self.lib.one_hot_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int
+            ]
+
+    def forward(self, indices, depth_tensor, values):
+        depth = int(depth_tensor.data.item())
+        
+        out_shape = list(indices.size)
+        axis = self.axis if self.axis >= 0 else self.axis + len(out_shape) + 1
+        out_shape.insert(axis, depth)
+        out_shape = tuple(out_shape)
+        
+        out_dtype = values.dtype
+        
+        ind_c = self._numpy_to_ctensor(indices.data, indices.dtype)
+        val_c = self._numpy_to_ctensor(values.data, values.dtype)
+        
+        out_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        out_c = self.lib.create_tensor(out_shape_c, len(out_shape), DTYPE_MAP[out_dtype])
+        
+        self.lib.one_hot_forward(ind_c, val_c, out_c, ctypes.c_int(axis))
+        
+        out_data = self._ctensor_to_numpy(out_c, out_dtype)
+        self.lib.free_tensor(ind_c); self.lib.free_tensor(val_c); self.lib.free_tensor(out_c)
+        
+        return {"tensor": Tensor(*out_shape, dtype=out_dtype, data=out_data), "parameters": None}
+
+    def forward_(self, indices, depth_tensor, values):
+        # 无法推断 Depth 具体值，返回 Dummy
+        return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
+
+class Tril(Ops):
+    def __init__(self, inputs, outputs, k=0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.k = k 
+        self.dtype = dtype
+        self.version = version
+        if self.lib: self.lib.triangular_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int]
+
+    def forward(self, x, k_tensor=None):
+        k_val = self.k
+        if k_tensor is not None:
+            k_val = int(k_tensor.data.item())
+            
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        
+        self.lib.triangular_forward(x_c, out_c, ctypes.c_int(k_val), ctypes.c_int(0))
+        
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, x, k_tensor=None): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Triu(Ops):
+    def __init__(self, inputs, outputs, k=0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.k = k
+        self.dtype = dtype
+        self.version = version
+        if self.lib: self.lib.triangular_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int]
+
+    def forward(self, x, k_tensor=None):
+        k_val = self.k
+        if k_tensor is not None:
+            k_val = int(k_tensor.data.item())
+            
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        
+        self.lib.triangular_forward(x_c, out_c, ctypes.c_int(k_val), ctypes.c_int(1))
+        
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, x, k_tensor=None): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Round(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "round_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class Erf(Ops):
+    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+    def forward(self, x): return {"tensor": self._execute_unary(x, "erf_forward"), "parameters": None}
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class BatchNormalization(Ops):
+    def __init__(self, inputs, outputs, epsilon=1e-5, momentum=0.9, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.epsilon = epsilon
+        self.momentum = momentum # 推理模式下不用，但为了兼容性保留
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+            self.lib.batch_norm_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                ctypes.c_float
+            ]
+
+    def forward(self, x, scale, B, mean, var):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        s_c = self._numpy_to_ctensor(scale.data, scale.dtype)
+        b_c = self._numpy_to_ctensor(B.data, B.dtype)
+        m_c = self._numpy_to_ctensor(mean.data, mean.dtype)
+        v_c = self._numpy_to_ctensor(var.data, var.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        
+        self.lib.batch_norm_forward(x_c, s_c, b_c, m_c, v_c, out_c, ctypes.c_float(self.epsilon))
+        
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        
+        self.lib.free_tensor(x_c); self.lib.free_tensor(s_c); self.lib.free_tensor(b_c)
+        self.lib.free_tensor(m_c); self.lib.free_tensor(v_c); self.lib.free_tensor(out_c)
+        
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, x, scale, B, mean, var):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class InstanceNormalization(Ops):
+    def __init__(self, inputs, outputs, epsilon=1e-5, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.epsilon = epsilon
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+            self.lib.instance_norm_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor), ctypes.c_float
+            ]
+
+    def forward(self, x, scale, B):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        s_c = self._numpy_to_ctensor(scale.data, scale.dtype)
+        b_c = self._numpy_to_ctensor(B.data, B.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        
+        self.lib.instance_norm_forward(x_c, s_c, b_c, out_c, ctypes.c_float(self.epsilon))
+        
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        
+        self.lib.free_tensor(x_c); self.lib.free_tensor(s_c); self.lib.free_tensor(b_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, x, scale, B): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class LayerNormalization(Ops):
+    def __init__(self, inputs, outputs, axis=-1, epsilon=1e-5, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.axis = axis
+        self.epsilon = epsilon
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+            self.lib.layer_norm_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_float
+            ]
+
+    def forward(self, x, scale=None, B=None):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        s_c = self._numpy_to_ctensor(scale.data, scale.dtype) if scale else ctypes.POINTER(CTensor)()
+        b_c = self._numpy_to_ctensor(B.data, B.dtype) if B else ctypes.POINTER(CTensor)()
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        
+        self.lib.layer_norm_forward(x_c, s_c, b_c, out_c, ctypes.c_int(self.axis), ctypes.c_float(self.epsilon))
+        
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        if scale: self.lib.free_tensor(s_c)
+        if B: self.lib.free_tensor(b_c)
+        
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, x, scale=None, B=None): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}

@@ -2564,3 +2564,578 @@ void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output,
     }
 }
 
+#define UNARY_OP_WITH_ALPHA_IMPL(FUNC_NAME, MATH_LOGIC) \
+void FUNC_NAME(const Tensor* input, Tensor* output, float alpha) { \
+    if (!input || !output) return; \
+    double a = (double)alpha; \
+    _Pragma("omp parallel for") \
+    for (size_t i = 0; i < input->size; i++) { \
+        double val = get_value_as_double(input, i); \
+        double res = MATH_LOGIC; \
+        set_tensor_value_from_float(output, i, res); \
+    } \
+}
+
+// Elu: x > 0 ? x : alpha * (exp(x) - 1)
+UNARY_OP_WITH_ALPHA_IMPL(elu_forward, (val > 0) ? val : a * (exp(val) - 1.0))
+
+// LeakyRelu: x >= 0 ? x : alpha * x
+UNARY_OP_WITH_ALPHA_IMPL(leaky_relu_forward, (val >= 0) ? val : a * val)
+
+// ThresholdedRelu: x > alpha ? x : 0
+UNARY_OP_WITH_ALPHA_IMPL(thresholded_relu_forward, (val > a) ? val : 0.0)
+
+// Celu: x >= 0 ? x : alpha * (exp(x/alpha) - 1)
+UNARY_OP_WITH_ALPHA_IMPL(celu_forward, (val >= 0) ? val : a * (exp(val / a) - 1.0))
+
+// Selu: gamma * (x > 0 ? x : alpha * (exp(x) - 1))
+void selu_forward(const Tensor* input, Tensor* output, float alpha, float gamma) {
+    if (!input || !output) return;
+    double a = (double)alpha;
+    double g = (double)gamma;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        double res = g * ((val > 0) ? val : a * (exp(val) - 1.0));
+        set_tensor_value_from_float(output, i, res);
+    }
+}
+
+// HardSigmoid: max(0, min(1, alpha * x + beta))
+void hard_sigmoid_forward(const Tensor* input, Tensor* output, float alpha, float beta) {
+    if (!input || !output) return;
+    double a = (double)alpha;
+    double b = (double)beta;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        double res = fmax(0.0, fmin(1.0, a * val + b));
+        set_tensor_value_from_float(output, i, res);
+    }
+}
+
+// Softplus: ln(1 + exp(x))
+UNARY_OP_IMPL(softplus_forward, log(1.0 + exp(val)))
+
+// Softsign: x / (1 + |x|)
+UNARY_OP_IMPL(softsign_forward, val / (1.0 + fabs(val)))
+
+// HardSwish: x * max(0, min(1, alpha * x + beta)), default alpha=1/6, beta=0.5
+// x * max(0, min(1, x/6 + 0.5))
+UNARY_OP_IMPL(hard_swish_forward, val * fmax(0.0, fmin(1.0, val / 6.0 + 0.5)))
+
+// Shrink: x < -lambd ? x + bias : (x > lambd ? x - bias : 0)
+void shrink_forward(const Tensor* input, Tensor* output, float bias, float lambd) {
+    if (!input || !output) return;
+    double b = (double)bias;
+    double l = (double)lambd;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        double res;
+        if (val < -l) res = val + b;
+        else if (val > l) res = val - b;
+        else res = 0.0;
+        set_tensor_value_from_float(output, i, res);
+    }
+}
+
+// Acos: arccos(x)
+UNARY_OP_IMPL(acos_forward, acos(val))
+
+// Asin: arcsin(x)
+UNARY_OP_IMPL(asin_forward, asin(val))
+
+// Cosh: (exp(x) + exp(-x)) / 2
+UNARY_OP_IMPL(cosh_forward, cosh(val))
+
+// Sinh: (exp(x) - exp(-x)) / 2
+UNARY_OP_IMPL(sinh_forward, sinh(val))
+
+// Asinh: ln(x + sqrt(x^2 + 1))
+UNARY_OP_IMPL(asinh_forward, asinh(val))
+
+// Acosh: ln(x + sqrt(x^2 - 1)), for x >= 1
+UNARY_OP_IMPL(acosh_forward, acosh(val))
+
+// Atanh: 0.5 * ln((1+x)/(1-x)), for |x| < 1
+UNARY_OP_IMPL(atanh_forward, atanh(val))
+
+// 位运算逻辑
+static inline int64_t op_bitwise_and(int64_t a, int64_t b) { return a & b; }
+static inline int64_t op_bitwise_or(int64_t a, int64_t b) { return a | b; }
+static inline int64_t op_bitwise_xor(int64_t a, int64_t b) { return a ^ b; }
+static inline int64_t op_shift_left(int64_t a, int64_t b) { return a << b; }
+static inline int64_t op_shift_right(int64_t a, int64_t b) { return a >> b; }
+
+// BitwiseAnd
+void bitwise_and_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (!A || !B || !O) return;
+    BINARY_OP_INT_LOGIC(op_bitwise_and); 
+}
+
+// BitwiseOr
+void bitwise_or_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (!A || !B || !O) return;
+    BINARY_OP_INT_LOGIC(op_bitwise_or);
+}
+
+// BitwiseXor
+void bitwise_xor_forward(const Tensor* A, const Tensor* B, Tensor* O) {
+    if (!A || !B || !O) return;
+    BINARY_OP_INT_LOGIC(op_bitwise_xor);
+}
+
+// BitwiseNot
+void bitwise_not_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    
+    #pragma omp parallel for
+    for (size_t i = 0; i < input->size; i++) {
+        int64_t val = get_value_as_int64(input, i);
+        int64_t res = ~val;
+        set_tensor_value_from_int(output, i, res);
+    }
+}
+
+// BitShift
+// direction: 0=LEFT, 1=RIGHT
+void bit_shift_forward(const Tensor* A, const Tensor* B, Tensor* O, int direction) {
+    if (!A || !B || !O) return;
+    
+    if (direction == 0) {
+        // Left Shift
+        BINARY_OP_INT_LOGIC(op_shift_left);
+    } else {
+        // Right Shift
+        BINARY_OP_INT_LOGIC(op_shift_right);
+    }
+}
+
+// ReduceL1: Sum(|x|)
+REDUCE_OP_IMPL(reduce_l1_forward, 0.0, acc += fabs(val), (void)0)
+
+// ReduceL2: Sqrt(Sum(x^2))
+REDUCE_OP_IMPL(reduce_l2_forward, 0.0, acc += val * val, acc = sqrt(acc))
+
+// ReduceLogSum: Log(Sum(x))
+REDUCE_OP_IMPL(reduce_log_sum_forward, 0.0, acc += val, acc = log(acc))
+
+// ReduceLogSumExp: Log(Sum(exp(x)))，仅实现基础定义
+REDUCE_OP_IMPL(reduce_log_sum_exp_forward, 0.0, acc += exp(val), acc = log(acc))
+
+// ReduceSumSquare: Sum(x^2)
+REDUCE_OP_IMPL(reduce_sum_square_forward, 0.0, acc += val * val, (void)0)
+
+// AveragePool
+void average_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int count_include_pad) {
+    if (!X || !Y || !params) return;
+    int batch = X->shape[0];
+    int channels = X->shape[1];
+    int in_h = X->shape[2];
+    int in_w = X->shape[3];
+    int out_h = Y->shape[2];
+    int out_w = Y->shape[3];
+    
+    int k_h = params->kernel_shape[0];
+    int k_w = params->kernel_shape[1];
+    int pad_top = params->pads[0];
+    int pad_left = params->pads[1];
+    int stride_h = params->strides[0];
+    int stride_w = params->strides[1];
+    int dilation_h = params->dilations[0];
+    int dilation_w = params->dilations[1];
+
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < batch; n++) {
+        for (int c = 0; c < channels; c++) {
+            for (int oh = 0; oh < out_h; oh++) {
+                for (int ow = 0; ow < out_w; ow++) {
+                    double sum = 0.0;
+                    int count = 0;
+                    
+                    for (int kh = 0; kh < k_h; kh++) {
+                        for (int kw = 0; kw < k_w; kw++) {
+                            int h_in = oh * stride_h + kh * dilation_h - pad_top;
+                            int w_in = ow * stride_w + kw * dilation_w - pad_left;
+                            
+                            int is_pad = (h_in < 0 || h_in >= in_h || w_in < 0 || w_in >= in_w);
+                            
+                            if (!is_pad) {
+                                size_t x_idx = ((size_t)n * channels * in_h * in_w) + 
+                                               ((size_t)c * in_h * in_w) + 
+                                               ((size_t)h_in * in_w) + w_in;
+                                sum += get_value_as_double(X, x_idx);
+                                count++;
+                            } else {
+                                if (count_include_pad) count++;
+                            }
+                        }
+                    }
+                    size_t y_idx = ((size_t)n * channels * out_h * out_w) + 
+                                   ((size_t)c * out_h * out_w) + 
+                                   ((size_t)oh * out_w) + ow;
+                    // 避免除以0
+                    double avg = (count > 0) ? (sum / count) : 0.0;
+                    set_tensor_value_from_float(Y, y_idx, avg);
+                }
+            }
+        }
+    }
+}
+
+// LpPool
+void lp_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int p) {
+    if (!X || !Y || !params) return;
+    int batch = X->shape[0];
+    int channels = X->shape[1];
+    int in_h = X->shape[2];
+    int in_w = X->shape[3];
+    int out_h = Y->shape[2];
+    int out_w = Y->shape[3];
+    
+    int k_h = params->kernel_shape[0];
+    int k_w = params->kernel_shape[1];
+    int pad_top = params->pads[0];
+    int pad_left = params->pads[1];
+    int stride_h = params->strides[0];
+    int stride_w = params->strides[1];
+    int dilation_h = params->dilations[0];
+    int dilation_w = params->dilations[1];
+
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < batch; n++) {
+        for (int c = 0; c < channels; c++) {
+            for (int oh = 0; oh < out_h; oh++) {
+                for (int ow = 0; ow < out_w; ow++) {
+                    double sum_pow = 0.0;
+                    
+                    for (int kh = 0; kh < k_h; kh++) {
+                        for (int kw = 0; kw < k_w; kw++) {
+                            int h_in = oh * stride_h + kh * dilation_h - pad_top;
+                            int w_in = ow * stride_w + kw * dilation_w - pad_left;
+                            
+                            if (h_in >= 0 && h_in < in_h && w_in >= 0 && w_in < in_w) {
+                                size_t x_idx = ((size_t)n * channels * in_h * in_w) + 
+                                               ((size_t)c * in_h * in_w) + 
+                                               ((size_t)h_in * in_w) + w_in;
+                                double val = get_value_as_double(X, x_idx);
+                                sum_pow += pow(fabs(val), p);
+                            }
+                        }
+                    }
+                    size_t y_idx = ((size_t)n * channels * out_h * out_w) + 
+                                   ((size_t)c * out_h * out_w) + 
+                                   ((size_t)oh * out_w) + ow;
+                    double res = pow(sum_pow, 1.0 / p);
+                    set_tensor_value_from_float(Y, y_idx, res);
+                }
+            }
+        }
+    }
+}
+
+// GlobalAveragePool
+// 假设输入是 NCHW (或至少后两维是空间维度)，如果不符合则不执行
+void global_average_pool_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    int ndim = input->ndim;
+    if (ndim < 2) return;
+    if (ndim != 4) {
+        return;
+    }
+    
+    // N = 前 ndim-2 维的乘积
+    int N = 1;
+    for (int i = 0; i < ndim - 2; i++) N *= input->shape[i];
+    int H = input->shape[ndim - 2];
+    int W = input->shape[ndim - 1];
+    int spatial_size = H * W;
+    
+    _Pragma("omp parallel for")
+    for (int n = 0; n < N; n++) {
+        double sum = 0.0;
+        size_t offset = (size_t)n * spatial_size;
+        for (int i = 0; i < spatial_size; i++) {
+            sum += get_value_as_double(input, offset + i);
+        }
+        set_tensor_value_from_float(output, n, sum / spatial_size);
+    }
+}
+
+// GlobalMaxPool
+void global_max_pool_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    int ndim = input->ndim;
+    if (ndim < 2) return;
+    
+    int N = 1;
+    for (int i = 0; i < ndim - 2; i++) N *= input->shape[i];
+    int H = input->shape[ndim - 2];
+    int W = input->shape[ndim - 1];
+    int spatial_size = H * W;
+    
+    _Pragma("omp parallel for")
+    for (int n = 0; n < N; n++) {
+        double max_val = -DBL_MAX;
+        size_t offset = (size_t)n * spatial_size;
+        for (int i = 0; i < spatial_size; i++) {
+            double val = get_value_as_double(input, offset + i);
+            if (val > max_val) max_val = val;
+        }
+        set_tensor_value_from_float(output, n, max_val);
+    }
+}
+
+// Mean (Element-wise)
+void mean_forward(const Tensor** inputs, int num_inputs, Tensor* output) {
+    if (!inputs || !output || num_inputs < 1) return;
+    size_t size = output->size;
+    
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < size; i++) {
+        double sum = 0.0;
+        for (int k = 0; k < num_inputs; k++) {
+            sum += get_value_as_double(inputs[k], i);
+        }
+        set_tensor_value_from_float(output, i, sum / num_inputs);
+    }
+}
+
+void size_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    int64_t total_elems = (int64_t)input->size;
+    set_tensor_value_from_int(output, 0, total_elems);
+}
+
+// IsInf
+void isinf_forward(const Tensor* input, Tensor* output, int detect_pos, int detect_neg) {
+    if (!input || !output) return;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        int res = 0;
+        if (isinf(val)) {
+            if (val > 0 && detect_pos) res = 1;
+            else if (val < 0 && detect_neg) res = 1;
+        }
+        ((uint8_t*)output->data)[i] = (uint8_t)res;
+    }
+}
+
+// OneHot
+// indices: 输入索引
+// values: [off_value, on_value] (2 element tensor)
+// axis: 扩充的维度
+void one_hot_forward(const Tensor* indices, const Tensor* values, Tensor* output, int axis) {
+    if (!indices || !values || !output) return;
+    
+    int out_ndim = output->ndim;
+    if (axis < 0) axis += out_ndim;
+    
+    int depth = output->shape[axis];
+
+    double off_val = get_value_as_double(values, 0);
+    double on_val = get_value_as_double(values, 1);
+    
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[MAX_NDIM];
+        int idx_coords[MAX_NDIM];
+        
+        get_coords_from_index(i, out_coords, output->shape, out_ndim);
+        
+        int k = 0;
+        for (int d = 0; d < out_ndim; d++) {
+            if (d != axis) {
+                idx_coords[k++] = out_coords[d];
+            }
+        }
+        size_t idx_idx = get_index_from_coords(idx_coords, indices->shape, indices->ndim);
+        int64_t target_idx = get_value_as_int64(indices, idx_idx);
+        
+        if (target_idx < 0) target_idx += depth;
+        
+        int current_depth_idx = out_coords[axis];
+        
+        double res = (current_depth_idx == target_idx) ? on_val : off_val;
+        set_tensor_value_from_float(output, i, res);
+    }
+}
+
+// Tril / Triu
+void triangular_forward(const Tensor* input, Tensor* output, int k, int upper) {
+    if (!input || !output) return;
+    int ndim = input->ndim;
+    if (ndim < 2) return; 
+    
+    int H = input->shape[ndim - 2];
+    int W = input->shape[ndim - 1];
+    
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        int coords[MAX_NDIM];
+        get_coords_from_index(i, coords, input->shape, ndim);
+        
+        int row = coords[ndim - 2];
+        int col = coords[ndim - 1];
+        
+        double val = get_value_as_double(input, i);
+        double res = 0.0;
+        
+        if (upper) {
+            if (col - row >= k) res = val;
+            else res = 0.0;
+        } else {
+            if (col - row <= k) res = val;
+            else res = 0.0;
+        }
+        set_tensor_value_from_float(output, i, res);
+    }
+}
+
+// ================== Group 7: Normalization & Math Extensions 实现 ==================
+
+// Round: round to nearest integer
+UNARY_OP_IMPL(round_forward, rint(val))
+
+// Erf: error function
+UNARY_OP_IMPL(erf_forward, erf(val))
+
+// BatchNormalization (Inference Mode)
+// Y = (X - mean) / sqrt(var + eps) * scale + B
+// 优化为: Y = X * A + K
+// 其中 A = scale / sqrt(var + eps), K = B - mean * A
+void batch_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
+                        const Tensor* mean, const Tensor* var, Tensor* output, float epsilon) {
+    if (!input || !scale || !B || !mean || !var || !output) return;
+    
+    int N = input->shape[0];
+    int C = input->shape[1];
+    // 假设输入是 NCHW 或 NC
+    size_t spatial_size = 1;
+    for (int i = 2; i < input->ndim; i++) spatial_size *= input->shape[i];
+    
+    // 预计算通道参数，避免在内层循环重复计算 sqrt/div
+    double* A_table = (double*)malloc(C * sizeof(double));
+    double* K_table = (double*)malloc(C * sizeof(double));
+    
+    for (int c = 0; c < C; c++) {
+        double s = get_value_as_double(scale, c);
+        double b = get_value_as_double(B, c);
+        double m = get_value_as_double(mean, c);
+        double v = get_value_as_double(var, c);
+        
+        double inv_std = 1.0 / sqrt(v + epsilon);
+        A_table[c] = s * inv_std;
+        K_table[c] = b - m * A_table[c];
+    }
+    
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < N; n++) {
+        for (int c = 0; c < C; c++) {
+            double A_val = A_table[c];
+            double K_val = K_table[c];
+            size_t offset = (size_t)n * C * spatial_size + (size_t)c * spatial_size;
+            
+            for (size_t i = 0; i < spatial_size; i++) {
+                double x = get_value_as_double(input, offset + i);
+                double y = x * A_val + K_val;
+                set_tensor_value_from_float(output, offset + i, y);
+            }
+        }
+    }
+    
+    free(A_table);
+    free(K_table);
+}
+
+// InstanceNormalization
+// 对每个 (n, c) 切片计算均值和方差，然后归一化
+void instance_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
+                           Tensor* output, float epsilon) {
+    if (!input || !scale || !B || !output) return;
+    
+    int N = input->shape[0];
+    int C = input->shape[1];
+    size_t spatial_size = 1;
+    for (int i = 2; i < input->ndim; i++) spatial_size *= input->shape[i];
+    
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < N; n++) {
+        for (int c = 0; c < C; c++) {
+            size_t offset = (size_t)n * C * spatial_size + (size_t)c * spatial_size;
+            
+            double sum = 0.0;
+            for (size_t i = 0; i < spatial_size; i++) {
+                sum += get_value_as_double(input, offset + i);
+            }
+            double mean = sum / spatial_size;
+
+            double sum_sq_diff = 0.0;
+            for (size_t i = 0; i < spatial_size; i++) {
+                double val = get_value_as_double(input, offset + i);
+                double diff = val - mean;
+                sum_sq_diff += diff * diff;
+            }
+            double var = sum_sq_diff / spatial_size;
+            double inv_std = 1.0 / sqrt(var + epsilon);
+            
+            double s = get_value_as_double(scale, c);
+            double b = get_value_as_double(B, c);
+            
+            for (size_t i = 0; i < spatial_size; i++) {
+                double x = get_value_as_double(input, offset + i);
+                double y = (x - mean) * inv_std * s + b;
+                set_tensor_value_from_float(output, offset + i, y);
+            }
+        }
+    }
+}
+
+// LayerNormalization
+// 沿着 axis 轴进行归一化 (通常 axis=-1)
+void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
+                        Tensor* output, int axis, float epsilon) {
+    if (!input || !output) return;
+    
+    int ndim = input->ndim;
+    if (axis < 0) axis += ndim;
+    
+    // 偷懒，假设 axis 是最后一维 (ONNX LayerNorm 默认也是 -1)
+    int norm_dim = input->shape[axis];
+    size_t outer_size = 1;
+    for (int i = 0; i < axis; i++) outer_size *= input->shape[i];
+    
+    #pragma omp parallel for
+    for (size_t i = 0; i < outer_size; i++) {
+        size_t offset = i * norm_dim;
+        
+        double sum = 0.0;
+        for (int j = 0; j < norm_dim; j++) {
+            sum += get_value_as_double(input, offset + j);
+        }
+        double mean = sum / norm_dim;
+        
+        double sum_sq_diff = 0.0;
+        for (int j = 0; j < norm_dim; j++) {
+            double val = get_value_as_double(input, offset + j);
+            double diff = val - mean;
+            sum_sq_diff += diff * diff;
+        }
+        double var = sum_sq_diff / norm_dim;
+        double inv_std = 1.0 / sqrt(var + epsilon);
+        
+        for (int j = 0; j < norm_dim; j++) {
+            double x = get_value_as_double(input, offset + j);
+            
+            double s = 1.0;
+            double b = 0.0;
+            if (scale) s = get_value_as_double(scale, j);
+            if (B) b = get_value_as_double(B, j);
+            
+            double y = (x - mean) * inv_std * s + b;
+            set_tensor_value_from_float(output, offset + j, y);
+        }
+    }
+}
