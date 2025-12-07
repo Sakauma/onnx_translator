@@ -638,8 +638,11 @@ class Gemm(Ops):
         if C is not None:
             c_data = C.data
             if C.data.ndim == 1:
-                c_data = C.data.reshape(1, -1)
-            c_c = self._numpy_to_ctensor(c_data, C.dtype)
+                if c_data.shape[0] == N:
+                    c_data = c_data.reshape(1, -1)
+                elif c_data.shape[0] == M:
+                    c_data = c_data.reshape(-1, 1)
+            c_c = self._numpy_to_ctensor(np.ascontiguousarray(c_data), C.dtype)
 
         output_shape_c = (ctypes.c_int * 2)(*out_shape)
         output_c = self.lib.create_tensor(output_shape_c, 2, DTYPE_MAP[self.dtype])

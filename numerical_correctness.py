@@ -234,6 +234,8 @@ def check_accuracy(nps_val, cuda_val, atol, rtol, dtype):
     fail_mask = ~final_pass
     
     if np.all(final_pass):
+        if not np.any(valid_numeric_mask):
+            print(f"     ⚠️  Warning: Pass but all values were NaN/Inf/Overflow matched.")
         return True, current_max_abs, current_max_rel, None
     else:
         numeric_fail = fail_mask & valid_numeric_mask

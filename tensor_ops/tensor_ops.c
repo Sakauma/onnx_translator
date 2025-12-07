@@ -1190,27 +1190,32 @@ void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y,
             // 处理 Bias C
             if (C != NULL && C->data != NULL) {
                 double val_c = 0.0;
+                // 标量广播
                 if (C->size == 1) {
-                    // 标量广播
                     val_c = get_value_as_double(C, 0);
-                } else if (C->ndim == 1) {
+                } 
+                // 1D 张量处理 (通常是 (N,) 加在列上，或 (M,) 加在行上)
+                else if (C->ndim == 1) {
                     if (C->shape[0] == N) {
                         val_c = get_value_as_double(C, n);
+                    } 
+                    else if (C->shape[0] == M) {
+                        val_c = get_value_as_double(C, m);
                     }
-                } else {
-                    // 2D 张量
-                    int H = C->shape[0];
-                    int W = C->shape[1];
-                    int idx_h = (H == 1) ? 0 : m; // 处理 M 维广播
-                    int idx_w = (W == 1) ? 0 : n; // 处理 N 维广播
-                    // 边界保护
+                } 
+                // 2D 及以上张量
+                else if (C->ndim >= 2) {
+                    int H = C->shape[C->ndim - 2]; // 倒数第二维
+                    int W = C->shape[C->ndim - 1]; // 最后一维
+                    int idx_h = (H == 1) ? 0 : m; 
+                    int idx_w = (W == 1) ? 0 : n;
+
                     if (idx_h < H && idx_w < W) {
                         val_c = get_value_as_double(C, idx_h * W + idx_w);
                     }
                 }
                 res += (double)beta * val_c;
             }
-            
             // 写入结果
             size_t y_idx = (size_t)m * N + n;
             set_tensor_value_from_float(Y, y_idx, res);
