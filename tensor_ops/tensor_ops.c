@@ -9,6 +9,10 @@
 
 #define MAX_NDIM 16  
 
+#ifndef M_SQRT1_2
+#define M_SQRT1_2 0.70710678118654752440
+#endif
+
 // 余弦查找表大小
 #define COS_LUT_SIZE 4096
 // 余弦查找表位数
@@ -2887,6 +2891,34 @@ void global_max_pool_forward(const Tensor* input, Tensor* output) {
     }
 }
 
+// GlobalLpPool
+void global_lp_pool_forward(const Tensor* input, Tensor* output, int p) {
+    if (!input || !output) return;
+    int ndim = input->ndim;
+    if (ndim < 2) return;
+    
+    // N = 前 ndim-2 维的乘积 (Batch * Channel)
+    int N = 1;
+    for (int i = 0; i < ndim - 2; i++) N *= input->shape[i];
+    int H = input->shape[ndim - 2];
+    int W = input->shape[ndim - 1];
+    int spatial_size = H * W;
+    
+    _Pragma("omp parallel for")
+    for (int n = 0; n < N; n++) {
+        double sum_pow = 0.0;
+        size_t offset = (size_t)n * spatial_size;
+        for (int i = 0; i < spatial_size; i++) {
+            double val = get_value_as_double(input, offset + i);
+            sum_pow += pow(fabs(val), p);
+        }
+        
+        // p=1 时就是 Sum(|x|)，p=2 时是 L2 Norm，p=inf 时是 Max
+        double res = pow(sum_pow, 1.0 / p);
+        set_tensor_value_from_float(output, n, res);
+    }
+}
+
 // Mean (Element-wise)
 void mean_forward(const Tensor** inputs, int num_inputs, Tensor* output) {
     if (!inputs || !output || num_inputs < 1) return;
@@ -3137,5 +3169,642 @@ void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
             double y = (x - mean) * inv_std * s + b;
             set_tensor_value_from_float(output, offset + j, y);
         }
+    }
+}
+
+// 获取窗函数大小
+static int64_t get_window_size(const Tensor* size_tensor) {
+    if (!size_tensor) return 0;
+    return get_value_as_int64(size_tensor, 0);
+}
+
+// Hann Window: 0.5 * (1 - cos(2*pi*n / (N-1)))
+void hann_window_forward(const Tensor* size_tensor, Tensor* output, int periodic) {
+    if (!size_tensor || !output) return;
+    int64_t N = get_window_size(size_tensor);
+    if (N <= 0) return; // 甚至不需要写入
+    if (N == 1) {
+        set_tensor_value_from_float(output, 0, 1.0);
+        return;
+    }
+
+    double denom = periodic ? (double)N : (double)(N - 1);
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < (size_t)N; i++) {
+        double val = 0.5 * (1.0 - cos(2.0 * PI * i / denom));
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// Hamming Window: 0.54 - 0.46 * cos(2*pi*n / (N-1))
+void hamming_window_forward(const Tensor* size_tensor, Tensor* output, int periodic) {
+    if (!size_tensor || !output) return;
+    int64_t N = get_window_size(size_tensor);
+    if (N <= 0) return;
+    if (N == 1) {
+        set_tensor_value_from_float(output, 0, 1.0);
+        return;
+    }
+
+    double denom = periodic ? (double)N : (double)(N - 1);
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < (size_t)N; i++) {
+        double val = 0.54 - 0.46 * cos(2.0 * PI * i / denom);
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// Blackman Window: 0.42 - 0.5*cos(...) + 0.08*cos(...)
+void blackman_window_forward(const Tensor* size_tensor, Tensor* output, int periodic) {
+    if (!size_tensor || !output) return;
+    int64_t N = get_window_size(size_tensor);
+    if (N <= 0) return;
+    if (N == 1) {
+        set_tensor_value_from_float(output, 0, 1.0); // center value usually
+        return;
+    }
+
+    double denom = periodic ? (double)N : (double)(N - 1);
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < (size_t)N; i++) {
+        double term1 = 0.5 * cos(2.0 * PI * i / denom);
+        double term2 = 0.08 * cos(4.0 * PI * i / denom);
+        double val = 0.42 - term1 + term2;
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// RandomNormal: Box-Muller 变换
+void random_normal_forward(Tensor* output, float mean, float scale, float seed) {
+    if (!output) return;
+    
+    uint32_t base_seed = (uint32_t)seed;
+    if (seed == 0.0f) base_seed = (uint32_t)time(NULL);
+    
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        // 确保种子分散
+        uint32_t local_state = base_seed + (uint32_t)(tid * 0x9E3779B9); 
+        
+        #pragma omp for
+        for (size_t i = 0; i < output->size; i++) {
+            // 生成 u1, u2 在 (0, 1]
+            uint32_t r1 = simple_lcg(&local_state);
+            uint32_t r2 = simple_lcg(&local_state);
+            
+            // 避免 log(0)
+            double u1 = ((double)r1 + 1.0) / 2147483649.0; 
+            double u2 = ((double)r2 + 1.0) / 2147483649.0;
+            
+            double z0 = sqrt(-2.0 * log(u1)) * cos(TWO_PI * u2);
+            double val = (double)mean + z0 * (double)scale;
+            
+            set_tensor_value_from_float(output, i, val);
+        }
+    }
+}
+
+// Bernoulli: 生成 0 或 1
+void bernoulli_forward(const Tensor* input, Tensor* output, float seed) {
+    if (!input || !output) return;
+    
+    uint32_t base_seed = (uint32_t)seed;
+    if (seed == 0.0f) base_seed = (uint32_t)time(NULL);
+    
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        uint32_t local_state = base_seed + (uint32_t)(tid * 0x9E3779B9);
+        
+        #pragma omp for
+        for (size_t i = 0; i < output->size; i++) {
+            double prob = get_value_as_double(input, i);
+            uint32_t r = simple_lcg(&local_state);
+            double r_norm = (double)r / 2147483648.0; // [0, 1)
+            
+            double res = (r_norm < prob) ? 1.0 : 0.0;
+            
+            // 类型需要匹配输出张量，这里使用通用 set_float
+            set_tensor_value_from_float(output, i, res);
+        }
+    }
+}
+
+// Dropout (Inference Mode)
+void dropout_forward(const Tensor* input, Tensor* output, float ratio, int training_mode) {
+    if (!input || !output) return;
+    
+    // 如果是推理模式(training_mode=0)，或者是比例为0，直接复制
+    if (training_mode == 0 || ratio == 0.0f) {
+        size_t elem_size = get_dtype_size(input->dtype);
+        // 如果输入输出类型一致且大小一致
+        if (input->dtype == output->dtype && input->size == output->size) {
+            memcpy(output->data, input->data, input->size * elem_size);
+        } else {
+            // 类型转换复制
+            cast_forward(input, output);
+        }
+        return;
+    }
+    
+    // 训练模式下的 Dropout (简单的随机置0)
+    // 标准 Dropout 还需要 scale (val / (1-ratio)) 以保持期望值
+    double scale_factor = 1.0 / (1.0 - (double)ratio);
+    uint32_t base_seed = (uint32_t)time(NULL);
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        uint32_t local_state = base_seed + tid;
+        
+        #pragma omp for
+        for (size_t i = 0; i < input->size; i++) {
+            uint32_t r = simple_lcg(&local_state);
+            double r_norm = (double)r / 2147483648.0;
+            
+            double val = get_value_as_double(input, i);
+            if (r_norm < ratio) {
+                set_tensor_value_from_float(output, i, 0.0);
+            } else {
+                set_tensor_value_from_float(output, i, val * scale_factor);
+            }
+        }
+    }
+}
+
+// Gelu
+UNARY_OP_IMPL(gelu_forward, 0.5 * val * (1.0 + erf(val * M_SQRT1_2)))
+
+void mish_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        double sp;
+        if (val > 20.0) sp = val;
+        else sp = log(1.0 + exp(val));
+        
+        double res = val * tanh(sp);
+        set_tensor_value_from_float(output, i, res);
+    }
+}
+
+// Hardmax
+void hardmax_forward(const Tensor* input, Tensor* output, int axis) {
+    if (!input || !output) return;
+    if (axis < 0) axis += input->ndim;
+    
+    int inner_dim = input->shape[axis];
+    int outer_dim = 1;
+    for (int i = 0; i < axis; i++) outer_dim *= input->shape[i];
+    int remaining_dim = 1;
+    for (int i = axis + 1; i < input->ndim; i++) remaining_dim *= input->shape[i];
+
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < outer_dim; i++) {
+        for (int k = 0; k < remaining_dim; k++) {
+            
+            double max_val = -DBL_MAX;
+            int max_idx = 0;
+            
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + (size_t)j * remaining_dim + k;
+                double val = get_value_as_double(input, idx);
+                if (val > max_val) {
+                    max_val = val;
+                    max_idx = j;
+                }
+            }
+            
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + (size_t)j * remaining_dim + k;
+                double res = (j == max_idx) ? 1.0 : 0.0;
+                set_tensor_value_from_float(output, idx, res);
+            }
+        }
+    }
+}
+
+// LogSoftmax: x - max - log(sum(exp(x - max)))
+void log_softmax_forward(const Tensor* input, Tensor* output, int axis) {
+    if (!input || !output) return;
+    if (axis < 0) axis += input->ndim;
+    
+    int inner_dim = input->shape[axis];
+    int outer_dim = 1;
+    for (int i = 0; i < axis; i++) outer_dim *= input->shape[i];
+    int remaining_dim = 1;
+    for (int i = axis + 1; i < input->ndim; i++) remaining_dim *= input->shape[i];
+
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < outer_dim; i++) {
+        for (int k = 0; k < remaining_dim; k++) {
+            
+            double max_val = -DBL_MAX;
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + (size_t)j * remaining_dim + k;
+                double val = get_value_as_double(input, idx);
+                if (val > max_val) max_val = val;
+            }
+            
+            double sum_exp = 0.0;
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + (size_t)j * remaining_dim + k;
+                double val = get_value_as_double(input, idx);
+                sum_exp += exp(val - max_val);
+            }
+            double log_sum = log(sum_exp);
+            
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + (size_t)j * remaining_dim + k;
+                double val = get_value_as_double(input, idx);
+                double res = (val - max_val) - log_sum;
+                set_tensor_value_from_float(output, idx, res);
+            }
+        }
+    }
+}
+
+// LpNormalization
+// y = x / ||x||_p
+void lp_normalization_forward(const Tensor* input, Tensor* output, int axis, int p) {
+    if (!input || !output) return;
+    if (axis < 0) axis += input->ndim;
+    
+    int inner_dim = input->shape[axis];
+    int outer_dim = 1;
+    for (int i = 0; i < axis; i++) outer_dim *= input->shape[i];
+    int remaining_dim = 1;
+    for (int i = axis + 1; i < input->ndim; i++) remaining_dim *= input->shape[i];
+
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < outer_dim; i++) {
+        for (int k = 0; k < remaining_dim; k++) {
+            
+            double sum_pow = 0.0;
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + (size_t)j * remaining_dim + k;
+                double val = get_value_as_double(input, idx);
+                sum_pow += pow(fabs(val), p);
+            }
+            
+            double norm = pow(sum_pow, 1.0 / p);
+            // Avoid division by zero
+            if (norm < 1e-12) norm = 1e-12; 
+            
+            for (int j = 0; j < inner_dim; j++) {
+                size_t idx = (size_t)i * inner_dim * remaining_dim + (size_t)j * remaining_dim + k;
+                double val = get_value_as_double(input, idx);
+                set_tensor_value_from_float(output, idx, val / norm);
+            }
+        }
+    }
+}
+
+// DepthToSpace
+void depth_to_space_forward(const Tensor* input, Tensor* output, int blocksize, int mode) {
+    if (!input || !output) return;
+    
+    int N = input->shape[0];
+    int C = input->shape[1];
+    int H = input->shape[2];
+    int W = input->shape[3];
+    
+    int C_out = output->shape[1];
+    int H_out = output->shape[2];
+    int W_out = output->shape[3];
+    
+    // 遍历输出坐标
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < N; n++) {
+        for (int c = 0; c < C_out; c++) {
+            for (int h = 0; h < H_out; h++) {
+                for (int w = 0; w < W_out; w++) {
+                    // 反推输入坐标
+                    // 输出坐标 (h, w) 对应 spatial block 中的 (dy, dx)
+                    int in_h = h / blocksize;
+                    int dy = h % blocksize;
+                    int in_w = w / blocksize;
+                    int dx = w % blocksize;
+                    
+                    int in_c = 0;
+                    if (mode == 0) { // DCR: depth = [dy, dx, c]
+                        // C dimension composed of (blocksize, blocksize, C_out)
+                        in_c = (dy * blocksize + dx) * C_out + c;
+                    } else { // CRD: depth = [c, dy, dx]
+                        // C dimension composed of (C_out, blocksize, blocksize)
+                        in_c = c * (blocksize * blocksize) + (dy * blocksize + dx);
+                    }
+                    
+                    double val = get_val_4d_with_padding(input, n, in_c, in_h, in_w, 0.0);
+                    
+                    size_t out_idx = ((size_t)n * C_out * H_out * W_out) + 
+                                     ((size_t)c * H_out * W_out) + 
+                                     ((size_t)h * W_out) + w;
+                    set_tensor_value_from_float(output, out_idx, val);
+                }
+            }
+        }
+    }
+}
+
+// SpaceToDepth
+void space_to_depth_forward(const Tensor* input, Tensor* output, int blocksize) {
+    if (!input || !output) return;
+    
+    int N = output->shape[0];
+    int C_out = output->shape[1];
+    int H_out = output->shape[2];
+    int W_out = output->shape[3];
+    
+    int C_in = input->shape[1];
+    
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < N; n++) {
+        for (int c = 0; c < C_out; c++) {
+            int in_c = c / (blocksize * blocksize);
+            int rem = c % (blocksize * blocksize);
+            int dy = rem / blocksize;
+            int dx = rem % blocksize;
+            
+            for (int h = 0; h < H_out; h++) {
+                for (int w = 0; w < W_out; w++) {
+                    int in_h = h * blocksize + dy;
+                    int in_w = w * blocksize + dx;
+                    
+                    double val = get_val_4d_with_padding(input, n, in_c, in_h, in_w, 0.0);
+                    
+                    size_t out_idx = ((size_t)n * C_out * H_out * W_out) + 
+                                     ((size_t)c * H_out * W_out) + 
+                                     ((size_t)h * W_out) + w;
+                    set_tensor_value_from_float(output, out_idx, val);
+                }
+            }
+        }
+    }
+}
+
+// ReverseSequence
+void reverse_sequence_forward(const Tensor* input, const Tensor* sequence_lens, Tensor* output, int time_axis, int batch_axis) {
+    if (!input || !output || !sequence_lens) return;
+    int ndim = input->ndim;
+    if (time_axis < 0) time_axis += ndim;
+    if (batch_axis < 0) batch_axis += ndim;
+    
+    size_t elem_size = get_dtype_size(input->dtype);
+    memcpy(output->data, input->data, input->size * elem_size);
+    
+    int batch_dim = input->shape[batch_axis];
+
+    size_t strides[MAX_NDIM];
+    strides[ndim - 1] = 1;
+    for (int i = ndim - 2; i >= 0; i--) strides[i] = strides[i+1] * input->shape[i+1];
+    
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        int coords[MAX_NDIM];
+        get_coords_from_index(i, coords, output->shape, ndim);
+        
+        int b_idx = coords[batch_axis];
+        int t_idx = coords[time_axis];
+        
+        int64_t seq_len = get_value_as_int64(sequence_lens, b_idx);
+        
+        if (t_idx < seq_len) {
+            int old_t_idx = (int)seq_len - 1 - t_idx;
+            coords[time_axis] = old_t_idx;
+            
+            size_t src_idx = get_index_from_coords(coords, input->shape, ndim);
+            double val = get_value_as_double(input, src_idx);
+            set_tensor_value_from_float(output, i, val);
+        }
+    }
+}
+
+// Compress
+void compress_forward(const Tensor* input, const Tensor* condition, Tensor* output, int axis) {
+    if (!input || !condition || !output) return;
+    int ndim = input->ndim;
+    if (axis < 0) axis += ndim;
+    
+    int cond_len = condition->size;
+    int* idx_map = (int*)malloc(cond_len * sizeof(int));
+    int count = 0;
+    for (int i = 0; i < cond_len; i++) {
+        if (get_value_as_double(condition, i) != 0.0) {
+            idx_map[count++] = i;
+        }
+    }
+    
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        int coords[MAX_NDIM];
+        get_coords_from_index(i, coords, output->shape, ndim);
+        
+        // 映射 axis 坐标
+        int out_axis_idx = coords[axis];
+        if (out_axis_idx < count) {
+            coords[axis] = idx_map[out_axis_idx]; // 替换为原坐标
+            
+            size_t src_idx = get_index_from_coords(coords, input->shape, ndim);
+            double val = get_value_as_double(input, src_idx);
+            set_tensor_value_from_float(output, i, val);
+        }
+    }
+    
+    free(idx_map);
+}
+
+// ScatterElements
+void scatter_elements_forward(Tensor* data, const Tensor* indices, const Tensor* updates, int axis, int reduction) {
+    if (!data || !indices || !updates) return;
+    int ndim = data->ndim;
+    if (axis < 0) axis += ndim;
+    
+    // 遍历 updates (和 indices 形状相同)
+    size_t loop_size = updates->size;
+    
+    #pragma omp parallel for
+    for (size_t i = 0; i < loop_size; i++) {
+        int coords[MAX_NDIM];
+        get_coords_from_index(i, coords, updates->shape, ndim);
+        
+        // 获取 index 值
+        int64_t idx_val = get_value_as_int64(indices, i);
+        if (idx_val < 0) idx_val += data->shape[axis];
+        if (idx_val < 0) idx_val = 0;
+        if (idx_val >= data->shape[axis]) idx_val = data->shape[axis] - 1;
+        
+        // 构造目标坐标: 除了 axis 维，其他与 updates 坐标一致
+        coords[axis] = (int)idx_val;
+        
+        size_t data_idx = get_index_from_coords(coords, data->shape, ndim);
+        double val = get_value_as_double(updates, i);
+        
+        if (reduction == 0) {
+            set_tensor_value_from_float(data, data_idx, val);
+        } else if (reduction == 1) { // Add
+             switch (data->dtype) {
+                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT32, float, +=)
+                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT64, double, +=)
+                OMP_ATOMIC_DISPATCH(DTYPE_INT32, int32_t, +=)
+                OMP_ATOMIC_DISPATCH(DTYPE_INT64, int64_t, +=)
+                default: 
+                    #pragma omp critical
+                    {
+                        double old = get_value_as_double(data, data_idx);
+                        set_tensor_value_from_float(data, data_idx, old + val);
+                    }
+            }
+        } else if (reduction == 2) { // Mul
+             switch (data->dtype) {
+                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT32, float, *=)
+                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT64, double, *=)
+                default:
+                    #pragma omp critical
+                    {
+                        double old = get_value_as_double(data, data_idx);
+                        set_tensor_value_from_float(data, data_idx, old * val);
+                    }
+            }
+        }
+    }
+}
+
+// GroupNormalization
+void group_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
+                        Tensor* output, int num_groups, float epsilon) {
+    if (!input || !scale || !B || !output) return;
+    
+    int N = input->shape[0];
+    int C = input->shape[1];
+    
+    // 检查能否整除
+    if (C % num_groups != 0) return;
+    int channels_per_group = C / num_groups;
+    
+    // 计算空间大小 (H * W * ...)
+    size_t spatial_size = 1;
+    for (int i = 2; i < input->ndim; i++) spatial_size *= input->shape[i];
+    
+    // 每个 Group 的元素数量
+    size_t group_size = channels_per_group * spatial_size;
+    
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < N; n++) {
+        for (int g = 0; g < num_groups; g++) {
+            // 计算当前 Group 的 Mean 和 Var
+            // Group 的数据范围：从 channel_start 到 channel_end
+            int c_start = g * channels_per_group;
+            int c_end = c_start + channels_per_group;
+            
+            double sum = 0.0;
+            for (int c = c_start; c < c_end; c++) {
+                size_t offset = (size_t)n * C * spatial_size + (size_t)c * spatial_size;
+                for (size_t i = 0; i < spatial_size; i++) {
+                    sum += get_value_as_double(input, offset + i);
+                }
+            }
+            double mean = sum / group_size;
+            
+            double sum_sq_diff = 0.0;
+            for (int c = c_start; c < c_end; c++) {
+                size_t offset = (size_t)n * C * spatial_size + (size_t)c * spatial_size;
+                for (size_t i = 0; i < spatial_size; i++) {
+                    double val = get_value_as_double(input, offset + i);
+                    double diff = val - mean;
+                    sum_sq_diff += diff * diff;
+                }
+            }
+            double var = sum_sq_diff / group_size;
+            double inv_std = 1.0 / sqrt(var + epsilon);
+            
+            // 应用归一化和仿射变换
+            for (int c = c_start; c < c_end; c++) {
+                double s_val = get_value_as_double(scale, c);
+                double b_val = get_value_as_double(B, c);
+
+                double A = inv_std * s_val;
+                double K = b_val - mean * A;
+                
+                size_t offset = (size_t)n * C * spatial_size + (size_t)c * spatial_size;
+                for (size_t i = 0; i < spatial_size; i++) {
+                    double x = get_value_as_double(input, offset + i);
+                    double y = x * A + K;
+                    set_tensor_value_from_float(output, offset + i, y);
+                }
+            }
+        }
+    }
+}
+
+// Binarizer
+void binarizer_forward(const Tensor* input, Tensor* output, float threshold) {
+    if (!input || !output) return;
+    double t = (double)threshold;
+    
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        double res = (val > t) ? 1.0 : 0.0;
+        set_tensor_value_from_float(output, i, res);
+    }
+}
+
+// DynamicQuantizeLinear
+// 仅支持映射到 uint8 ([0, 255])
+void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale, Tensor* y_zp) {
+    if (!x || !y || !y_scale || !y_zp) return;
+    double min_val = DBL_MAX;
+    double max_val = -DBL_MAX;
+    
+    for (size_t i = 0; i < x->size; i++) {
+        double val = get_value_as_double(x, i);
+        if (val < min_val) min_val = val;
+        if (val > max_val) max_val = val;
+    }
+    min_val = fmin(min_val, 0.0);
+    max_val = fmax(max_val, 0.0);
+    
+    // 计算 Scale 和 ZeroPoint
+    // Q_max = 255, Q_min = 0
+    double scale = (max_val - min_val) / 255.0;
+    if (scale == 0.0) scale = 1.0; // 避免除以 0
+    
+    double zp_double = 0.0 - min_val / scale;
+    // Saturate ZP to [0, 255]
+    zp_double = round(zp_double);
+    if (zp_double < 0.0) zp_double = 0.0;
+    if (zp_double > 255.0) zp_double = 255.0;
+    uint8_t zp = (uint8_t)zp_double;
+    
+    // 写入参数输出
+    set_tensor_value_from_float(y_scale, 0, scale);
+    // 直接写入 uint8 原始数据到 scalar tensor
+    // 假设 y_zp 是 uint8 类型
+    if (y_zp->dtype == DTYPE_UINT8) {
+        ((uint8_t*)y_zp->data)[0] = zp;
+    } else {
+        set_tensor_value_from_float(y_zp, 0, (double)zp);
+    }
+    
+    // 执行量化
+    // y = saturate(round(x / scale) + zp)
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < x->size; i++) {
+        double val = get_value_as_double(x, i);
+        double q_val = rint(val / scale) + (double)zp;
+        
+        // Saturate to uint8
+        if (q_val < 0.0) q_val = 0.0;
+        if (q_val > 255.0) q_val = 255.0;
+        
+        // 写入
+        // set_tensor_value 会根据 y 的类型 (uint8) 自动转换
+        set_tensor_value_from_float(y, i, q_val);
     }
 }

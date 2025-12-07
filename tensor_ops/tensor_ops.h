@@ -465,6 +465,7 @@ void average_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int co
 void lp_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int p);
 void global_average_pool_forward(const Tensor* input, Tensor* output);
 void global_max_pool_forward(const Tensor* input, Tensor* output);
+void global_lp_pool_forward(const Tensor* input, Tensor* output, int p);
 void mean_forward(const Tensor** inputs, int num_inputs, Tensor* output);
 void size_forward(const Tensor* input, Tensor* output);
 void isinf_forward(const Tensor* input, Tensor* output, int detect_pos, int detect_neg);
@@ -484,8 +485,65 @@ void instance_norm_forward(const Tensor* input, const Tensor* scale, const Tenso
 void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                         Tensor* output, int axis, float epsilon);
 
-// Simple Math
 void round_forward(const Tensor* input, Tensor* output);
 void erf_forward(const Tensor* input, Tensor* output);
+
+
+// 窗函数
+// periodic: 1=True (period N), 0=False (period N-1, symmetric)
+void hann_window_forward(const Tensor* size_tensor, Tensor* output, int periodic);
+void hamming_window_forward(const Tensor* size_tensor, Tensor* output, int periodic);
+void blackman_window_forward(const Tensor* size_tensor, Tensor* output, int periodic);
+
+// 随机生成器
+void random_normal_forward(Tensor* output, float mean, float scale, float seed);
+void bernoulli_forward(const Tensor* input, Tensor* output, float seed); 
+
+// ratio: 0.0 ~ 1.0 (probability of zeroing)
+// training_mode: 1=True, 0=False.目前只推理模式的逻辑
+void dropout_forward(const Tensor* input, Tensor* output, float ratio, int training_mode);
+
+// Gelu Activation: 0.5 * x * (1 + erf(x / sqrt(2)))
+void gelu_forward(const Tensor* input, Tensor* output);
+
+// Mish Activation: x * tanh(ln(1 + e^x))
+void mish_forward(const Tensor* input, Tensor* output);
+
+// Hardmax: One-hot based on argmax along axis
+void hardmax_forward(const Tensor* input, Tensor* output, int axis);
+
+// LogSoftmax: log(exp(x_i) / sum(exp(x_j))) = x_i - log(sum(exp(x_j)))
+void log_softmax_forward(const Tensor* input, Tensor* output, int axis);
+
+// LpNormalization: x / ||x||_p
+// p: norm degree (usually 1 or 2)
+void lp_normalization_forward(const Tensor* input, Tensor* output, int axis, int p);
+
+// DepthToSpace
+// mode: 0=DCR (Depth-Column-Row), 1=CRD (Column-Row-Depth)
+void depth_to_space_forward(const Tensor* input, Tensor* output, int blocksize, int mode);
+
+// SpaceToDepth
+void space_to_depth_forward(const Tensor* input, Tensor* output, int blocksize);
+
+// ReverseSequence
+void reverse_sequence_forward(const Tensor* input, const Tensor* sequence_lens, Tensor* output, int time_axis, int batch_axis);
+
+// Compress
+void compress_forward(const Tensor* input, const Tensor* condition, Tensor* output, int axis);
+
+// ScatterElements
+void scatter_elements_forward(Tensor* data, const Tensor* indices, const Tensor* updates, int axis, int reduction);
+
+// GroupNormalization
+void group_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
+                        Tensor* output, int num_groups, float epsilon);
+
+// Binarizer
+// val > threshold ? 1 : 0
+void binarizer_forward(const Tensor* input, Tensor* output, float threshold);
+
+// DynamicQuantizeLinear
+void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale, Tensor* y_zp);
 
 #endif

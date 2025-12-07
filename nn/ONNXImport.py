@@ -731,6 +731,12 @@ def ONNXImport(file_path):
         elif node.op_type == "GlobalMaxPool":
             elem_type = get_tensor_dtype(node.output[0], onnx_model)
             onnx_graph_list.append(nn.Operators.GlobalMaxPool(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "GlobalLpPool":
+            p = 2
+            for attr in node.attribute:
+                if attr.name == "p": p = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.GlobalLpPool(node.input, node.output, p=p, dtype=onnx_dtype_mapping[elem_type], version="17"))
         elif node.op_type == "Mean":
             elem_type = get_tensor_dtype(node.output[0], onnx_model)
             onnx_graph_list.append(nn.Operators.Mean(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
@@ -783,6 +789,146 @@ def ONNXImport(file_path):
                 elif attr.name == "axis": axis = attr.i
             elem_type = get_tensor_dtype(node.output[0], onnx_model)
             onnx_graph_list.append(nn.Operators.LayerNormalization(node.input, node.output, axis=axis, epsilon=epsilon, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "HannWindow":
+            periodic = 1
+            output_datatype = 1
+            for attr in node.attribute:
+                if attr.name == "periodic": periodic = attr.i
+                elif attr.name == "output_datatype": output_datatype = attr.i
+            onnx_graph_list.append(nn.Operators.HannWindow(node.input, node.output, periodic=periodic, output_datatype=output_datatype, version="17"))
+        elif node.op_type == "HammingWindow":
+            periodic = 1
+            output_datatype = 1
+            for attr in node.attribute:
+                if attr.name == "periodic": periodic = attr.i
+                elif attr.name == "output_datatype": output_datatype = attr.i
+            onnx_graph_list.append(nn.Operators.HammingWindow(node.input, node.output, periodic=periodic, output_datatype=output_datatype, version="17"))
+        elif node.op_type == "BlackmanWindow":
+            periodic = 1
+            output_datatype = 1
+            for attr in node.attribute:
+                if attr.name == "periodic": periodic = attr.i
+                elif attr.name == "output_datatype": output_datatype = attr.i
+            onnx_graph_list.append(nn.Operators.BlackmanWindow(node.input, node.output, periodic=periodic, output_datatype=output_datatype, version="17"))
+        elif node.op_type == "RandomNormal":
+            mean = 0.0
+            scale = 1.0
+            seed = 0.0
+            dtype = 1
+            shape = []
+            for attr in node.attribute:
+                if attr.name == "mean": mean = attr.f
+                elif attr.name == "scale": scale = attr.f
+                elif attr.name == "seed": seed = attr.f
+                elif attr.name == "dtype": dtype = attr.i
+                elif attr.name == "shape": shape = attr.ints
+            onnx_graph_list.append(nn.Operators.RandomNormal(node.input, node.output, mean=mean, scale=scale, seed=seed, dtype=dtype, shape=shape, version="17"))
+        elif node.op_type == "RandomNormalLike":
+            mean = 0.0
+            scale = 1.0
+            seed = 0.0
+            dtype = None
+            for attr in node.attribute:
+                if attr.name == "mean": mean = attr.f
+                elif attr.name == "scale": scale = attr.f
+                elif attr.name == "seed": seed = attr.f
+                elif attr.name == "dtype": dtype = attr.i
+            onnx_graph_list.append(nn.Operators.RandomNormalLike(node.input, node.output, mean=mean, scale=scale, seed=seed, dtype=dtype, version="17"))
+        elif node.op_type == "Bernoulli":
+            seed = 0.0
+            dtype = None
+            for attr in node.attribute:
+                if attr.name == "seed": seed = attr.f
+                elif attr.name == "dtype": dtype = attr.i
+            onnx_graph_list.append(nn.Operators.Bernoulli(node.input, node.output, seed=seed, dtype=dtype, version="17"))
+        elif node.op_type == "Dropout":
+            seed = 0.0
+            ratio = 0.5
+            training_mode = 0
+            for attr in node.attribute:
+                if attr.name == "seed": seed = attr.f
+                elif attr.name == "ratio": ratio = attr.f
+                elif attr.name == "training_mode": training_mode = attr.i
+            onnx_graph_list.append(nn.Operators.Dropout(node.input, node.output, seed=seed, ratio=ratio, training_mode=training_mode, version="17"))
+        elif node.op_type == "Gelu":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Gelu(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Mish":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Mish(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Hardmax":
+            axis = -1
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Hardmax(node.input, node.output, axis=axis, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "LogSoftmax":
+            axis = -1
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.LogSoftmax(node.input, node.output, axis=axis, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "LpNormalization":
+            axis = -1
+            p = 2
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+                elif attr.name == "p": p = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.LpNormalization(node.input, node.output, axis=axis, p=p, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "DepthToSpace":
+            blocksize = 1
+            mode = "DCR"
+            for attr in node.attribute:
+                if attr.name == "blocksize": blocksize = attr.i
+                elif attr.name == "mode": mode = attr.s.decode('utf-8')
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.DepthToSpace(node.input, node.output, blocksize=blocksize, mode=mode, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "SpaceToDepth":
+            blocksize = 1
+            for attr in node.attribute:
+                if attr.name == "blocksize": blocksize = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.SpaceToDepth(node.input, node.output, blocksize=blocksize, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "ReverseSequence":
+            time_axis = 0
+            batch_axis = 1
+            for attr in node.attribute:
+                if attr.name == "time_axis": time_axis = attr.i
+                elif attr.name == "batch_axis": batch_axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.ReverseSequence(node.input, node.output, time_axis=time_axis, batch_axis=batch_axis, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Compress":
+            axis = None
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Compress(node.input, node.output, axis=axis, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "ScatterElements":
+            axis = 0
+            reduction = "none"
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+                elif attr.name == "reduction": reduction = attr.s.decode('utf-8')
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.ScatterElements(node.input, node.output, axis=axis, reduction=reduction, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "GroupNormalization":
+            num_groups = 1
+            epsilon = 1e-5
+            for attr in node.attribute:
+                if attr.name == "num_groups": num_groups = attr.i
+                elif attr.name == "epsilon": epsilon = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.GroupNormalization(node.input, node.output, num_groups=num_groups, epsilon=epsilon, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Binarizer":
+            threshold = 0.0
+            for attr in node.attribute:
+                if attr.name == "threshold": threshold = attr.f
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Binarizer(node.input, node.output, threshold=threshold, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "DynamicQuantizeLinear":
+            # 输出通常是 UINT8
+            onnx_graph_list.append(nn.Operators.DynamicQuantizeLinear(node.input, node.output, version="17"))
         else:
             # 忽略未支持的操作类型
             pass
