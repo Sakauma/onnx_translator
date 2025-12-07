@@ -757,54 +757,47 @@ void abs_forward(const Tensor* input, Tensor* output) {
  * 使用泰勒级数展开计算余弦值并存储在查找表中
  */
 void init_cos_lut(void) {
-    // 首先检查是否已初始化，避免不必要的锁操作
-    if (cos_lut_initialized) return;
-    
-    // 加锁保护初始化过程
     pthread_mutex_lock(&cos_lut_mutex);
-    
-    // 再次检查是否已初始化，防止多个线程同时等待锁
-    if (cos_lut_initialized) {
-        pthread_mutex_unlock(&cos_lut_mutex);
-        return;
+    if (!cos_lut_initialized) {
+        // 遍历查找表的每个位置
+        for (int i = 0; i <= COS_LUT_SIZE; i++) {
+            // 计算对应的角度值
+            double x = (double)i * TWO_PI / COS_LUT_SIZE;
+            double sign = 1.0;
+            
+            // 将角度映射到[0, π]区间
+            if (x > PI) {
+                x = TWO_PI - x;
+            }
+            // 将角度映射到[0, π/2]区间
+            if (x > HALF_PI) {
+                x = PI - x;
+                sign = -1.0;
+            }
+            // 计算x的平方
+            double x2 = x * x;
+            double result;
+            
+            // 根据角度大小选择不同的计算方法
+            if (x < 0.785398163397448) {
+                // 使用余弦泰勒级数展开
+                result = 1.0 + x2 * (-0.5 + x2 * (0.04166666666666666 +
+                         x2 * (-0.001388888888888889 + x2 * 0.000024801587301587302)));
+            } else {
+                // 使用正弦泰勒级数展开，因为cos(x) = sin(π/2 - x)
+                double t = HALF_PI - x;
+                double t2 = t * t;
+                result = t * (1.0 + t2 * (-0.16666666666666666 +
+                         t2 * (0.008333333333333333 + t2 * (-0.0001984126984126984 +
+                         t2 * 0.0000027557319223985893))));
+            }
+            // 存储带符号的计算结果
+            cos_lut[i] = sign * result;
+        }
+        __sync_synchronize();
+        // 标记查找表已初始化
+        cos_lut_initialized = 1;
     }
-    
-    // 遍历查找表的每个位置
-    for (int i = 0; i <= COS_LUT_SIZE; i++) {
-        // 计算对应的角度值
-        double x = (double)i * TWO_PI / COS_LUT_SIZE;
-        double sign = 1.0;
-        // 将角度映射到[0, π]区间
-        if (x > PI) {
-            x = TWO_PI - x;
-        }
-        // 将角度映射到[0, π/2]区间
-        if (x > HALF_PI) {
-            x = PI - x;
-            sign = -1.0;
-        }
-        // 计算x的平方
-        double x2 = x * x;
-        double result;
-        // 根据角度大小选择不同的计算方法
-        if (x < 0.785398163397448) {
-            // 使用余弦泰勒级数展开
-            result = 1.0 + x2 * (-0.5 + x2 * (0.04166666666666666 +
-            x2 * (-0.001388888888888889 + x2 * 0.000024801587301587302)));
-        } else {
-            // 使用正弦泰勒级数展开，因为cos(x) = sin(π/2 - x)
-            double t = HALF_PI - x;
-            double t2 = t * t;
-            result = t * (1.0 + t2 * (-0.16666666666666666 +
-            t2 * (0.008333333333333333 + t2 * (-0.0001984126984126984 +
-            t2 * 0.0000027557319223985893))));
-        }
-        // 存储带符号的计算结果
-        cos_lut[i] = sign * result;
-    }
-    // 标记查找表已初始化
-    cos_lut_initialized = 1;
-    
     // 解锁
     pthread_mutex_unlock(&cos_lut_mutex);
 }
@@ -1201,11 +1194,9 @@ void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y,
                     // 标量广播
                     val_c = get_value_as_double(C, 0);
                 } else if (C->ndim == 1) {
-                    // 1D 张量
-                    int idx = 0;
-                    if (C->shape[0] == N) idx = n;
-                    else if (C->shape[0] == M) idx = m;
-                    val_c = get_value_as_double(C, idx);
+                    if (C->shape[0] == N) {
+                        val_c = get_value_as_double(C, n);
+                    }
                 } else {
                     // 2D 张量
                     int H = C->shape[0];
@@ -2135,9 +2126,8 @@ void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updat
                 OMP_ATOMIC_DISPATCH(DTYPE_FLOAT64, double, +=)
                 OMP_ATOMIC_DISPATCH(DTYPE_INT32, int32_t, +=)
                 OMP_ATOMIC_DISPATCH(DTYPE_INT64, int64_t, +=)
-                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT16, uint16_t, +=)
                 default: 
-                    // 对于不支持 atomic 的类型 (如 float16/int8)，使用 critical
+                    // 对于不支持 atomic 的类型，使用 critical
                     #pragma omp critical
                     {
                         double old = get_value_as_double(data, data_idx);
@@ -2268,7 +2258,7 @@ void nonzero_forward(const Tensor* input, Tensor* output) {
 }
 
 // Resize
-void resize_forward(const Tensor* input, Tensor* output, float* scales, int coord_mode, int mode) {
+void resize_forward(const Tensor* input, Tensor* output, float* scales, int coord_mode, int mode, int nearest_mode) {
     if (!input || !output || !scales) return;
     
     int ndim = input->ndim;
@@ -2279,23 +2269,32 @@ void resize_forward(const Tensor* input, Tensor* output, float* scales, int coor
         get_coords_from_index(i, out_coords, output->shape, ndim);
         
         if (mode == 0) { 
+            // --- Nearest Neighbor ---
             int in_coords[MAX_NDIM];
             for (int d = 0; d < ndim; d++) {
                 float x_out = (float)out_coords[d];
                 float scale = scales[d];
                 float x_in = 0.0f;
                 
+                // 坐标变换
                 if (coord_mode == 0) x_in = (x_out + 0.5f) / scale - 0.5f; // half_pixel
                 else if (coord_mode == 2) x_in = (output->shape[d] > 1) ? (x_out + 0.5f) / scale - 0.5f : 0.0f; // pytorch_half_pixel
                 else if (coord_mode == 4) x_in = (output->shape[d] > 1) ? x_out * (input->shape[d] - 1) / (float)(output->shape[d] - 1) : 0.0f; // align_corners
-                else x_in = x_out / scale; // asymmetric
+                else x_in = x_out / scale; // asymmetric (default)
                 
-                // Nearest rounding
+                // 最近邻取整策略
                 int in_idx = 0;
-                if (x_in >= 0) in_idx = (int)floorf(x_in + 0.5f);
-                else in_idx = (int)ceilf(x_in - 0.5f);
-                
-                // Clamp
+                if (nearest_mode == 2) { 
+                    // floor
+                    in_idx = (int)floorf(x_in);
+                } else if (nearest_mode == 3) { 
+                    // ceil
+                    in_idx = (int)ceilf(x_in);
+                } else {
+                    // round_prefer_floor
+                    in_idx = (int)ceilf(x_in - 0.5f);
+                }
+                // 边界截断 (Clamp)
                 if (in_idx < 0) in_idx = 0;
                 if (in_idx >= input->shape[d]) in_idx = input->shape[d] - 1;
                 in_coords[d] = in_idx;
@@ -2322,42 +2321,32 @@ void resize_forward(const Tensor* input, Tensor* output, float* scales, int coor
                 
                 real_coords[d] = x_in;
             }
-            
             // N-Linear 插值核心
-            // 对于 N 维，有 2^N 个邻居。
-            // 通过一个 0 到 2^N - 1 的循环来遍历所有邻居。
             int num_neighbors = 1 << ndim; // 2^ndim
             double weighted_sum = 0.0;
-            
             for (int n = 0; n < num_neighbors; n++) {
                 double weight = 1.0;
                 int neighbor_coords[MAX_NDIM];
-                
                 for (int d = 0; d < ndim; d++) {
                     float x = real_coords[d];
                     int lower = (int)floorf(x);
                     int upper = lower + 1;
-                    if (upper >= input->shape[d]) upper = input->shape[d] - 1; // 边界保护
-                    
+                    if (upper >= input->shape[d]) upper = input->shape[d] - 1; 
                     // 检查当前邻居在维度 d 是取 Lower 还是 Upper
-                    // 使用位掩码: (n >> d) & 1
                     if ((n >> d) & 1) {
                         // 取 Upper
                         neighbor_coords[d] = upper;
-                        weight *= (x - lower); // 距离 Lower 的距离即为 Upper 的权重
+                        weight *= (x - lower); 
                     } else {
                         // 取 Lower
                         neighbor_coords[d] = lower;
-                        weight *= (1.0f - (x - lower)); // 距离 Upper 的距离即为 Lower 的权重
+                        weight *= (1.0f - (x - lower)); 
                     }
                 }
-                
-                // 累加
                 size_t n_idx = get_index_from_coords(neighbor_coords, input->shape, ndim);
                 double val = get_value_as_double(input, n_idx);
                 weighted_sum += val * weight;
             }
-            
             set_tensor_value_from_float(output, i, weighted_sum);
         }
     }
@@ -2496,18 +2485,23 @@ static uint32_t simple_lcg(uint32_t* state) {
 void random_uniform_like_forward(Tensor* output, float low, float high, float seed) {
     if (!output) return;
     
-    uint32_t state = (uint32_t)seed;
-    if (seed == 0.0f) state = (uint32_t)time(NULL);
-    
+    uint32_t base_seed = (uint32_t)seed;
+    if (seed == 0.0f) base_seed = (uint32_t)time(NULL);
     double range = high - low;
-    
-    // 这里单线程生成。如果必须并行，后期再改
-    for (size_t i = 0; i < output->size; i++) {
-        uint32_t r = simple_lcg(&state);
-        // Normalize to [0, 1)
-        double r_norm = (double)r / 2147483648.0; 
-        double val = low + r_norm * range;
-        set_tensor_value_from_float(output, i, val);
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        uint32_t local_state = base_seed + (uint32_t)(tid * 0x9E3779B9); 
+        
+        #pragma omp for
+        for (size_t i = 0; i < output->size; i++) {
+            uint32_t r = simple_lcg(&local_state);
+            
+            double r_norm = (double)r / 2147483648.0; 
+            double val = low + r_norm * range;
+            set_tensor_value_from_float(output, i, val);
+        }
     }
 }
 

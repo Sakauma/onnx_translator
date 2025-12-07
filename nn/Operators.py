@@ -432,15 +432,19 @@ class QuantizeLinear(Ops):
         self.version = version
 
     def forward(self, x, y_scale, y_zero_point) -> Tensor:
+        scale_tensor = y_scale
+        zp_tensor = y_zero_point
+
+        # 检查是否需要广播处理 (Scale 是 1D 但 Input 是 ND)
         if y_scale.data.ndim == 1 and x.data.ndim > 1:
             new_shape = [1] * x.data.ndim
             safe_axis = self.axis if self.axis >= 0 else self.axis + x.data.ndim
             if safe_axis < x.data.ndim:
                 new_shape[safe_axis] = y_scale.data.size
-            y_scale.data = y_scale.data.reshape(new_shape)
-            y_zero_point.data = y_zero_point.data.reshape(new_shape)
+            scale_tensor = Tensor(*new_shape, dtype=y_scale.dtype, data=y_scale.data.reshape(new_shape))
+            zp_tensor = Tensor(*new_shape, dtype=y_zero_point.dtype, data=y_zero_point.data.reshape(new_shape))
             
-        out_tensor = self._execute_ternary(x, y_scale, y_zero_point, "quantize_linear_forward")
+        out_tensor = self._execute_ternary(x, scale_tensor, zp_tensor, "quantize_linear_forward")
         values = {"tensor": out_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values
@@ -1408,10 +1412,10 @@ class MatMul(Ops):
         final_shape = list(out_shape_for_c)
         
         if is_b_1d:
-            final_shape.pop(-1) # 删除 N (此时 N=1)
-            
+            final_shape.pop(-1)
         if is_a_1d:
-            final_shape.pop(-1) # 删除 M (此时 M=1，因为 N 已经被 pop 了或者还在最后)
+            idx_to_pop = -1 if is_b_1d else -2
+            final_shape.pop(idx_to_pop)
             
         # 如果变成了标量或形状改变，reshape 数据
         if tuple(final_shape) != tuple(out_shape_for_c):
@@ -2294,7 +2298,7 @@ class Resize(Ops):
         self.mode = 1 if mode == "linear" else 0
         
         self.coord_mode = {"half_pixel": 0, "asymmetric": 1, "pytorch_half_pixel": 2, "align_corners": 4}.get(coord_mode, 1)
-        # nearest_mode 仅在 mode=nearest 时生效，但为了接口统一，C 端可以接收
+        # nearest_mode 映射: 0=round_prefer_floor, 2=floor, 3=ceil
         self.nearest_mode = {"round_prefer_floor": 0, "floor": 2, "ceil": 3}.get(nearest_mode, 0)
         
         self.dtype = dtype
@@ -2303,7 +2307,7 @@ class Resize(Ops):
         if self.lib:
              self.lib.resize_forward.argtypes = [
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(ctypes.c_float), 
-                ctypes.c_int, ctypes.c_int
+                ctypes.c_int, ctypes.c_int, ctypes.c_int
             ]
 
     def forward(self, x, roi=None, scales=None, sizes=None):
@@ -2331,7 +2335,8 @@ class Resize(Ops):
         self.lib.resize_forward(
             x_c, output_c, scales_arr, 
             ctypes.c_int(self.coord_mode), 
-            ctypes.c_int(self.mode) # 传递 0 或 1
+            ctypes.c_int(self.mode), # 0=nearest, 1=linear
+            ctypes.c_int(self.nearest_mode)
         )
         
         out_data = self._ctensor_to_numpy(output_c, self.dtype)

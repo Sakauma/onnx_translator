@@ -407,7 +407,7 @@ void nonzero_forward(const Tensor* input, Tensor* output);
 // scales: 缩放比例数组 [scale_dim0, scale_dim1, ...]
 // mode: 0=nearest, 1=linear
 // coord_mode: 0=half_pixel, 1=asymmetric, 2=pytorch_half_pixel, 3=tf_half_pixel_for_nn, 4=align_corners, 5=half_pixel_symmetric
-void resize_forward(const Tensor* input, Tensor* output, float* scales, int coord_mode, int nearest_mode);
+void resize_forward(const Tensor* input, Tensor* output, float* scales, int coord_mode, int mode, int nearest_mode);
 
 // TopK
 // sorted: 1=True
