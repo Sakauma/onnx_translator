@@ -1777,3 +1777,184 @@ class Where(Ops):
         try: shape = np.broadcast_shapes(cond.size, x.size, y.size)
         except: shape = x.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
+    
+class ConstantOfShape(Ops):
+    def __init__(self, inputs, outputs, value=None, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.value_tensor = None
+        # 如果 value 属性存在，它是一个 TensorProto (Numpy array)
+        if value is not None:
+             # 创建一个单元素 Tensor 包装这个值
+             self.value_tensor = Tensor(1, dtype=dtype, data=value.flatten())
+        else:
+             # 默认值为 0.0
+             self.value_tensor = Tensor(1, dtype="float32", data=np.array([0.0], dtype=np.float32))
+        
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, shape_tensor):
+        # 1. 从 shape_tensor 读取目标形状
+        target_shape = shape_tensor.data.astype(np.int64).flatten().tolist()
+        if not target_shape: target_shape = [1] # Handle scalar case if needed
+        
+        # 2. 创建输出
+        output_tensor = Tensor(*target_shape, dtype=self.dtype)
+        
+        # 3. 调用 C
+        out_c = self._numpy_to_ctensor(output_tensor.data, self.dtype) # 此时 data 是全0的
+        val_c = self._numpy_to_ctensor(self.value_tensor.data, self.value_tensor.dtype)
+        
+        self.lib.constant_of_shape_forward(out_c, val_c)
+        
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(out_c)
+        self.lib.free_tensor(val_c)
+        
+        output_tensor.data = out_data
+        return {"tensor": output_tensor, "parameters": None}
+
+    def forward_(self, shape_tensor):
+        # 静态图无法得知 shape_tensor 具体数值，返回一个 Dummy
+        return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
+
+class Range(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, start, limit, delta):
+        # max(ceil((limit - start) / delta), 0)
+        s = start.data.item()
+        l = limit.data.item()
+        d = delta.data.item()
+        length = max(int(np.ceil((l - s) / d)), 0)
+        
+        out_shape = (length,)
+        start_c = self._numpy_to_ctensor(start.data, start.dtype)
+        limit_c = self._numpy_to_ctensor(limit.data, limit.dtype)
+        delta_c = self._numpy_to_ctensor(delta.data, delta.dtype)
+        output_shape_c = (ctypes.c_int * 1)(length)
+        output_c = self.lib.create_tensor(output_shape_c, 1, nn.DTYPE_MAP[self.dtype])
+        self.lib.range_forward(start_c, limit_c, delta_c, output_c)
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(start_c); self.lib.free_tensor(limit_c); self.lib.free_tensor(delta_c); self.lib.free_tensor(output_c)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, start, limit, delta):
+        # 无法推断具体长度
+        return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
+
+class Tile(Ops):
+    def __init__(self, inputs, outputs, dtype, version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, input, repeats):
+        rep = repeats.data.astype(np.int64).flatten()
+        in_shape = np.array(input.size)
+        if len(rep) != len(in_shape):
+            raise ValueError(f"Tile: repeats dim {len(rep)} != input dim {len(in_shape)}")
+            
+        out_shape = tuple((in_shape * rep).tolist())
+        input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        self.lib.tile_forward(input_c, output_c)
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(input_c); self.lib.free_tensor(output_c)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, input, repeats):
+        return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
+
+class Pad(Ops):
+    def __init__(self, inputs, outputs, mode="constant", dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.mode = mode # constant, reflect, edge
+        self.dtype = dtype
+        self.version = version
+        self.mode_int = {"constant": 0, "reflect": 1, "edge": 2}.get(mode, 0)
+
+    def forward(self, data, pads, constant_value=None):
+        # pads: [x1_begin, x2_begin, ..., x1_end, x2_end, ...]
+        p = pads.data.astype(np.int64).flatten()
+        ndim = len(data.size)
+        pad_begins = p[:ndim]
+        pad_ends = p[ndim:]
+        
+        out_shape = []
+        for i in range(ndim):
+            out_shape.append(data.size[i] + pad_begins[i] + pad_ends[i])
+        out_shape = tuple(out_shape)
+        
+        data_c = self._numpy_to_ctensor(data.data, self.dtype)
+        pads_c = self._numpy_to_ctensor(pads.data, "int64")
+        const_c = self._numpy_to_ctensor(constant_value.data, constant_value.dtype) if constant_value else ctypes.POINTER(CTensor)()
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        self.lib.pad_forward(data_c, output_c, pads_c, const_c, ctypes.c_int(self.mode_int))
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(data_c); self.lib.free_tensor(pads_c); self.lib.free_tensor(output_c)
+        if constant_value: self.lib.free_tensor(const_c)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+    
+    def forward_(self, data, pads, constant_value=None):
+        return {"tensor": Tensor_(*data.size, dtype=self.dtype), "parameters": None}
+
+class Split(Ops):
+    def __init__(self, inputs, outputs, axis=0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.axis = axis
+        self.dtype = dtype
+        self.version = version
+        # Split 复用 Slice
+        if self.lib:
+            self.lib.slice_forward.argtypes = [
+                ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor), 
+                ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)
+            ]
+
+    def forward(self, input, split=None):
+        axis = self.axis if self.axis >= 0 else self.axis + len(input.size)
+        dim_len = input.size[axis]
+        
+        if split is not None:
+            split_sizes = split.data.astype(np.int64).flatten().tolist()
+        else:
+            num_outputs = len(self.outputs)
+            div = dim_len // num_outputs
+            split_sizes = [div] * num_outputs
+            if dim_len % num_outputs != 0:
+                 split_sizes[-1] += dim_len % num_outputs
+        result_tensors = []
+        current_start = 0
+        input_c = self._numpy_to_ctensor(input.data, self.dtype)
+        ndim = len(input.size)
+        
+        for size in split_sizes:
+            starts = [0] * ndim
+            steps = [1] * ndim
+            
+            out_shape = list(input.size)
+            out_shape[axis] = size
+            out_shape = tuple(out_shape)
+            starts[axis] = current_start
+            output_shape_c = (ctypes.c_int * ndim)(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, ndim, nn.DTYPE_MAP[self.dtype])
+            c_starts = (ctypes.c_int * ndim)(*starts)
+            c_steps = (ctypes.c_int * ndim)(*steps)
+            self.lib.slice_forward(input_c, output_c, c_starts, c_steps)
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(output_c)
+            result_tensors.append(Tensor(*out_shape, dtype=self.dtype, data=out_data))
+            current_start += size
+            
+        self.lib.free_tensor(input_c)
+        return {"tensor": result_tensors, "parameters": None}
+
+    def forward_(self, input, split=None):
+        # 返回与输出数量相同的占位符列表
+        return {"tensor": [Tensor_(1, dtype=self.dtype) for _ in self.outputs], "parameters": None}

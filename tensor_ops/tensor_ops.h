@@ -350,4 +350,22 @@ void mod_forward(const Tensor* A, const Tensor* B, Tensor* O);
 
 void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor* O);
 
+// ConstantOfShape
+// 根据 shape 张量生成全值张量。value 也是一个单元素张量
+void constant_of_shape_forward(Tensor* output, const Tensor* value);
+
+// Range
+// 生成序列 start, start+delta, ...
+void range_forward(const Tensor* start, const Tensor* limit, const Tensor* delta, Tensor* output);
+
+// Tile
+// 沿各维度复制
+void tile_forward(const Tensor* input, Tensor* output);
+
+// Pad
+// mode: 0=constant, 1=reflect, 2=edge
+void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const Tensor* constant_value, int mode);
+
+// Split 复用 slice
+
 #endif

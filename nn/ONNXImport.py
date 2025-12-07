@@ -420,6 +420,43 @@ def ONNXImport(file_path):
         elif node.op_type == "Where":
             elem_type = get_tensor_dtype(node.output[0], onnx_model)
             onnx_graph_list.append(nn.Operators.Where(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "ConstantOfShape":
+            value = None
+            for attr in node.attribute:
+                if attr.name == "value":
+                    value = numpy_helper.to_array(attr.t)
+            # 输出类型由 value 决定，如果 value 为空默认 float32
+            target_dtype = "float32"
+            if value is not None:
+                if value.dtype == np.float32: target_dtype = "float32"
+                elif value.dtype == np.int64: target_dtype = "int64"
+                elif value.dtype == np.int32: target_dtype = "int32"
+                elif value.dtype == np.bool_: target_dtype = "bool"
+            onnx_graph_list.append(
+                nn.Operators.ConstantOfShape(node.input, node.output, value=value, dtype=target_dtype, version="17"))
+        elif node.op_type == "Range":
+            # Range 输出类型由 start 输入决定
+            elem_type = get_tensor_dtype(node.input[0], onnx_model) 
+            onnx_graph_list.append(
+                nn.Operators.Range(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Tile":
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Tile(node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Pad":
+            mode = "constant"
+            for attr in node.attribute:
+                if attr.name == "mode": mode = attr.s.decode('utf-8')
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Pad(node.input, node.output, mode=mode, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Split":
+            axis = 0
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Split(node.input, node.output, axis=axis, dtype=onnx_dtype_mapping[elem_type], version="17"))
         else:
             # 忽略未支持的操作类型
             pass

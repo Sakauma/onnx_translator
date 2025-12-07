@@ -1789,3 +1789,129 @@ void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor*
         set_tensor_value_from_float(O, i, res);
     }
 }
+
+// ConstantOfShape
+void constant_of_shape_forward(Tensor* output, const Tensor* value) {
+    if (!output) return;
+
+    double fill_val = 0.0;
+    if (value && value->data) {
+        fill_val = get_value_as_double(value, 0);
+    }
+
+    size_t loop_size = output->size;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < loop_size; i++) {
+        set_tensor_value_from_float(output, i, fill_val);
+    }
+}
+
+// Range
+void range_forward(const Tensor* start, const Tensor* limit, const Tensor* delta, Tensor* output) {
+    if (!start || !delta || !output) return;
+    
+    double val_start = get_value_as_double(start, 0);
+    double val_delta = get_value_as_double(delta, 0);
+    
+    size_t loop_size = output->size;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < loop_size; i++) {
+        double res = val_start + (double)i * val_delta;
+        set_tensor_value_from_float(output, i, res);
+    }
+}
+
+// Tile
+// 输入坐标 = 输出坐标 % 输入维度
+void tile_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    
+    int ndim = input->ndim;
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[8];
+        int in_coords[8];
+        
+        get_coords_from_index(i, out_coords, output->shape, ndim);
+        
+        for (int d = 0; d < ndim; d++) {
+            in_coords[d] = out_coords[d] % input->shape[d];
+        }
+
+        size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim);
+        double val = get_value_as_double(input, in_idx);
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// Pad
+// mode: 0=constant, 1=reflect, 2=edge
+void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const Tensor* constant_value, int mode) {
+    if (!data || !output || !pads) return;
+    
+    int ndim = data->ndim;
+    
+    int64_t pad_begins[8];
+    int64_t pad_ends[8];
+    for (int d = 0; d < ndim; d++) {
+        pad_begins[d] = get_value_as_int64(pads, d);
+        pad_ends[d]   = get_value_as_int64(pads, d + ndim);
+    }
+    
+    double const_val = 0.0;
+    if (constant_value && constant_value->data) {
+        const_val = get_value_as_double(constant_value, 0);
+    }
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[8];
+        int in_coords[8];
+        int in_bounds = 1; // 标记是否在源数据范围内
+        
+        get_coords_from_index(i, out_coords, output->shape, ndim);
+        
+        for (int d = 0; d < ndim; d++) {
+            // 计算相对于源数据的坐标
+            int64_t c = out_coords[d] - pad_begins[d];
+            int64_t dim_len = data->shape[d];
+            
+            if (c >= 0 && c < dim_len) {
+                // 在范围内
+                in_coords[d] = (int)c;
+            } else {
+                // 在 Padding 区域
+                if (mode == 0) { // Constant
+                    in_bounds = 0;
+                    break; 
+                } else if (mode == 2) { // Edge
+                    if (c < 0) c = 0;
+                    if (c >= dim_len) c = dim_len - 1;
+                    in_coords[d] = (int)c;
+                } else if (mode == 1) { // Reflect
+                    if (dim_len <= 1) {
+                        c = 0;
+                    } else {
+                        int64_t M = 2 * dim_len - 2;
+                        int64_t k = c % M;
+                        if (k < 0) k += M;
+                        if (k >= dim_len) {
+                            k = M - k;
+                        }
+                        c = k;
+                    }
+                    in_coords[d] = (int)c;
+                }
+            }
+        }
+        
+        if (in_bounds) {
+            size_t in_idx = get_index_from_coords(in_coords, data->shape, ndim);
+            double val = get_value_as_double(data, in_idx);
+            set_tensor_value_from_float(output, i, val);
+        } else {
+            set_tensor_value_from_float(output, i, const_val);
+        }
+    }
+}
