@@ -492,6 +492,87 @@ def ONNXImport(file_path):
                     node.input, node.output, 
                     axis=axis, keepdims=keepdims, select_last_index=select_last_index,
                     dtype="int64", version="17"))
+        elif node.op_type == "ScatterND":
+            reduction = "none"
+            for attr in node.attribute:
+                if attr.name == "reduction": reduction = attr.s.decode('utf-8')
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.ScatterND(node.input, node.output, reduction=reduction, dtype=onnx_dtype_mapping[elem_type]))
+        elif node.op_type == "GatherND":
+            batch_dims = 0
+            for attr in node.attribute:
+                if attr.name == "batch_dims": batch_dims = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.GatherND(node.input, node.output, batch_dims=batch_dims, dtype=onnx_dtype_mapping[elem_type]))
+        elif node.op_type == "GatherElements":
+            axis = 0
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.GatherElements(node.input, node.output, axis=axis, dtype=onnx_dtype_mapping[elem_type]))
+        elif node.op_type == "NonZero":
+             onnx_graph_list.append(nn.Operators.NonZero(node.input, node.output))
+        elif node.op_type == "Resize":
+            mode = "nearest"
+            coord_mode = "asymmetric"
+            nearest_mode = "round_prefer_floor"
+            for attr in node.attribute:
+                if attr.name == "mode": mode = attr.s.decode('utf-8')
+                elif attr.name == "coordinate_transformation_mode": coord_mode = attr.s.decode('utf-8')
+                elif attr.name == "nearest_mode": nearest_mode = attr.s.decode('utf-8')
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(
+                nn.Operators.Resize(node.input, node.output, 
+                                    mode=mode, coord_mode=coord_mode, nearest_mode=nearest_mode,
+                                    dtype=onnx_dtype_mapping[elem_type]))
+        elif node.op_type == "TopK":
+            axis = -1
+            largest = 1
+            sorted_ = 1 
+            for attr in node.attribute:
+                if attr.name == "axis": axis = attr.i
+                elif attr.name == "largest": largest = attr.i
+                elif attr.name == "sorted": sorted_ = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            # TopK 返回两个输出
+            onnx_graph_list.append(nn.Operators.TopK(node.input, node.output, axis=axis, largest=largest, sorted=sorted_, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "CumSum":
+            exclusive = 0
+            reverse = 0
+            for attr in node.attribute:
+                if attr.name == "exclusive": exclusive = attr.i
+                elif attr.name == "reverse": reverse = attr.i
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.CumSum(node.input, node.output, exclusive=exclusive, reverse=reverse, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "RandomUniformLike":
+            high = 1.0
+            low = 0.0
+            seed = 0.0
+            dtype_attr = 1 # float
+            for attr in node.attribute:
+                if attr.name == "high": high = attr.f
+                elif attr.name == "low": low = attr.f
+                elif attr.name == "seed": seed = attr.f
+                elif attr.name == "dtype": dtype_attr = attr.i
+            # 输出类型优先使用 dtype 属性，如果没有则跟随 input
+            target_dtype = onnx_dtype_mapping.get(dtype_attr, "float32")
+            onnx_graph_list.append(nn.Operators.RandomUniformLike(node.input, node.output, high=high, low=low, seed=seed, dtype=target_dtype, version="17"))
+        elif node.op_type == "Einsum":
+            equation = ""
+            for attr in node.attribute:
+                if attr.name == "equation": equation = attr.s.decode('utf-8')
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            onnx_graph_list.append(nn.Operators.Einsum(node.input, node.output, equation=equation, dtype=onnx_dtype_mapping[elem_type], version="17"))
+        elif node.op_type == "Upsample":
+            # Upsample (deprecated) -> Resize
+            mode = "nearest"
+            for attr in node.attribute:
+                if attr.name == "mode": mode = attr.s.decode('utf-8')
+            elem_type = get_tensor_dtype(node.output[0], onnx_model)
+            # Upsample 参数通常通过 scales 输入传递
+            onnx_graph_list.append(
+                nn.Operators.Resize(node.input, node.output, 
+                                    mode=mode, dtype=onnx_dtype_mapping[elem_type], version="17"))
         else:
             # 忽略未支持的操作类型
             pass

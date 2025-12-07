@@ -387,5 +387,49 @@ void reduce_prod_forward(const Tensor* input, Tensor* output, ReduceParams* para
 void argmax_forward(const Tensor* input, Tensor* output, int axis, int select_last_index);
 
 void argmin_forward(const Tensor* input, Tensor* output, int axis, int select_last_index);
+
+// ScatterND
+// reduction: 0=none(assignment), 1=add, 2=mul
+void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updates, int reduction);
+
+// GatherND
+void gather_nd_forward(const Tensor* data, const Tensor* indices, Tensor* output, int batch_dims);
+
+// GatherElements
+void gather_elements_forward(const Tensor* data, const Tensor* indices, Tensor* output, int axis);
+
+// NonZero
+// Output shape: [ndim, num_non_zero]
+// 偷懒，计算在python
+void nonzero_forward(const Tensor* input, Tensor* output);
+
+// Resize (Nearest Neighbor)
+// scales: 缩放比例数组 [scale_dim0, scale_dim1, ...]
+// mode: 0=nearest, 1=linear
+// coord_mode: 0=half_pixel, 1=asymmetric, 2=pytorch_half_pixel, 3=tf_half_pixel_for_nn, 4=align_corners, 5=half_pixel_symmetric
+void resize_forward(const Tensor* input, Tensor* output, float* scales, int coord_mode, int nearest_mode);
+
+// TopK
+// sorted: 1=True
+void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis, int largest, int sorted, int K);
+
+// CumSum
+// exclusive: 0=False(default), 1=True
+// reverse: 0=False(default), 1=True
+void cumsum_forward(const Tensor* input, Tensor* output, int axis, int exclusive, int reverse);
+
+// RandomUniformLike
+// 生成均匀分布 [low, high)
+void random_uniform_like_forward(Tensor* output, float low, float high, float seed);
+
+// Einsum (广义爱因斯坦求和)
+// 这是一个通用求解器，通过 "Loop Strides" 来实现任意维度的缩并
+// iter_dims: 循环的总维度数 (即方程中唯一标签的数量)
+// loop_limits: 每个循环维度的上限 [dim0, dim1, ...]
+// input_strides: 展平后的输入步长表。大小 = num_inputs * iter_dims
+// output_strides: 输出步长表。大小 = iter_dims
+void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output, 
+                    int iter_dims, int* loop_limits, 
+                    int* input_strides, int* output_strides);
  
 #endif

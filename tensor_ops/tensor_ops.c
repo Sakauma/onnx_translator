@@ -1,6 +1,7 @@
 // tensor_ops/tensor_ops.c
 #include "tensor_ops.h"
 #include <stdlib.h>
+#include <time.h>
 #include <math.h>
 #include <omp.h>
 #include <pthread.h>
@@ -46,6 +47,12 @@ static inline size_t get_dtype_size(DataType dtype) {
             return 4;
     }
 }
+
+// 用于排序
+typedef struct {
+    double value;
+    int64_t index;
+} TopKElement;
 
 // 4-bit 饱和截断
 static inline int8_t saturate_cast_int4(int64_t val) {
@@ -2046,3 +2053,484 @@ void FUNC_NAME(const Tensor* input, Tensor* output, int axis, int select_last_in
 ARG_OP_IMPL(argmax_forward, -DBL_MAX, >)
 
 ARG_OP_IMPL(argmin_forward, DBL_MAX, <)
+
+#define OMP_ATOMIC_DISPATCH(DTYPE_ENUM, C_TYPE, OP) \
+    case DTYPE_ENUM: { \
+        C_TYPE* ptr = (C_TYPE*)data->data; \
+        C_TYPE v = (C_TYPE)val; \
+        _Pragma("omp atomic") \
+        ptr[data_idx] OP v; \
+        break; \
+    }
+
+// ScatterND
+// 遍历 updates，将其值写入 data 的指定位置
+void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updates, int reduction) {
+    if (!data || !indices || !updates) return;
+    
+    int k = indices->shape[indices->ndim - 1]; 
+    int r = data->ndim; 
+    size_t loop_size = updates->size;
+    int slice_ndim = r - k; 
+    
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < loop_size; i++) {
+        int up_coords[8];
+        int data_coords[8];
+        int ind_coords[8]; // indices 坐标
+        
+        // 反解 updates 坐标
+        get_coords_from_index(i, up_coords, updates->shape, updates->ndim);
+        
+        // 构造 indices 的读取坐标
+        for (int d = 0; d < indices->ndim - 1; d++) ind_coords[d] = up_coords[d];
+        
+        // 读取索引向量并构造 data 坐标前缀
+        for (int j = 0; j < k; j++) {
+            ind_coords[indices->ndim - 1] = j;
+            size_t ind_idx = get_index_from_coords(ind_coords, indices->shape, indices->ndim);
+            int64_t idx_val = get_value_as_int64(indices, ind_idx);
+            
+            // 处理负索引
+            if (idx_val < 0) idx_val += data->shape[j];
+            // 越界保护
+            if (idx_val < 0) idx_val = 0;
+            if (idx_val >= data->shape[j]) idx_val = data->shape[j] - 1;
+            
+            data_coords[j] = (int)idx_val;
+        }
+        
+        // 补全 data 坐标后缀
+        for (int j = 0; j < slice_ndim; j++) {
+            data_coords[k + j] = up_coords[updates->ndim - slice_ndim + j];
+        }
+        
+        // 计算目标索引
+        size_t data_idx = get_index_from_coords(data_coords, data->shape, data->ndim);
+        double val = get_value_as_double(updates, i);
+        
+        // 执行写入
+        if (reduction == 0) {
+            set_tensor_value_from_float(data, data_idx, val);
+        } else if (reduction == 1) { // Add
+            // 使用 switch-case 分发到具体类型以启用 omp atomic
+            switch (data->dtype) {
+                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT32, float, +=)
+                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT64, double, +=)
+                OMP_ATOMIC_DISPATCH(DTYPE_INT32, int32_t, +=)
+                OMP_ATOMIC_DISPATCH(DTYPE_INT64, int64_t, +=)
+                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT16, uint16_t, +=)
+                default: 
+                    // 对于不支持 atomic 的类型 (如 float16/int8)，使用 critical
+                    #pragma omp critical
+                    {
+                        double old = get_value_as_double(data, data_idx);
+                        set_tensor_value_from_float(data, data_idx, old + val);
+                    }
+                    break;
+            }
+        } else if (reduction == 2) { // Mul
+             switch (data->dtype) {
+                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT32, float, *=)
+                OMP_ATOMIC_DISPATCH(DTYPE_FLOAT64, double, *=)
+                default:
+                    #pragma omp critical
+                    {
+                        double old = get_value_as_double(data, data_idx);
+                        set_tensor_value_from_float(data, data_idx, old * val);
+                    }
+            }
+        }
+    }
+}
+
+// GatherND
+// 遍历 output，根据 indices 构造 data 坐标读取数据
+void gather_nd_forward(const Tensor* data, const Tensor* indices, Tensor* output, int batch_dims) {
+    if (!data || !indices || !output) return;
+    
+    int k = indices->shape[indices->ndim - 1]; // 索引向量长度
+    int r = data->ndim;
+    int q = indices->ndim - 1; // indices 的前缀维度
+    int slice_ndim = r - k - batch_dims; // 结果切片的维度数
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[8];
+        int ind_coords[8];
+        int data_coords[8];
+        
+        get_coords_from_index(i, out_coords, output->shape, output->ndim);
+        for (int b = 0; b < batch_dims; b++) {
+            data_coords[b] = out_coords[b];
+            ind_coords[b] = out_coords[b];
+        }
+        
+        // indices 的坐标：前 batch_dims + (q - batch_dims) 来自 output
+        for (int j = batch_dims; j < q; j++) {
+            ind_coords[j] = out_coords[j];
+        }
+        
+        // 读取 k 个索引值填充到 data_coords
+        for (int j = 0; j < k; j++) {
+            ind_coords[q] = j; // indices 最后一维
+            size_t ind_idx = get_index_from_coords(ind_coords, indices->shape, indices->ndim);
+            int64_t idx_val = get_value_as_int64(indices, ind_idx);
+            
+            // 维度偏移：data 的第 batch_dims + j 维
+            int data_dim_idx = batch_dims + j;
+            if (idx_val < 0) idx_val += data->shape[data_dim_idx];
+            // 越界 clamp
+            if (idx_val < 0) idx_val = 0;
+            if (idx_val >= data->shape[data_dim_idx]) idx_val = data->shape[data_dim_idx] - 1;
+            
+            data_coords[data_dim_idx] = (int)idx_val;
+        }
+        
+        // output 的最后 slice_ndim 维 对应 data 的最后 slice_ndim 维
+        for (int j = 0; j < slice_ndim; j++) {
+            data_coords[batch_dims + k + j] = out_coords[q + j];
+        }
+        
+        size_t data_idx = get_index_from_coords(data_coords, data->shape, data->ndim);
+        double val = get_value_as_double(data, data_idx);
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// GatherElements
+void gather_elements_forward(const Tensor* data, const Tensor* indices, Tensor* output, int axis) {
+    if (!data || !indices || !output) return;
+    
+    int ndim = data->ndim;
+    if (axis < 0) axis += ndim;
+    
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        int coords[8];
+        get_coords_from_index(i, coords, output->shape, ndim);
+        
+        // 获取 index 值
+        // indices 和 output 形状相同
+        int64_t idx_val = get_value_as_int64(indices, i);
+        if (idx_val < 0) idx_val += data->shape[axis];
+        if (idx_val < 0) idx_val = 0;
+        if (idx_val >= data->shape[axis]) idx_val = data->shape[axis] - 1;
+        
+        // 修改 axis 维度的坐标
+        coords[axis] = (int)idx_val;
+        
+        size_t data_idx = get_index_from_coords(coords, data->shape, ndim);
+        double val = get_value_as_double(data, data_idx);
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+// NonZero
+void nonzero_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output) return;
+    
+    int ndim = input->ndim;
+    int64_t* out_ptr = (int64_t*)output->data; // NonZero 输出必定是 int64
+    
+    size_t current_col = 0;
+    int coords[8];
+    
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        if (val != 0.0) {
+            get_coords_from_index(i, coords, input->shape, ndim);
+            // 写入 Output: Output 是 [ndim, N] 的矩阵
+            // 转置存储：col 对应第 n 个非零元素，row 对应维度
+            for (int d = 0; d < ndim; d++) {
+                // index = d * N + current_col
+                out_ptr[d * (output->shape[1]) + current_col] = (int64_t)coords[d];
+            }
+            current_col++;
+        }
+    }
+}
+
+// Resize
+void resize_forward(const Tensor* input, Tensor* output, float* scales, int coord_mode, int mode) {
+    if (!input || !output || !scales) return;
+    
+    int ndim = input->ndim;
+    
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[8];
+        get_coords_from_index(i, out_coords, output->shape, ndim);
+        
+        if (mode == 0) { 
+            int in_coords[8];
+            for (int d = 0; d < ndim; d++) {
+                float x_out = (float)out_coords[d];
+                float scale = scales[d];
+                float x_in = 0.0f;
+                
+                if (coord_mode == 0) x_in = (x_out + 0.5f) / scale - 0.5f; // half_pixel
+                else if (coord_mode == 2) x_in = (output->shape[d] > 1) ? (x_out + 0.5f) / scale - 0.5f : 0.0f; // pytorch_half_pixel
+                else if (coord_mode == 4) x_in = (output->shape[d] > 1) ? x_out * (input->shape[d] - 1) / (float)(output->shape[d] - 1) : 0.0f; // align_corners
+                else x_in = x_out / scale; // asymmetric
+                
+                // Nearest rounding
+                int in_idx = 0;
+                if (x_in >= 0) in_idx = (int)floorf(x_in + 0.5f);
+                else in_idx = (int)ceilf(x_in - 0.5f);
+                
+                // Clamp
+                if (in_idx < 0) in_idx = 0;
+                if (in_idx >= input->shape[d]) in_idx = input->shape[d] - 1;
+                in_coords[d] = in_idx;
+            }
+            size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim);
+            double val = get_value_as_double(input, in_idx);
+            set_tensor_value_from_float(output, i, val);
+            
+        } else {
+            // --- Linear Interpolation (N-Linear) ---
+            // 计算每个维度的浮点坐标 x_in
+            float real_coords[8];
+            for (int d = 0; d < ndim; d++) {
+                float x_out = (float)out_coords[d];
+                float scale = scales[d];
+                float x_in = 0.0f;
+                if (coord_mode == 0) x_in = (x_out + 0.5f) / scale - 0.5f;
+                else if (coord_mode == 2) x_in = (output->shape[d] > 1) ? (x_out + 0.5f) / scale - 0.5f : 0.0f;
+                else if (coord_mode == 4) x_in = (output->shape[d] > 1) ? x_out * (input->shape[d] - 1) / (float)(output->shape[d] - 1) : 0.0f;
+                else x_in = x_out / scale;
+                
+                if (x_in < 0.0f) x_in = 0.0f;
+                if (x_in > (float)(input->shape[d] - 1)) x_in = (float)(input->shape[d] - 1);
+                
+                real_coords[d] = x_in;
+            }
+            
+            // N-Linear 插值核心
+            // 对于 N 维，有 2^N 个邻居。
+            // 通过一个 0 到 2^N - 1 的循环来遍历所有邻居。
+            int num_neighbors = 1 << ndim; // 2^ndim
+            double weighted_sum = 0.0;
+            
+            for (int n = 0; n < num_neighbors; n++) {
+                double weight = 1.0;
+                int neighbor_coords[8];
+                
+                for (int d = 0; d < ndim; d++) {
+                    float x = real_coords[d];
+                    int lower = (int)floorf(x);
+                    int upper = lower + 1;
+                    if (upper >= input->shape[d]) upper = input->shape[d] - 1; // 边界保护
+                    
+                    // 检查当前邻居在维度 d 是取 Lower 还是 Upper
+                    // 使用位掩码: (n >> d) & 1
+                    if ((n >> d) & 1) {
+                        // 取 Upper
+                        neighbor_coords[d] = upper;
+                        weight *= (x - lower); // 距离 Lower 的距离即为 Upper 的权重
+                    } else {
+                        // 取 Lower
+                        neighbor_coords[d] = lower;
+                        weight *= (1.0f - (x - lower)); // 距离 Upper 的距离即为 Lower 的权重
+                    }
+                }
+                
+                // 累加
+                size_t n_idx = get_index_from_coords(neighbor_coords, input->shape, ndim);
+                double val = get_value_as_double(input, n_idx);
+                weighted_sum += val * weight;
+            }
+            
+            set_tensor_value_from_float(output, i, weighted_sum);
+        }
+    }
+}
+
+// 降序比较函数
+int compare_desc(const void* a, const void* b) {
+    TopKElement* e1 = (TopKElement*)a;
+    TopKElement* e2 = (TopKElement*)b;
+    if (e1->value > e2->value) return -1;
+    if (e1->value < e2->value) return 1;
+    // 值相等时，索引小的在前 (保持稳定性)
+    return (e1->index < e2->index) ? -1 : 1;
+}
+
+// 升序比较函数
+int compare_asc(const void* a, const void* b) {
+    TopKElement* e1 = (TopKElement*)a;
+    TopKElement* e2 = (TopKElement*)b;
+    if (e1->value < e2->value) return -1;
+    if (e1->value > e2->value) return 1;
+    return (e1->index < e2->index) ? -1 : 1;
+}
+
+void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis, int largest, int sorted, int K) {
+    if (!input || !values || !indices) return;
+    
+    int ndim = input->ndim;
+    if (axis < 0) axis += ndim;
+    
+    int axis_dim = input->shape[axis];
+    int outer_loops = 1;
+    for (int i = 0; i < axis; i++) outer_loops *= input->shape[i];
+    int inner_loops = 1;
+    for (int i = axis + 1; i < ndim; i++) inner_loops *= input->shape[i];
+    
+    #pragma omp parallel for
+    for (size_t i = 0; i < (size_t)outer_loops * inner_loops; i++) {
+        // 计算当前处理的 row 的位置
+        int inner_idx = i % inner_loops;
+        int outer_idx = i / inner_loops;
+        
+        // 临时 buffer，存放该轴的所有元素
+        TopKElement* buffer = (TopKElement*)malloc(axis_dim * sizeof(TopKElement));
+        if (!buffer) continue;
+        
+        // 读取数据
+        for (int k = 0; k < axis_dim; k++) {
+            // 构造完整坐标的 flat index
+            // Index = outer * (axis_dim * inner) + k * inner + inner_idx
+            size_t idx = (size_t)outer_idx * axis_dim * inner_loops + (size_t)k * inner_loops + inner_idx;
+            buffer[k].value = get_value_as_double(input, idx);
+            buffer[k].index = k; // 记录原始下标
+        }
+        
+        // 排序
+        if (largest) {
+            qsort(buffer, axis_dim, sizeof(TopKElement), compare_desc);
+        } else {
+            qsort(buffer, axis_dim, sizeof(TopKElement), compare_asc);
+        }
+        
+        // 写入前 K 个
+        int write_k = (K < axis_dim) ? K : axis_dim;
+        for (int k = 0; k < write_k; k++) {
+            // Output shape is same as Input except axis=K
+            // OutIndex = outer * (K * inner) + k * inner + inner_idx
+            size_t out_idx = (size_t)outer_idx * K * inner_loops + (size_t)k * inner_loops + inner_idx;
+            
+            set_tensor_value_from_float(values, out_idx, buffer[k].value);
+            set_tensor_value_from_int(indices, out_idx, buffer[k].index);
+        }
+        free(buffer);
+    }
+}
+
+void cumsum_forward(const Tensor* input, Tensor* output, int axis, int exclusive, int reverse) {
+    if (!input || !output) return;
+    
+    int ndim = input->ndim;
+    if (axis < 0) axis += ndim;
+    
+    int axis_dim = input->shape[axis];
+    int outer_loops = 1;
+    for (int i = 0; i < axis; i++) outer_loops *= input->shape[i];
+    int inner_loops = 1;
+    for (int i = axis + 1; i < ndim; i++) inner_loops *= input->shape[i];
+    
+    #pragma omp parallel for
+    for (size_t i = 0; i < (size_t)outer_loops * inner_loops; i++) {
+        int inner_idx = i % inner_loops;
+        int outer_idx = i / inner_loops;
+        
+        double accumulator = 0.0;
+        
+        // 确定遍历方向
+        int start = reverse ? axis_dim - 1 : 0;
+        int end   = reverse ? -1 : axis_dim;
+        int step  = reverse ? -1 : 1;
+        
+        for (int k = start; k != end; k += step) {
+            size_t idx = (size_t)outer_idx * axis_dim * inner_loops + (size_t)k * inner_loops + inner_idx;
+            double val = get_value_as_double(input, idx);
+            
+            if (exclusive) {
+                set_tensor_value_from_float(output, idx, accumulator);
+                accumulator += val;
+            } else {
+                accumulator += val;
+                set_tensor_value_from_float(output, idx, accumulator);
+            }
+        }
+    }
+}
+
+static uint32_t simple_lcg(uint32_t* state) {
+    *state = (*state * 1103515245 + 12345) & 0x7FFFFFFF;
+    return *state;
+}
+
+void random_uniform_like_forward(Tensor* output, float low, float high, float seed) {
+    if (!output) return;
+    
+    uint32_t state = (uint32_t)seed;
+    if (seed == 0.0f) state = (uint32_t)time(NULL);
+    
+    double range = high - low;
+    
+    // 这里单线程生成。如果必须并行，后期再改
+    for (size_t i = 0; i < output->size; i++) {
+        uint32_t r = simple_lcg(&state);
+        // Normalize to [0, 1)
+        double r_norm = (double)r / 2147483648.0; 
+        double val = low + r_norm * range;
+        set_tensor_value_from_float(output, i, val);
+    }
+}
+
+void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output, 
+                    int iter_dims, int* loop_limits, 
+                    int* input_strides, int* output_strides) {
+    
+    // 总迭代次数
+    size_t total_ops = 1;
+    for (int i = 0; i < iter_dims; i++) total_ops *= loop_limits[i];
+    size_t out_size = output->size;
+    
+    size_t elem_size = get_dtype_size(output->dtype);
+    memset(output->data, 0, out_size * elem_size);
+    
+    // 并行化大循环
+    #pragma omp parallel for
+    for (size_t op = 0; op < total_ops; op++) {
+        // 反解当前的循环计数器 (counters)
+        // counters[d] 代表第 d 个“标签”当前的索引值
+        // 假设 iter_dims 不会超过 26 (a-z)
+        int counters[26]; 
+        size_t temp_op = op;
+        for (int d = iter_dims - 1; d >= 0; d--) {
+            counters[d] = temp_op % loop_limits[d];
+            temp_op /= loop_limits[d];
+        }
+        
+        // 计算每个输入的 Flat Index
+        // Index_k = Sum_d ( counters[d] * stride_k[d] )
+        double product = 1.0;
+        
+        for (int k = 0; k < num_inputs; k++) {
+            size_t in_idx = 0;
+            int* cur_strides = &input_strides[k * iter_dims];
+            
+            for (int d = 0; d < iter_dims; d++) {
+                in_idx += counters[d] * cur_strides[d];
+            }
+            
+            product *= get_value_as_double(inputs[k], in_idx);
+        }
+        
+        // 计算输出的 Flat Index
+        size_t out_idx = 0;
+        for (int d = 0; d < iter_dims; d++) {
+            out_idx += counters[d] * output_strides[d];
+        }
+        
+        #pragma omp critical
+        {
+            double old_val = get_value_as_double(output, out_idx);
+            set_tensor_value_from_float(output, out_idx, old_val + product);
+        }
+    }
+}
+

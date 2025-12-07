@@ -2117,3 +2117,393 @@ class ArgMax(ArgBase):
 
 class ArgMin(ArgBase):
     def _get_c_func_name(self): return "argmin_forward"
+    
+class ScatterND(Ops):
+    def __init__(self, inputs, outputs, reduction="none", dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.reduction = {"none": 0, "add": 1, "mul": 2}.get(reduction, 0)
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, data, indices, updates):
+        out_tensor = Tensor(*data.size, dtype=self.dtype, data=data.data.copy())
+        
+        d_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        i_c = self._numpy_to_ctensor(indices.data, indices.dtype)
+        u_c = self._numpy_to_ctensor(updates.data, updates.dtype)
+        
+        self.lib.scatter_nd_forward(d_c, i_c, u_c, ctypes.c_int(self.reduction))
+        
+        out_data = self._ctensor_to_numpy(d_c, self.dtype)
+        out_tensor.data = out_data
+        
+        self.lib.free_tensor(d_c); self.lib.free_tensor(i_c); self.lib.free_tensor(u_c)
+        return {"tensor": out_tensor, "parameters": None}
+    
+    def forward_(self, data, indices, updates):
+        return {"tensor": Tensor_(*data.size, dtype=self.dtype), "parameters": None}
+
+class GatherND(Ops):
+    def __init__(self, inputs, outputs, batch_dims=0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.batch_dims = batch_dims
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, data, indices):
+        # 计算形状
+        # Output shape = indices.shape[:-1] + data.shape[indices.shape[-1] + batch_dims:]
+        idx_shape = list(indices.size)
+        data_shape = list(data.size)
+        k = idx_shape[-1]
+        out_shape = idx_shape[:-1] + data_shape[k + self.batch_dims:]
+        out_shape = tuple(out_shape)
+        
+        data_c = self._numpy_to_ctensor(data.data, data.dtype)
+        idx_c = self._numpy_to_ctensor(indices.data, indices.dtype)
+        
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        self.lib.gather_nd_forward(data_c, idx_c, output_c, ctypes.c_int(self.batch_dims))
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(data_c); self.lib.free_tensor(idx_c); self.lib.free_tensor(output_c)
+        
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, data, indices):
+        idx_shape = list(indices.size)
+        data_shape = list(data.size)
+        k = idx_shape[-1]
+        out_shape = idx_shape[:-1] + data_shape[k + self.batch_dims:]
+        return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
+
+class GatherElements(Ops):
+    def __init__(self, inputs, outputs, axis=0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.axis = axis
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, data, indices):
+        # GatherElements 输出形状与 Indices 相同
+        out_shape = indices.size
+        
+        data_c = self._numpy_to_ctensor(data.data, data.dtype)
+        idx_c = self._numpy_to_ctensor(indices.data, indices.dtype)
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        self.lib.gather_elements_forward(data_c, idx_c, output_c, ctypes.c_int(self.axis))
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(data_c); self.lib.free_tensor(idx_c); self.lib.free_tensor(output_c)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, data, indices):
+        return {"tensor": Tensor_(*indices.size, dtype=self.dtype), "parameters": None}
+
+class NonZero(Ops):
+    def __init__(self, inputs, outputs, dtype="int64", version="17"):
+        super().__init__(inputs, outputs)
+        self.dtype = "int64" # NonZero 必须返回 int64
+        self.version = version
+
+    def forward(self, input):
+        count = np.count_nonzero(input.data)
+        ndim = len(input.size)
+        out_shape = (ndim, count)
+        
+        output_tensor = Tensor(*out_shape, dtype=self.dtype)
+
+        in_c = self._numpy_to_ctensor(input.data, input.dtype)
+        out_c = self._numpy_to_ctensor(output_tensor.data, self.dtype)
+        
+        self.lib.nonzero_forward(in_c, out_c)
+        
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(in_c); self.lib.free_tensor(out_c)
+        
+        output_tensor.data = out_data
+        return {"tensor": output_tensor, "parameters": None}
+
+    def forward_(self, input):
+        # 返回一个 Dummy 形状
+        return {"tensor": Tensor_(len(input.size), 1, dtype=self.dtype), "parameters": None}
+
+class Resize(Ops):
+    def __init__(self, inputs, outputs, mode="nearest", coord_mode="asymmetric", nearest_mode="floor", dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        # mode: 0=nearest, 1=linear
+        self.mode_str = mode
+        self.mode = 1 if mode == "linear" else 0
+        
+        self.coord_mode = {"half_pixel": 0, "asymmetric": 1, "pytorch_half_pixel": 2, "align_corners": 4}.get(coord_mode, 1)
+        # nearest_mode 仅在 mode=nearest 时生效，但为了接口统一，C 端可以接收
+        self.nearest_mode = {"round_prefer_floor": 0, "floor": 2, "ceil": 3}.get(nearest_mode, 0)
+        
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+             self.lib.resize_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(ctypes.c_float), 
+                ctypes.c_int, ctypes.c_int
+            ]
+
+    def forward(self, x, roi=None, scales=None, sizes=None):
+        in_shape = np.array(x.size)
+        
+        # 参数解析逻辑
+        if scales is not None and scales.data.size > 0:
+            s = scales.data.flatten()
+            out_shape = tuple((in_shape * s).astype(int).tolist())
+            scales_data = s.astype(np.float32)
+        elif sizes is not None and sizes.data.size > 0:
+            target_size = sizes.data.astype(int).flatten()
+            out_shape = tuple(target_size.tolist())
+            # 重新计算 scales 传给 C (Resize 需要 scales 进行坐标反变换)
+            scales_data = (target_size.astype(np.float32) / in_shape.astype(np.float32))
+        else:
+            raise ValueError("Resize requires scales or sizes")
+            
+        x_c = self._numpy_to_ctensor(x.data, self.dtype)
+        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+        
+        scales_arr = (ctypes.c_float * len(scales_data))(*scales_data)
+
+        self.lib.resize_forward(
+            x_c, output_c, scales_arr, 
+            ctypes.c_int(self.coord_mode), 
+            ctypes.c_int(self.mode) # 传递 0 或 1
+        )
+        
+        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(output_c)
+        
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
+    def forward_(self, x, roi=None, scales=None, sizes=None):
+        return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
+    
+class TopK(Ops):
+    def __init__(self, inputs, outputs, axis=-1, largest=1, sorted=1, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.axis = axis
+        self.largest = largest
+        self.sorted = sorted
+        self.dtype = dtype # Values 的类型
+        self.version = version
+        
+        if self.lib:
+            self.lib.topk_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int
+            ]
+
+    def forward(self, x, k_tensor):
+        K = int(k_tensor.data.item())
+        axis = self.axis if self.axis >= 0 else self.axis + len(x.size)
+        
+        out_shape = list(x.size)
+        out_shape[axis] = K
+        out_shape = tuple(out_shape)
+        
+        values_tensor = Tensor(*out_shape, dtype=self.dtype)
+        indices_tensor = Tensor(*out_shape, dtype="int64")
+        
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        v_c = self._numpy_to_ctensor(values_tensor.data, self.dtype)
+        i_c = self._numpy_to_ctensor(indices_tensor.data, "int64")
+        
+        self.lib.topk_forward(x_c, v_c, i_c, ctypes.c_int(self.axis), ctypes.c_int(self.largest), ctypes.c_int(self.sorted), ctypes.c_int(K))
+        
+        v_data = self._ctensor_to_numpy(v_c, self.dtype)
+        i_data = self._ctensor_to_numpy(i_c, "int64")
+        
+        values_tensor.data = v_data
+        indices_tensor.data = i_data
+        
+        self.lib.free_tensor(x_c); self.lib.free_tensor(v_c); self.lib.free_tensor(i_c)
+        
+        # 返回列表
+        return {"tensor": [values_tensor, indices_tensor], "parameters": None}
+
+    def forward_(self, x, k_tensor):
+        # 无法得知 K 值，返回 Dummy
+        return {"tensor": [Tensor_(1, dtype=self.dtype), Tensor_(1, dtype="int64")], "parameters": None}
+
+class CumSum(Ops):
+    def __init__(self, inputs, outputs, exclusive=0, reverse=0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.exclusive = exclusive
+        self.reverse = reverse
+        self.dtype = dtype
+        self.version = version
+
+    def forward(self, x, axis_tensor):
+        axis = int(axis_tensor.data.item())
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        
+        x_c = self._numpy_to_ctensor(x.data, self.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        
+        self.lib.cumsum_forward(x_c, out_c, ctypes.c_int(axis), ctypes.c_int(self.exclusive), ctypes.c_int(self.reverse))
+        
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        out_tensor.data = out_data
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, x, axis_tensor):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+class RandomUniformLike(Ops):
+    def __init__(self, inputs, outputs, high=1.0, low=0.0, seed=0.0, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.high = high
+        self.low = low
+        self.seed = seed
+        self.dtype = dtype # 由 input 类型推断或属性指定
+        self.version = version
+
+    def forward(self, input):
+        out_tensor = Tensor(*input.size, dtype=self.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        
+        self.lib.random_uniform_like_forward(out_c, ctypes.c_float(self.low), ctypes.c_float(self.high), ctypes.c_float(self.seed))
+        
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        out_tensor.data = out_data
+        self.lib.free_tensor(out_c)
+        
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, input):
+        return {"tensor": Tensor_(*input.size, dtype=self.dtype), "parameters": None}
+
+class Einsum(Ops):
+    def __init__(self, inputs, outputs, equation, dtype="float32", version="17"):
+        super().__init__(inputs, outputs)
+        self.equation = equation
+        self.dtype = dtype
+        self.version = version
+        
+        if self.lib:
+            self.lib.einsum_forward.argtypes = [
+                ctypes.POINTER(ctypes.POINTER(CTensor)), ctypes.c_int, ctypes.POINTER(CTensor),
+                ctypes.c_int, ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)
+            ]
+
+    def _parse_equation(self, shapes):
+        # 简单解析: "ij,jk->ik"
+        if "->" in self.equation:
+            lhs, rhs = self.equation.split("->")
+            input_labels = lhs.split(",")
+            output_labels = rhs
+        else:
+            # 隐式模式没有实现
+            raise ValueError("Einsum: Implicit mode not supported yet (requires '->')")
+            
+        # 收集所有唯一标签及其维度大小
+        unique_labels = sorted(list(set("".join(input_labels) + output_labels)))
+        unique_labels = [l for l in unique_labels if l.strip()] # 去除空格
+        
+        label_to_dim = {}
+        for i, labels in enumerate(input_labels):
+            labels = labels.strip()
+            shape = shapes[i]
+            if len(labels) != len(shape):
+                raise ValueError(f"Einsum: Labels {labels} mismatch shape {shape}")
+            for l, dim in zip(labels, shape):
+                if l in label_to_dim and label_to_dim[l] != dim:
+                    # 广播维度 check? Einsum 通常要求严格匹配
+                    pass 
+                label_to_dim[l] = dim
+        
+        # 生成 C 需要的 loop_limits
+        loop_limits = [label_to_dim[l] for l in unique_labels]
+        
+        # 计算 Strides
+        # 这是一个映射：Label -> Stride (在 Input X 中)
+        # 如果 Label 不在 Input X 中，Stride = 0 (广播语义)
+        
+        def get_tensor_strides(shape):
+            # 计算 contigous strides
+            strides = []
+            st = 1
+            for d in reversed(shape):
+                strides.append(st)
+                st *= d
+            return list(reversed(strides))
+
+        input_strides_flat = []
+        for i, labels in enumerate(input_labels):
+            labels = labels.strip()
+            native_strides = get_tensor_strides(shapes[i])
+            # 映射到 unique_labels 顺序
+            current_tensor_strides = []
+            for u_label in unique_labels:
+                if u_label in labels:
+                    # 找到该 label 在 tensor 中的维度索引
+                    idx = labels.index(u_label)
+                    current_tensor_strides.append(native_strides[idx])
+                else:
+                    current_tensor_strides.append(0) # 广播/无关维度
+            input_strides_flat.extend(current_tensor_strides)
+            
+        output_strides_flat = []
+        native_out_strides = get_tensor_strides([label_to_dim[l] for l in output_labels])
+        for u_label in unique_labels:
+            if u_label in output_labels:
+                idx = output_labels.index(u_label)
+                output_strides_flat.append(native_out_strides[idx])
+            else:
+                output_strides_flat.append(0) # 归约维度
+                
+        # 计算输出形状
+        out_shape = tuple([label_to_dim[l] for l in output_labels])
+        
+        return unique_labels, loop_limits, input_strides_flat, output_strides_flat, out_shape
+
+    def forward(self, *inputs):
+        shapes = [x.size for x in inputs]
+        _, loop_limits, in_strides, out_strides, out_shape = self._parse_equation(shapes)
+        
+        out_tensor = Tensor(*out_shape, dtype=self.dtype)
+        
+        # 准备 C 参数
+        CTensorPtr = ctypes.POINTER(CTensor)
+        in_array = (CTensorPtr * len(inputs))()
+        c_refs = []
+        for i, inp in enumerate(inputs):
+            c_t = self._numpy_to_ctensor(inp.data, inp.dtype)
+            in_array[i] = c_t
+            c_refs.append(c_t)
+            
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        
+        # 数组转指针
+        limits_arr = (ctypes.c_int * len(loop_limits))(*loop_limits)
+        in_strides_arr = (ctypes.c_int * len(in_strides))(*in_strides)
+        out_strides_arr = (ctypes.c_int * len(out_strides))(*out_strides)
+        
+        self.lib.einsum_forward(in_array, len(inputs), out_c, 
+                                ctypes.c_int(len(loop_limits)),
+                                limits_arr, in_strides_arr, out_strides_arr)
+        
+        out_data = self._ctensor_to_numpy(out_c, self.dtype)
+        out_tensor.data = out_data
+        
+        self.lib.free_tensor(out_c)
+        for t in c_refs: self.lib.free_tensor(t)
+        
+        return {"tensor": out_tensor, "parameters": None}
+
+    def forward_(self, *inputs):
+        # 不解析等式了，太麻烦
+        return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
