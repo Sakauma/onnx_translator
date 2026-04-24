@@ -1,0 +1,31 @@
+# Repository Guidelines
+
+## 项目结构与模块组织
+
+本仓库实现 ONNX 模型导入、图构建，以及 CPU/CUDA 算子正确性验证流程。核心 Python 脚本位于仓库根目录，包括 `create_model.py`、`create_graph_ops_model.py`、`graph_logic.py`、`verify_graph.py` 和 `numerical_correctness.py`。`nn/` 包包含模型导入和算子抽象，例如 `ONNXImport.py`、`Operators.py`、`ModelInitParas.py` 以及图可视化辅助代码。C 后端位于 `tensor_ops/`，接口声明在 `tensor_ops.h`，实现位于 `tensor_ops.c`，编译产物为 `tensor_ops.so`。CUDA 参考验证程序位于 `cuda/`，命名格式为 `verify_<op>.cu`。生成的 CUDA 可执行文件写入 `cache/`；生成或示例 ONNX 产物位于 `onnx_model/` 和 `result/`。
+
+## 构建、测试与开发命令
+
+- `make`：使用 GCC、OpenMP 和数学库从 `tensor_ops/*.c` 构建 `tensor_ops.so`。
+- `make clean`：删除已编译的共享库。
+- `bash compile_cuda.sh`：使用 `nvcc` 编译所有 `cuda/*.cu` 验证程序到 `cache/`。
+- `python create_model.py` 或 `python create_graph_ops_model.py`：生成 ONNX 测试模型。
+- `python graph_logic.py`：验证 ONNX 图解析和算子连接关系。
+- `python numerical_correctness.py`：对比 C 算子输出与 CUDA 参考实现的数值结果。
+- `python verify_graph.py`：验证脚本中指定模型的解析和图构建流程。
+
+## 编码风格与命名约定
+
+Python 代码应保持简洁、可读，并延续现有风格：使用 4 空格缩进，函数和变量采用 `snake_case`，算子类使用清晰的 ONNX 风格 `PascalCase`。C 和 CUDA 函数使用 `snake_case`，前向计算接口命名为 `<op>_forward`。CUDA 验证文件统一命名为 `cuda/verify_<op>.cu`。新增算子时，应同步更新 `tensor_ops/tensor_ops.h`、`tensor_ops/tensor_ops.c`、`nn/Operators.py`、`nn/ONNXImport.py` 和对应验证用例。
+
+## 测试指南
+
+本项目没有独立的单元测试目录，主要依赖脚本验证。修改算子后，依次运行 `make`、`bash compile_cuda.sh` 和 `python numerical_correctness.py`。修改导入器或图逻辑后，运行 `python graph_logic.py` 和 `python verify_graph.py`。新增算子测试应写入 `numerical_correctness.py`，覆盖形状推断、广播、类型提升，以及相关数值边界情况。
+
+## 提交与 Pull Request 规范
+
+近期提交历史使用简短的类型前缀，例如 `feat: ...`、`fix: ...` 和 `chore: ...`；提交信息应简洁、明确，并说明变更范围。Pull Request 应描述修改的算子或导入行为，列出已运行的验证命令，在有相关 Issue 时进行关联；仅当可视化输出变化时，才附带截图或生成的图文件。
+
+## 安全与配置建议
+
+除非明确需要，不要提交 `cache/*` 等生成的二进制文件。报告复现问题时，请注明本地 CUDA、GCC、Python、`numpy`、`torch` 和 `onnx` 版本，便于定位环境差异。
