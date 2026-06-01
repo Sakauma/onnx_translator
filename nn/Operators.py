@@ -4664,10 +4664,12 @@ class SequenceLength(Ops):
         self.version = version
 
     def forward(self, input_sequence):
-        return {"tensor": Tensor(1, dtype=self.dtype, data=np.array([len(input_sequence)], dtype=np.int64)), "parameters": None}
+        return {"tensor": Tensor(dtype=self.dtype, data=np.array(len(input_sequence), dtype=np.int64)), "parameters": None}
 
     def forward_(self, input_sequence):
-        return self.forward(input_sequence)
+        if isinstance(input_sequence, list):
+            return self.forward(input_sequence)
+        return {"tensor": Tensor_(dtype=self.dtype), "parameters": None}
 
 
 class ConcatFromSequence(Ops):
@@ -4789,12 +4791,12 @@ class OptionalHasElement(Ops):
         self.version = version
 
     def forward(self, input):
-        return {"tensor": Tensor(1, dtype=self.dtype, data=np.array([input is not None], dtype=np.bool_)), "parameters": None}
+        return {"tensor": Tensor(dtype=self.dtype, data=np.array(input is not None, dtype=np.bool_)), "parameters": None}
 
     def forward_(self, input):
         if input is None:
             return self.forward(input)
-        return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
+        return {"tensor": Tensor_(dtype=self.dtype), "parameters": None}
 
 # Reduce 基类，复用 Shape 计算逻辑
 class ReduceBase(Ops):
@@ -6967,20 +6969,20 @@ class Size(Ops):
     def forward(self, x):
         if self.lib is not None and x.dtype in nn.DTYPE_MAP:
             input_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
-            output_shape_c = (ctypes.c_int * 1)(1)
-            output_c = self.lib.create_tensor(output_shape_c, 1, nn.DTYPE_MAP[self.dtype])
+            output_shape_c = (ctypes.c_int * 0)()
+            output_c = self.lib.create_tensor(output_shape_c, 0, nn.DTYPE_MAP[self.dtype])
             self.lib.size_forward(input_c, output_c)
             out_data = self._ctensor_to_numpy(output_c, self.dtype)
             self.lib.free_tensor(input_c)
             self.lib.free_tensor(output_c)
-            return {"tensor": Tensor(1, dtype=self.dtype, data=out_data), "parameters": None}
+            return {"tensor": Tensor(dtype=self.dtype, data=out_data.reshape(())), "parameters": None}
         return {
-            "tensor": Tensor(1, dtype=self.dtype, data=np.array([int(np.prod(x.size, dtype=np.int64))], dtype=np.int64)),
+            "tensor": Tensor(dtype=self.dtype, data=np.array(int(np.prod(x.size, dtype=np.int64)), dtype=np.int64)),
             "parameters": None,
         }
 
     def forward_(self, x):
-        return {"tensor": Tensor_(1, dtype="int64"), "parameters": None}
+        return {"tensor": Tensor_(dtype="int64"), "parameters": None}
     
 class IsInf(Ops):
     def __init__(self, inputs, outputs, detect_negative=1, detect_positive=1, dtype="bool", version="17"):
@@ -7057,7 +7059,9 @@ class OneHot(Ops):
             for idx in np.ndindex(indices_arr.shape):
                 if depth == 0:
                     continue
-                class_index = int(indices_arr[idx]) % depth
+                class_index = int(indices_arr[idx])
+                if class_index < 0:
+                    class_index += depth
                 if 0 <= class_index < depth:
                     out_idx = list(idx)
                     out_idx.insert(axis, class_index)
@@ -7729,8 +7733,7 @@ class LpNormalization(Ops):
         data = np.asarray(input.data)
         norm = np.power(np.power(np.abs(data), self.p).sum(axis=axis), 1.0 / self.p)
         norm = np.expand_dims(norm, axis)
-        numerator = np.abs(data) if self.p == 1 else data
-        out_data = np.where(norm == 0, 0, numerator / norm)
+        out_data = np.where(norm == 0, 0, data / norm)
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 

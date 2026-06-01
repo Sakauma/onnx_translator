@@ -74,7 +74,7 @@ $PYTHON tools/verify_all.py --keep-artifacts
 make PYTHON=$PYTHON audit
 ```
 
-报告写入 `算子实现情况统计.md`，会区分实际 C runtime path、合理 Python 调度/元数据算子、当前暂缓后端化算子，以及 CUDA/数值验证覆盖。
+报告写入 `算子实现情况统计.md`，会区分实际 C runtime path、合理 Python 调度/元数据算子、当前暂缓后端化算子、当前暂缓深度语义/数值验证算子，以及 CUDA/数值验证覆盖。
 
 ## 生成 ONNX 模型
 

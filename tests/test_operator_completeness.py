@@ -358,7 +358,14 @@ def test_static_shape_inference_uses_constant_inputs(monkeypatch, tmp_path):
     size_of_strings = Size(["x"], ["size"]).forward(
         Tensor(2, 3, dtype="string", data=np.array([["a", "b", "c"], ["d", "e", "f"]], dtype=np.str_))
     )["tensor"]
-    np.testing.assert_array_equal(size_of_strings.data, np.array([6], dtype=np.int64))
+    assert size_of_strings.size == ()
+    np.testing.assert_array_equal(size_of_strings.data, np.array(6, dtype=np.int64))
+    numeric_size = Size(["x"], ["size"]).forward(
+        Tensor(2, 3, dtype="float32", data=np.zeros((2, 3), dtype=np.float32))
+    )["tensor"]
+    assert numeric_size.size == ()
+    np.testing.assert_array_equal(numeric_size.data, np.array(6, dtype=np.int64))
+    assert Size(["x"], ["size"]).forward_(Tensor_(2, 3, dtype="float32"))["tensor"].size == ()
 
     cos_model_path = tmp_path / "constant_of_shape_uint32_scalar.onnx"
     cos_graph = helper.make_graph(
@@ -1374,18 +1381,52 @@ def test_space_to_depth_and_lp_normalization_match_onnx_reference(monkeypatch):
         ],
         dtype=np.float32,
     )
-    lp_graph = helper.make_graph(
-        [helper.make_node("LpNormalization", ["x"], ["y"], axis=1, p=1)],
-        "lp_norm_ref",
-        [helper.make_tensor_value_info("x", TensorProto.FLOAT, lp_data.shape)],
-        [helper.make_tensor_value_info("y", TensorProto.FLOAT, None)],
-    )
-    lp_model = helper.make_model(lp_graph, opset_imports=[helper.make_opsetid("", 17)])
-    expected_lp = ReferenceEvaluator(lp_model).run(None, {"x": lp_data})[0]
+    lp_norm = np.sum(np.abs(lp_data), axis=1, keepdims=True)
+    expected_lp = np.where(lp_norm == 0, 0, lp_data / lp_norm).astype(np.float32)
     actual_lp = LpNormalization(["x"], ["y"], axis=1, p=1, dtype="float32").forward(
         Tensor(*lp_data.shape, dtype="float32", data=lp_data)
     )["tensor"].data
     np.testing.assert_array_equal(actual_lp, expected_lp)
+
+
+def test_lp_normalization_l1_preserves_input_sign_in_c_and_python():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    data = np.array([[-1.0, 2.0, -3.0], [4.0, -4.0, 0.0]], dtype=np.float32)
+    tensor = Tensor(*data.shape, dtype="float32", data=data)
+    norm = np.sum(np.abs(data), axis=1, keepdims=True)
+    expected = np.where(norm == 0, 0, data / norm).astype(np.float32)
+
+    c_result = LpNormalization(["x"], ["y"], axis=1, p=1, dtype="float32").forward(tensor)["tensor"].data
+    np.testing.assert_allclose(c_result, expected, rtol=1e-6, atol=1e-6)
+
+    py_op = LpNormalization(["x"], ["y"], axis=1, p=1, dtype="float32")
+    py_op.lib = None
+    py_result = py_op.forward(tensor)["tensor"].data
+    np.testing.assert_allclose(py_result, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_onehot_python_fallback_keeps_out_of_range_negative_indices_off():
+    indices = Tensor(3, dtype="int64", data=np.array([-3, -4, 1], dtype=np.int64))
+    depth = Tensor(dtype="int64", data=np.array(3, dtype=np.int64))
+    values = Tensor(2, dtype="string", data=np.array(["off", "on"], dtype=np.str_))
+
+    out = OneHot(["indices", "depth", "values"], ["y"], axis=-1, dtype="string").forward(
+        indices, depth, values
+    )["tensor"]
+
+    np.testing.assert_array_equal(
+        out.data,
+        np.array(
+            [
+                ["on", "off", "off"],
+                ["off", "off", "off"],
+                ["off", "on", "off"],
+            ],
+            dtype=np.str_,
+        ),
+    )
 
 
 def test_compress_short_condition_matches_onnx_reference(monkeypatch):
@@ -2381,7 +2422,8 @@ def test_onnx17_sequence_ops(monkeypatch, tmp_path):
     erased = SequenceErase(["seq"], ["out"], dtype="float32").forward(inserted)["tensor"]
     assert len(erased) == 2
     length = SequenceLength(["seq"], ["len"]).forward(erased)["tensor"]
-    np.testing.assert_array_equal(length.data, np.array([2], dtype=np.int64))
+    assert length.size == ()
+    np.testing.assert_array_equal(length.data, np.array(2, dtype=np.int64))
 
     stacked = ConcatFromSequence(["seq"], ["out"], axis=0, new_axis=1, dtype="float32").forward(erased)["tensor"]
     np.testing.assert_array_equal(stacked.data, np.stack([a.data, b.data], axis=0))
@@ -2420,7 +2462,7 @@ def test_onnx17_sequence_ops(monkeypatch, tmp_path):
         ],
         [
             helper.make_tensor_sequence_value_info("empty", TensorProto.FLOAT, None),
-            helper.make_tensor_value_info("seq_len", TensorProto.INT64, [1]),
+            helper.make_tensor_value_info("seq_len", TensorProto.INT64, []),
             helper.make_tensor_value_info("at", TensorProto.FLOAT, [2]),
             helper.make_tensor_value_info("concat", TensorProto.FLOAT, [4]),
             helper.make_tensor_sequence_value_info("split_seq", TensorProto.FLOAT, None),
@@ -2443,9 +2485,12 @@ def test_onnx17_optional_ops(monkeypatch, tmp_path):
     optional = Optional(["x"], ["opt"], dtype="float32").forward(tensor)["tensor"]
     np.testing.assert_array_equal(OptionalGetElement(["opt"], ["y"], dtype="float32").forward(optional)["tensor"].data, tensor.data)
     has = OptionalHasElement(["opt"], ["has"]).forward(optional)["tensor"]
-    np.testing.assert_array_equal(has.data, np.array([True], dtype=np.bool_))
+    assert has.size == ()
+    np.testing.assert_array_equal(has.data, np.array(True, dtype=np.bool_))
     empty = Optional([], ["opt"], dtype="float32").forward()["tensor"]
-    np.testing.assert_array_equal(OptionalHasElement(["opt"], ["has"]).forward(empty)["tensor"].data, np.array([False], dtype=np.bool_))
+    empty_has = OptionalHasElement(["opt"], ["has"]).forward(empty)["tensor"]
+    assert empty_has.size == ()
+    np.testing.assert_array_equal(empty_has.data, np.array(False, dtype=np.bool_))
     with pytest.raises(ValueError, match="empty optional"):
         OptionalGetElement(["opt"], ["y"], dtype="float32").forward(empty)
 
@@ -2459,7 +2504,7 @@ def test_onnx17_optional_ops(monkeypatch, tmp_path):
         "onnx17_optional_ops",
         [helper.make_tensor_value_info("x", TensorProto.FLOAT, [2])],
         [
-            helper.make_tensor_value_info("has", TensorProto.BOOL, [1]),
+            helper.make_tensor_value_info("has", TensorProto.BOOL, []),
             helper.make_tensor_value_info("y", TensorProto.FLOAT, [2]),
         ],
     )

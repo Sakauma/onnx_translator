@@ -127,6 +127,17 @@ PYTHON_ORCHESTRATION_RUNTIME = {
 DEFERRED_C_BACKEND_RUNTIME = set()
 
 
+DEFERRED_DEEP_SEMANTIC_AUDIT = {
+    "MaxRoiPool",
+    "RoiAlign",
+    "RNN",
+    "GRU",
+    "LSTM",
+    "DFT",
+    "STFT",
+}
+
+
 def normalize_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", name).upper()
 
@@ -362,6 +373,8 @@ def classify(
             notes.append("forward 运行路径未接入 C 后端")
     elif data["runtime_uses_numpy"]:
         notes.append("含 Python 调度或 fallback")
+    if class_name in DEFERRED_DEEP_SEMANTIC_AUDIT:
+        notes.append("按当前整理阶段暂缓深度语义/数值验证，作为剩余风险跟踪")
     if cuda_verified and not numerical_planned:
         notes.append("有 CUDA verifier，但未接入 active numerical plan")
     if not cuda_verified and not numerical_planned:
@@ -384,6 +397,8 @@ def classify(
         return "已数值验证", tuple(notes)
     if cuda_verified and not numerical_planned:
         return "待接入数值计划", tuple(notes)
+    if class_name in DEFERRED_DEEP_SEMANTIC_AUDIT:
+        return "暂缓深度验证", tuple(notes)
     return "已实现未数值验证", tuple(notes)
 
 
@@ -468,6 +483,9 @@ def audit() -> tuple[list[OperatorInfo], dict[str, object]]:
     metadata["deferred_c_backend_runtime"] = [
         info.class_name for info in infos if not info.c_runtime_functions and info.class_name in DEFERRED_C_BACKEND_RUNTIME
     ]
+    metadata["deferred_deep_semantic_audit"] = [
+        info.class_name for info in infos if info.class_name in DEFERRED_DEEP_SEMANTIC_AUDIT
+    ]
     metadata["declared_c_but_runtime_unused"] = [
         info.class_name for info in infos if info.c_functions and not info.c_runtime_functions
     ]
@@ -513,6 +531,11 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
         ),
         f"- CUDA verifier：{metadata['cuda_verifier_count']} 个。",
             f"- active numerical plan 覆盖：{metadata['numerical_plan_count']} 个唯一算子名称。",
+            (
+                f"- 暂缓深度语义/数值验证：{len(metadata['deferred_deep_semantic_audit'])} 个；"
+                + ", ".join(f"`{name}`" for name in metadata["deferred_deep_semantic_audit"])
+                + "。"
+            ),
             f"- ONNX opset 17 官方算子：{metadata['official_onnx17_count']} 个；ONNXImport 名称级覆盖：{metadata['official_onnx17_supported_count']} 个。",
             "",
         "### 状态计数",
@@ -524,7 +547,11 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
         lines.append(f"| {status} | {count} |")
 
     partial = [info.class_name for info in infos if info.status == "部分实现/需补齐"]
-    unverified = [info.class_name for info in infos if info.status == "已实现未数值验证"]
+    unverified = [
+        info.class_name
+        for info in infos
+        if info.status in {"已实现未数值验证", "暂缓深度验证", "待接入数值计划"}
+    ]
     planned = metadata["numerical_plan_count"]
     deferred = metadata["deferred_c_backend_runtime"]
     active_python_only = [
@@ -556,6 +583,9 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
                 if deferred
                 else "- 当前没有记录暂缓后端化算子。"
             ),
+            "- 当前暂缓深度语义/数值验证的剩余算子："
+            + ", ".join(f"`{name}`" for name in metadata["deferred_deep_semantic_audit"])
+            + "。",
             (
                 "- 除暂缓项外，未发现仍需立即后端化的 Python-only 普通数值/张量算子。"
                 if not active_python_only

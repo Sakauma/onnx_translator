@@ -5486,8 +5486,7 @@ void lp_normalization_forward(const Tensor* input, Tensor* output, int axis, int
             for (int j = 0; j < inner_dim; j++) {
                 size_t idx = (size_t)i * inner_dim * remaining_dim + (size_t)j * remaining_dim + k;
                 double val = get_value_as_double(input, idx);
-                double numerator = (p == 1) ? fabs(val) : val;
-                set_tensor_value_from_float(output, idx, norm == 0.0 ? 0.0 : numerator / norm);
+                set_tensor_value_from_float(output, idx, norm == 0.0 ? 0.0 : val / norm);
             }
         }
     }
