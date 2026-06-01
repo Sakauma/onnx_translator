@@ -179,6 +179,21 @@ void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params);
 void max_unpool_forward(const Tensor* X, const Tensor* Indices, Tensor* Y, PoolParams* params);
 
 /**
+ * MaxRoiPool for X [N,C,H,W] and rois [num_rois,5].
+ */
+void max_roi_pool_forward(const Tensor* X, const Tensor* rois, Tensor* Y,
+                          int pooled_h, int pooled_w, float spatial_scale);
+
+/**
+ * RoiAlign for X [N,C,H,W], rois [num_rois,4], batch_indices [num_rois].
+ * mode: 0=avg, 1=max.
+ * coordinate_transformation_mode: 0=half_pixel, 1=output_half_pixel.
+ */
+void roi_align_forward(const Tensor* X, const Tensor* rois, const Tensor* batch_indices, Tensor* Y,
+                       int output_height, int output_width, int sampling_ratio,
+                       float spatial_scale, int mode, int coordinate_transformation_mode);
+
+/**
  * Gemm (General Matrix Multiply) 前向传播
  * 公式: Y = alpha * A' * B' + beta * C
  * transA/transB: 0=不转置, 1=转置
@@ -323,6 +338,48 @@ int unique_forward(const Tensor* input, Tensor* values, Tensor* indices, Tensor*
 void mel_weight_matrix_forward(const Tensor* num_mel_bins, const Tensor* dft_length,
                                const Tensor* sample_rate, const Tensor* lower_edge_hertz,
                                const Tensor* upper_edge_hertz, Tensor* output);
+
+/**
+ * DFT over a complex-valued tensor represented by a trailing dimension of 1 or 2.
+ */
+void dft_forward(const Tensor* input, Tensor* output, int axis, int inverse, int onesided, int dft_length);
+
+/**
+ * STFT over signal [..., signal_length, 1|2].
+ */
+void stft_forward(const Tensor* signal, const Tensor* window, Tensor* output,
+                  int frame_step, int frame_length, int onesided);
+
+/**
+ * Recurrent neural network operators.
+ * direction: 0=forward, 1=reverse, 2=bidirectional.
+ * layout: 0=[seq,batch,input], 1=[batch,seq,input].
+ * activation codes: 0=Tanh, 1=Sigmoid, 2=Relu, 3=Affine, 4=LeakyRelu,
+ * 5=ThresholdedRelu, 6=ScaledTanh, 7=HardSigmoid, 8=Elu, 9=Softsign,
+ * 10=Softplus. Missing alpha/beta values should be NaN.
+ */
+void rnn_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
+                 const Tensor* sequence_lens, const Tensor* initial_h,
+                 Tensor* Y, Tensor* Y_h, int hidden_size, int direction, int layout,
+                 const int* activations, const float* activation_alpha,
+                 const float* activation_beta, int num_activations,
+                 float clip, int has_clip);
+
+void gru_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
+                 const Tensor* sequence_lens, const Tensor* initial_h,
+                 Tensor* Y, Tensor* Y_h, int hidden_size, int direction, int layout,
+                 int linear_before_reset, const int* activations,
+                 const float* activation_alpha, const float* activation_beta,
+                 int num_activations, float clip, int has_clip);
+
+void lstm_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
+                  const Tensor* sequence_lens, const Tensor* initial_h,
+                  const Tensor* initial_c, const Tensor* P,
+                  Tensor* Y, Tensor* Y_h, Tensor* Y_c, int hidden_size,
+                  int direction, int layout, int input_forget,
+                  const int* activations, const float* activation_alpha,
+                  const float* activation_beta, int num_activations,
+                  float clip, int has_clip);
 
 /**
  * Multinomial sampling for rank-2 probability tensors.

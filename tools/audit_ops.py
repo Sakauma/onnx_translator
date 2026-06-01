@@ -124,15 +124,7 @@ PYTHON_ORCHESTRATION_RUNTIME = {
 }
 
 
-DEFERRED_C_BACKEND_RUNTIME = {
-    "MaxRoiPool",
-    "RoiAlign",
-    "RNN",
-    "GRU",
-    "LSTM",
-    "DFT",
-    "STFT",
-}
+DEFERRED_C_BACKEND_RUNTIME = set()
 
 
 def normalize_name(name: str) -> str:

@@ -986,6 +986,143 @@ def test_c_backend_unique_and_mel_weight_matrix_paths():
     np.testing.assert_allclose(mel.data, expected_mel, rtol=1e-6, atol=1e-6)
 
 
+def test_c_backend_dft_and_stft_paths_against_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    from onnx.reference import ReferenceEvaluator
+
+    signal_data = np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32)
+    dft_len = np.array(4, dtype=np.int64)
+    signal = Tensor(*signal_data.shape, dtype="float32", data=signal_data)
+    dft = DFT(["x", "dft_len"], ["y"], axis=1, onesided=1, dtype="float32").forward(
+        signal, Tensor(dtype="int64", data=dft_len)
+    )["tensor"]
+    dft_graph = helper.make_graph(
+        [helper.make_node("DFT", ["x", "dft_len"], ["y"], axis=1, onesided=1)],
+        "dft_reference",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, list(signal_data.shape)),
+            helper.make_tensor_value_info("dft_len", TensorProto.INT64, []),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 3, 2])],
+    )
+    dft_expected = ReferenceEvaluator(helper.make_model(dft_graph, opset_imports=[helper.make_opsetid("", 17)])).run(
+        None, {"x": signal_data, "dft_len": dft_len}
+    )[0]
+    np.testing.assert_allclose(dft.data, dft_expected, rtol=1e-6, atol=1e-6)
+
+    inverse = DFT(["x", "dft_len"], ["y"], axis=1, inverse=1, onesided=1, dtype="float32").forward(
+        dft, Tensor(dtype="int64", data=dft_len)
+    )["tensor"]
+    inv_graph = helper.make_graph(
+        [helper.make_node("DFT", ["x", "dft_len"], ["y"], axis=1, inverse=1, onesided=1)],
+        "dft_inverse_reference",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, list(dft.data.shape)),
+            helper.make_tensor_value_info("dft_len", TensorProto.INT64, []),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, list(signal_data.shape))],
+    )
+    inv_expected = ReferenceEvaluator(helper.make_model(inv_graph, opset_imports=[helper.make_opsetid("", 17)])).run(
+        None, {"x": dft.data, "dft_len": dft_len}
+    )[0]
+    np.testing.assert_allclose(inverse.data, inv_expected, rtol=1e-6, atol=1e-6)
+
+    frame_step = np.array(2, dtype=np.int64)
+    frame_length = np.array(2, dtype=np.int64)
+    window_data = np.ones((2,), dtype=np.float32)
+    stft = STFT(["x", "step", "window", "length"], ["y"], onesided=1, dtype="float32").forward(
+        signal,
+        Tensor(dtype="int64", data=frame_step),
+        Tensor(*window_data.shape, dtype="float32", data=window_data),
+        Tensor(dtype="int64", data=frame_length),
+    )["tensor"]
+    stft_graph = helper.make_graph(
+        [helper.make_node("STFT", ["x", "step", "window", "length"], ["y"], onesided=1)],
+        "stft_reference",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, list(signal_data.shape)),
+            helper.make_tensor_value_info("step", TensorProto.INT64, []),
+            helper.make_tensor_value_info("window", TensorProto.FLOAT, [2]),
+            helper.make_tensor_value_info("length", TensorProto.INT64, []),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 2, 2, 2])],
+    )
+    stft_expected = ReferenceEvaluator(helper.make_model(stft_graph, opset_imports=[helper.make_opsetid("", 17)])).run(
+        None, {"x": signal_data, "step": frame_step, "window": window_data, "length": frame_length}
+    )[0]
+    np.testing.assert_allclose(stft.data, stft_expected, rtol=1e-6, atol=1e-6)
+
+
+def test_c_backend_recurrent_paths_match_python_semantics():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = Tensor(3, 2, 2, dtype="float32", data=np.array(
+        [
+            [[0.5, -0.2], [0.1, 0.4]],
+            [[1.0, 0.3], [-0.3, 0.2]],
+            [[0.2, 0.7], [0.8, -0.5]],
+        ],
+        dtype=np.float32,
+    ))
+    sequence_lens = Tensor(2, dtype="int32", data=np.array([3, 2], dtype=np.int32))
+
+    rnn_w = Tensor(2, 2, 2, dtype="float32", data=np.array(
+        [[[0.1, 0.2], [-0.2, 0.3]], [[-0.3, 0.4], [0.2, 0.1]]], dtype=np.float32
+    ))
+    rnn_r = Tensor(2, 2, 2, dtype="float32", data=np.array(
+        [[[0.5, 0.1], [0.2, 0.4]], [[0.2, -0.1], [0.3, 0.2]]], dtype=np.float32
+    ))
+    rnn_b = Tensor(2, 4, dtype="float32", data=np.array([[0.1, -0.1, 0.05, 0.02], [0.0, 0.1, -0.03, 0.04]], dtype=np.float32))
+    rnn_initial = Tensor(2, 2, 2, dtype="float32", data=np.array(
+        [[[0.1, 0.0], [0.0, 0.2]], [[-0.1, 0.1], [0.2, -0.2]]], dtype=np.float32
+    ))
+    rnn_c = RNN(["x", "w", "r", "b", "seq", "init"], ["y", "yh"], hidden_size=2, direction="bidirectional", dtype="float32")
+    rnn_py = RNN(["x", "w", "r", "b", "seq", "init"], ["y", "yh"], hidden_size=2, direction="bidirectional", dtype="float32")
+    rnn_py.lib = None
+    c_y, c_h = rnn_c.forward(x, rnn_w, rnn_r, rnn_b, sequence_lens, rnn_initial)["tensor"]
+    py_y, py_h = rnn_py.forward(x, rnn_w, rnn_r, rnn_b, sequence_lens, rnn_initial)["tensor"]
+    np.testing.assert_allclose(c_y.data, py_y.data, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(c_h.data, py_h.data, rtol=1e-6, atol=1e-6)
+
+    gru_w = Tensor(1, 6, 2, dtype="float32", data=np.array([[
+        [0.2, -0.1], [0.1, 0.3],
+        [-0.2, 0.4], [0.3, -0.2],
+        [0.4, 0.1], [-0.1, 0.2],
+    ]], dtype=np.float32))
+    gru_r = Tensor(1, 6, 2, dtype="float32", data=np.array([[
+        [0.1, 0.2], [0.2, -0.1],
+        [0.3, 0.1], [-0.2, 0.4],
+        [0.2, 0.3], [0.1, -0.3],
+    ]], dtype=np.float32))
+    gru_b = Tensor(1, 12, dtype="float32", data=np.linspace(-0.2, 0.2, 12, dtype=np.float32).reshape(1, 12))
+    gru_initial = Tensor(1, 2, 2, dtype="float32", data=np.array([[[0.1, -0.1], [0.2, 0.0]]], dtype=np.float32))
+    gru_c = GRU(["x", "w", "r", "b", "seq", "init"], ["y", "yh"], hidden_size=2, linear_before_reset=1, dtype="float32")
+    gru_py = GRU(["x", "w", "r", "b", "seq", "init"], ["y", "yh"], hidden_size=2, linear_before_reset=1, dtype="float32")
+    gru_py.lib = None
+    c_y, c_h = gru_c.forward(x, gru_w, gru_r, gru_b, sequence_lens, gru_initial)["tensor"]
+    py_y, py_h = gru_py.forward(x, gru_w, gru_r, gru_b, sequence_lens, gru_initial)["tensor"]
+    np.testing.assert_allclose(c_y.data, py_y.data, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(c_h.data, py_h.data, rtol=1e-6, atol=1e-6)
+
+    lstm_w = Tensor(1, 8, 2, dtype="float32", data=np.linspace(-0.3, 0.4, 16, dtype=np.float32).reshape(1, 8, 2))
+    lstm_r = Tensor(1, 8, 2, dtype="float32", data=np.linspace(0.2, -0.2, 16, dtype=np.float32).reshape(1, 8, 2))
+    lstm_b = Tensor(1, 16, dtype="float32", data=np.linspace(-0.1, 0.1, 16, dtype=np.float32).reshape(1, 16))
+    lstm_initial_h = Tensor(1, 2, 2, dtype="float32", data=np.array([[[0.1, 0.0], [-0.1, 0.2]]], dtype=np.float32))
+    lstm_initial_c = Tensor(1, 2, 2, dtype="float32", data=np.array([[[0.0, 0.2], [0.1, -0.1]]], dtype=np.float32))
+    peepholes = Tensor(1, 6, dtype="float32", data=np.linspace(-0.05, 0.05, 6, dtype=np.float32).reshape(1, 6))
+    lstm_c = LSTM(["x", "w", "r", "b", "seq", "h", "c", "p"], ["y", "yh", "yc"], hidden_size=2, input_forget=1, dtype="float32")
+    lstm_py = LSTM(["x", "w", "r", "b", "seq", "h", "c", "p"], ["y", "yh", "yc"], hidden_size=2, input_forget=1, dtype="float32")
+    lstm_py.lib = None
+    c_y, c_h, c_c = lstm_c.forward(x, lstm_w, lstm_r, lstm_b, sequence_lens, lstm_initial_h, lstm_initial_c, peepholes)["tensor"]
+    py_y, py_h, py_c = lstm_py.forward(x, lstm_w, lstm_r, lstm_b, sequence_lens, lstm_initial_h, lstm_initial_c, peepholes)["tensor"]
+    np.testing.assert_allclose(c_y.data, py_y.data, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(c_h.data, py_h.data, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(c_c.data, py_c.data, rtol=1e-6, atol=1e-6)
+
+
 def test_c_backend_probability_and_loss_paths():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -2120,6 +2257,109 @@ def test_onnx17_unpool_and_string_normalizer_ops(monkeypatch, tmp_path):
     assert [op.__class__.__name__ for op in ops] == [
         "GridSample", "MaxRoiPool", "RoiAlign", "MaxUnpool", "StringNormalizer", "TfIdfVectorizer"
     ]
+
+
+def test_roi_pool_ops_use_c_backend_against_reference():
+    x_data = np.arange(32, dtype=np.float32).reshape(2, 1, 4, 4)
+    roi_input = Tensor(*x_data.shape, dtype="float32", data=x_data)
+
+    max_rois_data = np.array(
+        [
+            [0, 0, 0, 3, 3],
+            [1, 1, 1, 3, 3],
+        ],
+        dtype=np.float32,
+    )
+    max_rois = Tensor(*max_rois_data.shape, dtype="float32", data=max_rois_data)
+    pooled = MaxRoiPool(["x", "rois"], ["y"], pooled_shape=[2, 2], dtype="float32").forward(
+        roi_input, max_rois
+    )["tensor"]
+    np.testing.assert_array_equal(
+        pooled.data,
+        np.array(
+            [
+                [[[5.0, 7.0], [13.0, 15.0]]],
+                [[[26.0, 27.0], [30.0, 31.0]]],
+            ],
+            dtype=np.float32,
+        ),
+    )
+
+    align_rois_data = np.array([[0, 0, 3, 3], [1, 1, 3, 3]], dtype=np.float32)
+    batch_indices_data = np.array([0, 1], dtype=np.int64)
+    align_rois = Tensor(*align_rois_data.shape, dtype="float32", data=align_rois_data)
+    batch_indices = Tensor(*batch_indices_data.shape, dtype="int64", data=batch_indices_data)
+
+    aligned = RoiAlign(
+        ["x", "rois", "batch"],
+        ["y"],
+        output_height=2,
+        output_width=2,
+        sampling_ratio=2,
+        mode="avg",
+        dtype="float32",
+    ).forward(roi_input, align_rois, batch_indices)["tensor"]
+
+    from onnx.reference import ReferenceEvaluator
+
+    graph = helper.make_graph(
+        [
+            helper.make_node(
+                "RoiAlign",
+                ["x", "rois", "batch"],
+                ["y"],
+                output_height=2,
+                output_width=2,
+                sampling_ratio=2,
+                mode="avg",
+            )
+        ],
+        "roi_align_reference",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, list(x_data.shape)),
+            helper.make_tensor_value_info("rois", TensorProto.FLOAT, list(align_rois_data.shape)),
+            helper.make_tensor_value_info("batch", TensorProto.INT64, list(batch_indices_data.shape)),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 1, 2, 2])],
+    )
+    ref = ReferenceEvaluator(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]))
+    expected = ref.run(None, {"x": x_data, "rois": align_rois_data, "batch": batch_indices_data})[0]
+    np.testing.assert_allclose(aligned.data, expected, rtol=1e-6, atol=1e-6)
+
+    aligned_max = RoiAlign(
+        ["x", "rois", "batch"],
+        ["y"],
+        output_height=1,
+        output_width=1,
+        sampling_ratio=2,
+        mode="max",
+        coordinate_transformation_mode="output_half_pixel",
+        dtype="float32",
+    ).forward(roi_input, align_rois, batch_indices)["tensor"]
+    graph_max = helper.make_graph(
+        [
+            helper.make_node(
+                "RoiAlign",
+                ["x", "rois", "batch"],
+                ["y"],
+                output_height=1,
+                output_width=1,
+                sampling_ratio=2,
+                mode="max",
+                coordinate_transformation_mode="output_half_pixel",
+            )
+        ],
+        "roi_align_max_reference",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, list(x_data.shape)),
+            helper.make_tensor_value_info("rois", TensorProto.FLOAT, list(align_rois_data.shape)),
+            helper.make_tensor_value_info("batch", TensorProto.INT64, list(batch_indices_data.shape)),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 1, 1, 1])],
+    )
+    ref_max = ReferenceEvaluator(helper.make_model(graph_max, opset_imports=[helper.make_opsetid("", 17)]))
+    expected_max = ref_max.run(None, {"x": x_data, "rois": align_rois_data, "batch": batch_indices_data})[0]
+    np.testing.assert_allclose(aligned_max.data, expected_max, rtol=1e-6, atol=1e-6)
 
 
 def test_onnx17_sequence_ops(monkeypatch, tmp_path):

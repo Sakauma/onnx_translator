@@ -1483,6 +1483,245 @@ void max_unpool_forward(const Tensor* X, const Tensor* Indices, Tensor* Y, PoolP
     }
 }
 
+void max_roi_pool_forward(const Tensor* X, const Tensor* rois, Tensor* Y,
+                          int pooled_h, int pooled_w, float spatial_scale) {
+    if (!X || !rois || !Y || !X->data || !rois->data || !Y->data) return;
+    if (X->ndim != 4 || rois->ndim != 2 || Y->ndim != 4 || rois->shape[1] != 5) return;
+    if (pooled_h <= 0 || pooled_w <= 0) return;
+
+    int num_rois = rois->shape[0];
+    int batches = X->shape[0];
+    int channels = X->shape[1];
+    int height = X->shape[2];
+    int width = X->shape[3];
+    if (Y->shape[0] != num_rois || Y->shape[1] != channels ||
+        Y->shape[2] != pooled_h || Y->shape[3] != pooled_w) return;
+
+    _Pragma("omp parallel for collapse(4)")
+    for (int roi_idx = 0; roi_idx < num_rois; roi_idx++) {
+        for (int c = 0; c < channels; c++) {
+            for (int ph = 0; ph < pooled_h; ph++) {
+                for (int pw = 0; pw < pooled_w; pw++) {
+                    size_t roi_base = (size_t)roi_idx * 5;
+                    int batch = (int)get_value_as_int64(rois, roi_base);
+                    if (batch < 0 || batch >= batches) continue;
+
+                    int x1 = (int)nearbyint(get_value_as_double(rois, roi_base + 1) * (double)spatial_scale);
+                    int y1 = (int)nearbyint(get_value_as_double(rois, roi_base + 2) * (double)spatial_scale);
+                    int x2 = (int)nearbyint(get_value_as_double(rois, roi_base + 3) * (double)spatial_scale);
+                    int y2 = (int)nearbyint(get_value_as_double(rois, roi_base + 4) * (double)spatial_scale);
+
+                    int roi_w = x2 - x1 + 1;
+                    int roi_h = y2 - y1 + 1;
+                    if (roi_w < 1) roi_w = 1;
+                    if (roi_h < 1) roi_h = 1;
+                    double bin_h = (double)roi_h / (double)pooled_h;
+                    double bin_w = (double)roi_w / (double)pooled_w;
+
+                    int hstart = (int)floor((double)ph * bin_h) + y1;
+                    int hend = (int)ceil((double)(ph + 1) * bin_h) + y1;
+                    int wstart = (int)floor((double)pw * bin_w) + x1;
+                    int wend = (int)ceil((double)(pw + 1) * bin_w) + x1;
+                    if (hstart < 0) hstart = 0;
+                    if (hend < 0) hend = 0;
+                    if (wstart < 0) wstart = 0;
+                    if (wend < 0) wend = 0;
+                    if (hstart > height) hstart = height;
+                    if (hend > height) hend = height;
+                    if (wstart > width) wstart = width;
+                    if (wend > width) wend = width;
+
+                    double max_val = 0.0;
+                    if (hend > hstart && wend > wstart) {
+                        max_val = -DBL_MAX;
+                        for (int h = hstart; h < hend; h++) {
+                            for (int w = wstart; w < wend; w++) {
+                                size_t x_idx = ((size_t)batch * channels * height * width)
+                                             + ((size_t)c * height * width)
+                                             + ((size_t)h * width)
+                                             + (size_t)w;
+                                double value = get_value_as_double(X, x_idx);
+                                if (value > max_val) max_val = value;
+                            }
+                        }
+                    }
+
+                    size_t y_idx = ((size_t)roi_idx * channels * pooled_h * pooled_w)
+                                 + ((size_t)c * pooled_h * pooled_w)
+                                 + ((size_t)ph * pooled_w)
+                                 + (size_t)pw;
+                    set_tensor_value_from_float(Y, y_idx, max_val);
+                }
+            }
+        }
+    }
+}
+
+static double roi_align_bilinear_sample(const Tensor* X, int batch, int channel, double y, double x) {
+    int channels = X->shape[1];
+    int height = X->shape[2];
+    int width = X->shape[3];
+    if (y < -1.0 || y > (double)height || x < -1.0 || x > (double)width) {
+        return 0.0;
+    }
+    if (y < 0.0) y = 0.0;
+    if (x < 0.0) x = 0.0;
+    int y0 = (int)y;
+    int x0 = (int)x;
+    int y1;
+    int x1;
+    if (y0 >= height - 1) {
+        y1 = y0 = height - 1;
+        y = (double)y0;
+    } else {
+        y1 = y0 + 1;
+    }
+    if (x0 >= width - 1) {
+        x1 = x0 = width - 1;
+        x = (double)x0;
+    } else {
+        x1 = x0 + 1;
+    }
+    double ly = y - (double)y0;
+    double lx = x - (double)x0;
+    double hy = 1.0 - ly;
+    double hx = 1.0 - lx;
+    double total = 0.0;
+    int ys[2] = {y0, y1};
+    int xs[2] = {x0, x1};
+    double wy[2] = {hy, ly};
+    double wx[2] = {hx, lx};
+    for (int iy = 0; iy < 2; iy++) {
+        for (int ix = 0; ix < 2; ix++) {
+            size_t idx = ((size_t)batch * channels * height * width)
+                       + ((size_t)channel * height * width)
+                       + ((size_t)ys[iy] * width)
+                       + (size_t)xs[ix];
+            total += get_value_as_double(X, idx) * wy[iy] * wx[ix];
+        }
+    }
+    return total;
+}
+
+static double roi_align_max_weighted_term(const Tensor* X, int batch, int channel, double y, double x) {
+    int channels = X->shape[1];
+    int height = X->shape[2];
+    int width = X->shape[3];
+    if (y < -1.0 || y > (double)height || x < -1.0 || x > (double)width) {
+        return 0.0;
+    }
+    if (y < 0.0) y = 0.0;
+    if (x < 0.0) x = 0.0;
+    int y_low = (int)y;
+    int x_low = (int)x;
+    int y_high;
+    int x_high;
+    if (y_low >= height - 1) {
+        y_high = y_low = height - 1;
+        y = (double)y_low;
+    } else {
+        y_high = y_low + 1;
+    }
+    if (x_low >= width - 1) {
+        x_high = x_low = width - 1;
+        x = (double)x_low;
+    } else {
+        x_high = x_low + 1;
+    }
+    double ly = y - (double)y_low;
+    double lx = x - (double)x_low;
+    double hy = 1.0 - ly;
+    double hx = 1.0 - lx;
+    int ys[2] = {y_low, y_high};
+    int xs[2] = {x_low, x_high};
+    double wy[2] = {hy, ly};
+    double wx[2] = {hx, lx};
+    double max_term = -DBL_MAX;
+    for (int iy = 0; iy < 2; iy++) {
+        for (int ix = 0; ix < 2; ix++) {
+            size_t idx = ((size_t)batch * channels * height * width)
+                       + ((size_t)channel * height * width)
+                       + ((size_t)ys[iy] * width)
+                       + (size_t)xs[ix];
+            double term = get_value_as_double(X, idx) * wy[iy] * wx[ix];
+            if (term > max_term) max_term = term;
+        }
+    }
+    return max_term;
+}
+
+void roi_align_forward(const Tensor* X, const Tensor* rois, const Tensor* batch_indices, Tensor* Y,
+                       int output_height, int output_width, int sampling_ratio,
+                       float spatial_scale, int mode, int coordinate_transformation_mode) {
+    if (!X || !rois || !batch_indices || !Y || !X->data || !rois->data || !batch_indices->data || !Y->data) return;
+    if (X->ndim != 4 || rois->ndim != 2 || batch_indices->ndim != 1 || Y->ndim != 4 || rois->shape[1] != 4) return;
+    if (output_height <= 0 || output_width <= 0) return;
+
+    int num_rois = rois->shape[0];
+    int batches = X->shape[0];
+    int channels = X->shape[1];
+    if (batch_indices->shape[0] != num_rois ||
+        Y->shape[0] != num_rois || Y->shape[1] != channels ||
+        Y->shape[2] != output_height || Y->shape[3] != output_width) return;
+
+    int half_pixel = (coordinate_transformation_mode == 0);
+    double offset = half_pixel ? 0.5 : 0.0;
+
+    _Pragma("omp parallel for collapse(4)")
+    for (int roi_idx = 0; roi_idx < num_rois; roi_idx++) {
+        for (int c = 0; c < channels; c++) {
+            for (int ph = 0; ph < output_height; ph++) {
+                for (int pw = 0; pw < output_width; pw++) {
+                    int batch = (int)get_value_as_int64(batch_indices, (size_t)roi_idx);
+                    if (batch < 0 || batch >= batches) continue;
+
+                    size_t roi_base = (size_t)roi_idx * 4;
+                    double roi_start_w = get_value_as_double(rois, roi_base) * (double)spatial_scale - offset;
+                    double roi_start_h = get_value_as_double(rois, roi_base + 1) * (double)spatial_scale - offset;
+                    double roi_end_w = get_value_as_double(rois, roi_base + 2) * (double)spatial_scale - offset;
+                    double roi_end_h = get_value_as_double(rois, roi_base + 3) * (double)spatial_scale - offset;
+                    double roi_w = roi_end_w - roi_start_w;
+                    double roi_h = roi_end_h - roi_start_h;
+                    if (!half_pixel) {
+                        if (roi_w < 1.0) roi_w = 1.0;
+                        if (roi_h < 1.0) roi_h = 1.0;
+                    }
+                    double bin_h = roi_h / (double)output_height;
+                    double bin_w = roi_w / (double)output_width;
+                    int grid_h = sampling_ratio > 0 ? sampling_ratio : (int)ceil(roi_h / (double)output_height);
+                    int grid_w = sampling_ratio > 0 ? sampling_ratio : (int)ceil(roi_w / (double)output_width);
+                    if (grid_h < 1) grid_h = 1;
+                    if (grid_w < 1) grid_w = 1;
+                    int count = grid_h * grid_w;
+
+                    double output_value = (mode == 1) ? -DBL_MAX : 0.0;
+                    for (int iy = 0; iy < grid_h; iy++) {
+                        double yy = roi_start_h + (double)ph * bin_h + ((double)iy + 0.5) * bin_h / (double)grid_h;
+                        for (int ix = 0; ix < grid_w; ix++) {
+                            double xx = roi_start_w + (double)pw * bin_w + ((double)ix + 0.5) * bin_w / (double)grid_w;
+                            if (mode == 1) {
+                                double term = roi_align_max_weighted_term(X, batch, c, yy, xx);
+                                if (term > output_value) output_value = term;
+                            } else {
+                                output_value += roi_align_bilinear_sample(X, batch, c, yy, xx);
+                            }
+                        }
+                    }
+                    if (mode != 1) {
+                        output_value /= (double)count;
+                    }
+
+                    size_t y_idx = ((size_t)roi_idx * channels * output_height * output_width)
+                                 + ((size_t)c * output_height * output_width)
+                                 + ((size_t)ph * output_width)
+                                 + (size_t)pw;
+                    set_tensor_value_from_float(Y, y_idx, output_value);
+                }
+            }
+        }
+    }
+}
+
 void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y, 
                   float alpha, float beta, int transA, int transB) {
     // 假设 A, B 已经是 2D 矩阵 (前端已处理 reshape)
@@ -2109,6 +2348,582 @@ void mel_weight_matrix_forward(const Tensor* num_mel_bins, const Tensor* dft_len
             }
         }
     }
+}
+
+static size_t complex_tensor_index(const Tensor* tensor, const int* coords, int component) {
+    int complex_rank = tensor->ndim - 1;
+    size_t idx = 0;
+    for (int d = 0; d < complex_rank; d++) {
+        idx = idx * (size_t)tensor->shape[d] + (size_t)coords[d];
+    }
+    return idx * (size_t)tensor->shape[complex_rank] + (size_t)component;
+}
+
+static void get_complex_value(const Tensor* tensor, const int* coords, double* real, double* imag) {
+    *real = get_value_as_double(tensor, complex_tensor_index(tensor, coords, 0));
+    *imag = 0.0;
+    if (tensor->shape[tensor->ndim - 1] == 2) {
+        *imag = get_value_as_double(tensor, complex_tensor_index(tensor, coords, 1));
+    }
+}
+
+static int normalize_complex_axis(int axis, int complex_rank) {
+    if (axis < 0) axis += complex_rank + 1;
+    return axis;
+}
+
+void dft_forward(const Tensor* input, Tensor* output, int axis, int inverse, int onesided, int dft_length) {
+    if (!input || !output || !input->data || !output->data) return;
+    if (input->ndim < 2 || output->ndim != input->ndim || input->ndim > MAX_NDIM) return;
+    int complex_rank = input->ndim - 1;
+    int input_complex_dim = input->shape[complex_rank];
+    int output_complex_dim = output->shape[complex_rank];
+    if (input_complex_dim != 1 && input_complex_dim != 2) return;
+    if (output_complex_dim != 1 && output_complex_dim != 2) return;
+    axis = normalize_complex_axis(axis, complex_rank);
+    if (axis < 0 || axis >= complex_rank || dft_length <= 0) return;
+
+    for (int d = 0; d < complex_rank; d++) {
+        if (d != axis && input->shape[d] != output->shape[d]) return;
+    }
+
+    int input_axis_len = input->shape[axis];
+    int output_axis_len = output->shape[axis];
+    size_t vector_total = 1;
+    for (int d = 0; d < complex_rank; d++) {
+        if (d != axis) vector_total *= (size_t)output->shape[d];
+    }
+
+    _Pragma("omp parallel for collapse(2)")
+    for (size_t vector_id = 0; vector_id < vector_total; vector_id++) {
+        for (int k = 0; k < output_axis_len; k++) {
+            int in_coords[MAX_NDIM] = {0};
+            int out_coords[MAX_NDIM] = {0};
+            size_t rem = vector_id;
+            for (int d = complex_rank - 1; d >= 0; d--) {
+                if (d == axis) continue;
+                int dim = output->shape[d];
+                int coord = (int)(rem % (size_t)dim);
+                rem /= (size_t)dim;
+                in_coords[d] = coord;
+                out_coords[d] = coord;
+            }
+            out_coords[axis] = k;
+
+            if (inverse && onesided) {
+                double real_sum = 0.0;
+                int max_freq = dft_length / 2;
+                for (int f = 0; f < input_axis_len; f++) {
+                    if (f > max_freq) continue;
+                    in_coords[axis] = f;
+                    double xr, xi;
+                    get_complex_value(input, in_coords, &xr, &xi);
+                    double angle = TWO_PI * (double)f * (double)k / (double)dft_length;
+                    double contribution = xr * cos(angle) - xi * sin(angle);
+                    if (f != 0 && !(dft_length % 2 == 0 && f == dft_length / 2)) {
+                        contribution *= 2.0;
+                    }
+                    real_sum += contribution;
+                }
+                set_tensor_value_from_float(output, complex_tensor_index(output, out_coords, 0), real_sum / (double)dft_length);
+                continue;
+            }
+
+            double real_sum = 0.0;
+            double imag_sum = 0.0;
+            double sign = inverse ? 1.0 : -1.0;
+            for (int n = 0; n < dft_length; n++) {
+                double xr = 0.0;
+                double xi = 0.0;
+                if (n < input_axis_len) {
+                    in_coords[axis] = n;
+                    get_complex_value(input, in_coords, &xr, &xi);
+                }
+                double angle = sign * TWO_PI * (double)k * (double)n / (double)dft_length;
+                double ca = cos(angle);
+                double sa = sin(angle);
+                real_sum += xr * ca - xi * sa;
+                imag_sum += xr * sa + xi * ca;
+            }
+            if (inverse) {
+                real_sum /= (double)dft_length;
+                imag_sum /= (double)dft_length;
+            }
+            set_tensor_value_from_float(output, complex_tensor_index(output, out_coords, 0), real_sum);
+            if (output_complex_dim == 2) {
+                set_tensor_value_from_float(output, complex_tensor_index(output, out_coords, 1), imag_sum);
+            }
+        }
+    }
+}
+
+void stft_forward(const Tensor* signal, const Tensor* window, Tensor* output,
+                  int frame_step, int frame_length, int onesided) {
+    if (!signal || !output || !signal->data || !output->data) return;
+    if (signal->ndim < 2 || output->ndim != signal->ndim + 1 || signal->ndim + 1 > MAX_NDIM) return;
+    if (frame_step <= 0 || frame_length <= 0) return;
+    int signal_complex_rank = signal->ndim - 1;
+    int output_complex_rank = output->ndim - 1;
+    int prefix_rank = signal->ndim - 2;
+    int signal_len = signal->shape[signal_complex_rank - 1];
+    int signal_complex_dim = signal->shape[signal_complex_rank];
+    int output_complex_dim = output->shape[output_complex_rank];
+    if (signal_complex_dim != 1 && signal_complex_dim != 2) return;
+    if (output_complex_dim != 2) return;
+    for (int d = 0; d < prefix_rank; d++) {
+        if (signal->shape[d] != output->shape[d]) return;
+    }
+    int n_frames = output->shape[prefix_rank];
+    int bins = output->shape[prefix_rank + 1];
+    int expected_bins = onesided ? frame_length / 2 + 1 : frame_length;
+    if (bins != expected_bins) return;
+    if (window && window->data && window->size < (size_t)frame_length) return;
+
+    size_t prefix_total = 1;
+    for (int d = 0; d < prefix_rank; d++) prefix_total *= (size_t)signal->shape[d];
+
+    _Pragma("omp parallel for collapse(3)")
+    for (size_t prefix_id = 0; prefix_id < prefix_total; prefix_id++) {
+        for (int frame = 0; frame < n_frames; frame++) {
+            for (int k = 0; k < bins; k++) {
+                int sig_coords[MAX_NDIM] = {0};
+                int out_coords[MAX_NDIM] = {0};
+                size_t rem = prefix_id;
+                for (int d = prefix_rank - 1; d >= 0; d--) {
+                    int dim = signal->shape[d];
+                    int coord = (int)(rem % (size_t)dim);
+                    rem /= (size_t)dim;
+                    sig_coords[d] = coord;
+                    out_coords[d] = coord;
+                }
+                out_coords[prefix_rank] = frame;
+                out_coords[prefix_rank + 1] = k;
+
+                double real_sum = 0.0;
+                double imag_sum = 0.0;
+                for (int n = 0; n < frame_length; n++) {
+                    int signal_pos = frame * frame_step + n;
+                    double xr = 0.0;
+                    double xi = 0.0;
+                    if (signal_pos >= 0 && signal_pos < signal_len) {
+                        sig_coords[prefix_rank] = signal_pos;
+                        get_complex_value(signal, sig_coords, &xr, &xi);
+                    }
+                    double win = 1.0;
+                    if (window && window->data) {
+                        win = get_value_as_double(window, (size_t)n);
+                    }
+                    xr *= win;
+                    xi *= win;
+                    double angle = -TWO_PI * (double)k * (double)n / (double)frame_length;
+                    double ca = cos(angle);
+                    double sa = sin(angle);
+                    real_sum += xr * ca - xi * sa;
+                    imag_sum += xr * sa + xi * ca;
+                }
+                set_tensor_value_from_float(output, complex_tensor_index(output, out_coords, 0), real_sum);
+                set_tensor_value_from_float(output, complex_tensor_index(output, out_coords, 1), imag_sum);
+            }
+        }
+    }
+}
+
+static double recurrent_alpha(const float* values, int index, double default_value) {
+    if (!values) return default_value;
+    float value = values[index];
+    return isnan(value) ? default_value : (double)value;
+}
+
+static double recurrent_clip(double value, float clip, int has_clip) {
+    if (!has_clip) return value;
+    if (value > (double)clip) return (double)clip;
+    if (value < -(double)clip) return -(double)clip;
+    return value;
+}
+
+static double recurrent_activation(double x, int code, const float* alphas, const float* betas, int index) {
+    switch (code) {
+        case 1:
+            return 1.0 / (1.0 + exp(-x));
+        case 2:
+            return x > 0.0 ? x : 0.0;
+        case 3: {
+            double a = recurrent_alpha(alphas, index, 1.0);
+            double b = recurrent_alpha(betas, index, 0.0);
+            return a * x + b;
+        }
+        case 4: {
+            double a = recurrent_alpha(alphas, index, 0.01);
+            return x >= 0.0 ? x : a * x;
+        }
+        case 5: {
+            double a = recurrent_alpha(alphas, index, 1.0);
+            return x >= a ? x : 0.0;
+        }
+        case 6: {
+            double a = recurrent_alpha(alphas, index, 1.0);
+            double b = recurrent_alpha(betas, index, 1.0);
+            return a * tanh(b * x);
+        }
+        case 7: {
+            double a = recurrent_alpha(alphas, index, 0.2);
+            double b = recurrent_alpha(betas, index, 0.5);
+            double y = a * x + b;
+            if (y < 0.0) return 0.0;
+            if (y > 1.0) return 1.0;
+            return y;
+        }
+        case 8: {
+            double a = recurrent_alpha(alphas, index, 1.0);
+            return x >= 0.0 ? x : a * (exp(x) - 1.0);
+        }
+        case 9:
+            return x / (1.0 + fabs(x));
+        case 10:
+            return log1p(exp(x));
+        case 0:
+        default:
+            return tanh(x);
+    }
+}
+
+static int recurrent_activation_code(const int* activations, int num_activations, int index, int default_code) {
+    if (!activations || index >= num_activations) return default_code;
+    return activations[index];
+}
+
+static int recurrent_num_dirs(int direction) {
+    return direction == 2 ? 2 : 1;
+}
+
+static int recurrent_is_reverse(int direction, int dir_index) {
+    return direction == 1 || (direction == 2 && dir_index == 1);
+}
+
+static size_t recurrent_x_index(const Tensor* X, int layout, int t, int b, int i) {
+    if (layout == 1) {
+        int seq_len = X->shape[1];
+        int input_size = X->shape[2];
+        return ((size_t)b * seq_len * input_size) + ((size_t)t * input_size) + (size_t)i;
+    }
+    int batch = X->shape[1];
+    int input_size = X->shape[2];
+    return ((size_t)t * batch * input_size) + ((size_t)b * input_size) + (size_t)i;
+}
+
+static size_t recurrent_y_index(const Tensor* Y, int layout, int t, int d, int b, int h) {
+    if (layout == 1) {
+        int seq_len = Y->shape[1];
+        int num_dirs = Y->shape[2];
+        int hidden = Y->shape[3];
+        return ((size_t)b * seq_len * num_dirs * hidden)
+             + ((size_t)t * num_dirs * hidden)
+             + ((size_t)d * hidden)
+             + (size_t)h;
+    }
+    int num_dirs = Y->shape[1];
+    int batch = Y->shape[2];
+    int hidden = Y->shape[3];
+    return ((size_t)t * num_dirs * batch * hidden)
+         + ((size_t)d * batch * hidden)
+         + ((size_t)b * hidden)
+         + (size_t)h;
+}
+
+static int recurrent_sequence_active(const Tensor* sequence_lens, int t, int b) {
+    if (!sequence_lens || !sequence_lens->data) return 1;
+    return get_value_as_int64(sequence_lens, (size_t)b) > t;
+}
+
+void rnn_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
+                 const Tensor* sequence_lens, const Tensor* initial_h,
+                 Tensor* Y, Tensor* Y_h, int hidden_size, int direction, int layout,
+                 const int* activations, const float* activation_alpha,
+                 const float* activation_beta, int num_activations,
+                 float clip, int has_clip) {
+    if (!X || !W || !R || !Y || !X->data || !W->data || !R->data || !Y->data) return;
+    if (X->ndim != 3 || W->ndim != 3 || R->ndim != 3 || Y->ndim != 4) return;
+    int seq_len = layout == 1 ? X->shape[1] : X->shape[0];
+    int batch = layout == 1 ? X->shape[0] : X->shape[1];
+    int input_size = X->shape[2];
+    int num_dirs = recurrent_num_dirs(direction);
+    int hidden = hidden_size > 0 ? hidden_size : R->shape[2];
+    if (W->shape[0] != num_dirs || R->shape[0] != num_dirs || W->shape[1] != hidden || R->shape[1] != hidden || R->shape[2] != hidden) return;
+
+    double* h_state = (double*)calloc((size_t)num_dirs * batch * hidden, sizeof(double));
+    double* h_new = (double*)calloc((size_t)batch * hidden, sizeof(double));
+    if (!h_state || !h_new) {
+        free(h_state);
+        free(h_new);
+        return;
+    }
+    if (initial_h && initial_h->data) {
+        for (int d = 0; d < num_dirs; d++) {
+            for (int b = 0; b < batch; b++) {
+                for (int h = 0; h < hidden; h++) {
+                    h_state[((size_t)d * batch + b) * hidden + h] =
+                        get_value_as_double(initial_h, ((size_t)d * batch + b) * hidden + h);
+                }
+            }
+        }
+    }
+
+    for (int d = 0; d < num_dirs; d++) {
+        int reverse = recurrent_is_reverse(direction, d);
+        int act_code = recurrent_activation_code(activations, num_activations, d, 0);
+        for (int step = 0; step < seq_len; step++) {
+            int t = reverse ? (seq_len - 1 - step) : step;
+            for (int b = 0; b < batch; b++) {
+                for (int h = 0; h < hidden; h++) {
+                    double pre = 0.0;
+                    for (int i = 0; i < input_size; i++) {
+                        pre += get_value_as_double(X, recurrent_x_index(X, layout, t, b, i))
+                             * get_value_as_double(W, ((size_t)d * hidden + h) * input_size + i);
+                    }
+                    for (int hh = 0; hh < hidden; hh++) {
+                        pre += h_state[((size_t)d * batch + b) * hidden + hh]
+                             * get_value_as_double(R, ((size_t)d * hidden + h) * hidden + hh);
+                    }
+                    if (B && B->data) {
+                        pre += get_value_as_double(B, (size_t)d * 2 * hidden + h);
+                        pre += get_value_as_double(B, (size_t)d * 2 * hidden + hidden + h);
+                    }
+                    pre = recurrent_clip(pre, clip, has_clip);
+                    h_new[(size_t)b * hidden + h] = recurrent_activation(pre, act_code, activation_alpha, activation_beta, d);
+                }
+            }
+            for (int b = 0; b < batch; b++) {
+                int active = recurrent_sequence_active(sequence_lens, t, b);
+                for (int h = 0; h < hidden; h++) {
+                    size_t state_idx = ((size_t)d * batch + b) * hidden + h;
+                    if (active) h_state[state_idx] = h_new[(size_t)b * hidden + h];
+                    set_tensor_value_from_float(Y, recurrent_y_index(Y, layout, t, d, b, h), h_state[state_idx]);
+                }
+            }
+        }
+    }
+
+    if (Y_h && Y_h->data) {
+        for (int d = 0; d < num_dirs; d++) {
+            for (int b = 0; b < batch; b++) {
+                for (int h = 0; h < hidden; h++) {
+                    size_t idx = ((size_t)d * batch + b) * hidden + h;
+                    set_tensor_value_from_float(Y_h, idx, h_state[idx]);
+                }
+            }
+        }
+    }
+    free(h_state);
+    free(h_new);
+}
+
+void gru_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
+                 const Tensor* sequence_lens, const Tensor* initial_h,
+                 Tensor* Y, Tensor* Y_h, int hidden_size, int direction, int layout,
+                 int linear_before_reset, const int* activations,
+                 const float* activation_alpha, const float* activation_beta,
+                 int num_activations, float clip, int has_clip) {
+    if (!X || !W || !R || !Y || !X->data || !W->data || !R->data || !Y->data) return;
+    int seq_len = layout == 1 ? X->shape[1] : X->shape[0];
+    int batch = layout == 1 ? X->shape[0] : X->shape[1];
+    int input_size = X->shape[2];
+    int num_dirs = recurrent_num_dirs(direction);
+    int hidden = hidden_size > 0 ? hidden_size : R->shape[2];
+    if (W->shape[1] != 3 * hidden || R->shape[1] != 3 * hidden) return;
+
+    double* h_state = (double*)calloc((size_t)num_dirs * batch * hidden, sizeof(double));
+    double* z = (double*)calloc((size_t)batch * hidden, sizeof(double));
+    double* reset = (double*)calloc((size_t)batch * hidden, sizeof(double));
+    double* cand = (double*)calloc((size_t)batch * hidden, sizeof(double));
+    if (!h_state || !z || !reset || !cand) {
+        free(h_state); free(z); free(reset); free(cand);
+        return;
+    }
+    if (initial_h && initial_h->data) {
+        for (int d = 0; d < num_dirs; d++)
+            for (int b = 0; b < batch; b++)
+                for (int h = 0; h < hidden; h++)
+                    h_state[((size_t)d * batch + b) * hidden + h] = get_value_as_double(initial_h, ((size_t)d * batch + b) * hidden + h);
+    }
+
+    for (int d = 0; d < num_dirs; d++) {
+        int reverse = recurrent_is_reverse(direction, d);
+        int f_code = recurrent_activation_code(activations, num_activations, d * 2, 1);
+        int g_code = recurrent_activation_code(activations, num_activations, d * 2 + 1, 0);
+        for (int step = 0; step < seq_len; step++) {
+            int t = reverse ? (seq_len - 1 - step) : step;
+            for (int b = 0; b < batch; b++) {
+                for (int h = 0; h < hidden; h++) {
+                    double gate_pre[2] = {0.0, 0.0};
+                    for (int gate = 0; gate < 2; gate++) {
+                        for (int i = 0; i < input_size; i++) {
+                            gate_pre[gate] += get_value_as_double(X, recurrent_x_index(X, layout, t, b, i))
+                                * get_value_as_double(W, ((size_t)d * 3 * hidden + gate * hidden + h) * input_size + i);
+                        }
+                        for (int hh = 0; hh < hidden; hh++) {
+                            gate_pre[gate] += h_state[((size_t)d * batch + b) * hidden + hh]
+                                * get_value_as_double(R, ((size_t)d * 3 * hidden + gate * hidden + h) * hidden + hh);
+                        }
+                        if (B && B->data) {
+                            gate_pre[gate] += get_value_as_double(B, (size_t)d * 6 * hidden + gate * hidden + h);
+                            gate_pre[gate] += get_value_as_double(B, (size_t)d * 6 * hidden + 3 * hidden + gate * hidden + h);
+                        }
+                        gate_pre[gate] = recurrent_clip(gate_pre[gate], clip, has_clip);
+                    }
+                    z[(size_t)b * hidden + h] = recurrent_activation(gate_pre[0], f_code, activation_alpha, activation_beta, d * 2);
+                    reset[(size_t)b * hidden + h] = recurrent_activation(gate_pre[1], f_code, activation_alpha, activation_beta, d * 2);
+                }
+            }
+            for (int b = 0; b < batch; b++) {
+                for (int h = 0; h < hidden; h++) {
+                    double pre = 0.0;
+                    for (int i = 0; i < input_size; i++) {
+                        pre += get_value_as_double(X, recurrent_x_index(X, layout, t, b, i))
+                             * get_value_as_double(W, ((size_t)d * 3 * hidden + 2 * hidden + h) * input_size + i);
+                    }
+                    if (linear_before_reset) {
+                        double rec = 0.0;
+                        for (int hh = 0; hh < hidden; hh++) {
+                            rec += h_state[((size_t)d * batch + b) * hidden + hh]
+                                 * get_value_as_double(R, ((size_t)d * 3 * hidden + 2 * hidden + h) * hidden + hh);
+                        }
+                        if (B && B->data) rec += get_value_as_double(B, (size_t)d * 6 * hidden + 5 * hidden + h);
+                        pre += reset[(size_t)b * hidden + h] * rec;
+                        if (B && B->data) pre += get_value_as_double(B, (size_t)d * 6 * hidden + 2 * hidden + h);
+                    } else {
+                        for (int hh = 0; hh < hidden; hh++) {
+                            pre += reset[(size_t)b * hidden + hh] * h_state[((size_t)d * batch + b) * hidden + hh]
+                                 * get_value_as_double(R, ((size_t)d * 3 * hidden + 2 * hidden + h) * hidden + hh);
+                        }
+                        if (B && B->data) {
+                            pre += get_value_as_double(B, (size_t)d * 6 * hidden + 2 * hidden + h);
+                            pre += get_value_as_double(B, (size_t)d * 6 * hidden + 5 * hidden + h);
+                        }
+                    }
+                    pre = recurrent_clip(pre, clip, has_clip);
+                    cand[(size_t)b * hidden + h] = recurrent_activation(pre, g_code, activation_alpha, activation_beta, d * 2 + 1);
+                }
+            }
+            for (int b = 0; b < batch; b++) {
+                int active = recurrent_sequence_active(sequence_lens, t, b);
+                for (int h = 0; h < hidden; h++) {
+                    size_t state_idx = ((size_t)d * batch + b) * hidden + h;
+                    double h_old = h_state[state_idx];
+                    double h_new = (1.0 - z[(size_t)b * hidden + h]) * cand[(size_t)b * hidden + h] + z[(size_t)b * hidden + h] * h_old;
+                    if (active) h_state[state_idx] = h_new;
+                    set_tensor_value_from_float(Y, recurrent_y_index(Y, layout, t, d, b, h), h_state[state_idx]);
+                }
+            }
+        }
+    }
+
+    if (Y_h && Y_h->data) {
+        for (int d = 0; d < num_dirs; d++)
+            for (int b = 0; b < batch; b++)
+                for (int h = 0; h < hidden; h++) {
+                    size_t idx = ((size_t)d * batch + b) * hidden + h;
+                    set_tensor_value_from_float(Y_h, idx, h_state[idx]);
+                }
+    }
+    free(h_state); free(z); free(reset); free(cand);
+}
+
+void lstm_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
+                  const Tensor* sequence_lens, const Tensor* initial_h,
+                  const Tensor* initial_c, const Tensor* P,
+                  Tensor* Y, Tensor* Y_h, Tensor* Y_c, int hidden_size,
+                  int direction, int layout, int input_forget,
+                  const int* activations, const float* activation_alpha,
+                  const float* activation_beta, int num_activations,
+                  float clip, int has_clip) {
+    if (!X || !W || !R || !Y || !X->data || !W->data || !R->data || !Y->data) return;
+    int seq_len = layout == 1 ? X->shape[1] : X->shape[0];
+    int batch = layout == 1 ? X->shape[0] : X->shape[1];
+    int input_size = X->shape[2];
+    int num_dirs = recurrent_num_dirs(direction);
+    int hidden = hidden_size > 0 ? hidden_size : R->shape[2];
+    if (W->shape[1] != 4 * hidden || R->shape[1] != 4 * hidden) return;
+
+    double* h_state = (double*)calloc((size_t)num_dirs * batch * hidden, sizeof(double));
+    double* c_state = (double*)calloc((size_t)num_dirs * batch * hidden, sizeof(double));
+    double* h_next = (double*)calloc((size_t)batch * hidden, sizeof(double));
+    double* c_next = (double*)calloc((size_t)batch * hidden, sizeof(double));
+    if (!h_state || !c_state || !h_next || !c_next) {
+        free(h_state); free(c_state); free(h_next); free(c_next);
+        return;
+    }
+    if (initial_h && initial_h->data) {
+        for (int d = 0; d < num_dirs; d++)
+            for (int b = 0; b < batch; b++)
+                for (int h = 0; h < hidden; h++)
+                    h_state[((size_t)d * batch + b) * hidden + h] = get_value_as_double(initial_h, ((size_t)d * batch + b) * hidden + h);
+    }
+    if (initial_c && initial_c->data) {
+        for (int d = 0; d < num_dirs; d++)
+            for (int b = 0; b < batch; b++)
+                for (int h = 0; h < hidden; h++)
+                    c_state[((size_t)d * batch + b) * hidden + h] = get_value_as_double(initial_c, ((size_t)d * batch + b) * hidden + h);
+    }
+
+    for (int d = 0; d < num_dirs; d++) {
+        int reverse = recurrent_is_reverse(direction, d);
+        int f_code = recurrent_activation_code(activations, num_activations, d * 3, 1);
+        int g_code = recurrent_activation_code(activations, num_activations, d * 3 + 1, 0);
+        int h_code = recurrent_activation_code(activations, num_activations, d * 3 + 2, 0);
+        for (int step = 0; step < seq_len; step++) {
+            int t = reverse ? (seq_len - 1 - step) : step;
+            for (int b = 0; b < batch; b++) {
+                for (int h = 0; h < hidden; h++) {
+                    double gates[4] = {0.0, 0.0, 0.0, 0.0};
+                    for (int gate = 0; gate < 4; gate++) {
+                        for (int i = 0; i < input_size; i++) {
+                            gates[gate] += get_value_as_double(X, recurrent_x_index(X, layout, t, b, i))
+                                * get_value_as_double(W, ((size_t)d * 4 * hidden + gate * hidden + h) * input_size + i);
+                        }
+                        for (int hh = 0; hh < hidden; hh++) {
+                            gates[gate] += h_state[((size_t)d * batch + b) * hidden + hh]
+                                * get_value_as_double(R, ((size_t)d * 4 * hidden + gate * hidden + h) * hidden + hh);
+                        }
+                        if (B && B->data) {
+                            gates[gate] += get_value_as_double(B, (size_t)d * 8 * hidden + gate * hidden + h);
+                            gates[gate] += get_value_as_double(B, (size_t)d * 8 * hidden + 4 * hidden + gate * hidden + h);
+                        }
+                    }
+                    double c_prev = c_state[((size_t)d * batch + b) * hidden + h];
+                    double p_i = (P && P->data) ? get_value_as_double(P, (size_t)d * 3 * hidden + h) : 0.0;
+                    double p_o = (P && P->data) ? get_value_as_double(P, (size_t)d * 3 * hidden + hidden + h) : 0.0;
+                    double p_f = (P && P->data) ? get_value_as_double(P, (size_t)d * 3 * hidden + 2 * hidden + h) : 0.0;
+                    double i_gate = recurrent_activation(recurrent_clip(gates[0] + p_i * c_prev, clip, has_clip), f_code, activation_alpha, activation_beta, d * 3);
+                    double f_gate = input_forget ? (1.0 - i_gate) : recurrent_activation(recurrent_clip(gates[2] + p_f * c_prev, clip, has_clip), f_code, activation_alpha, activation_beta, d * 3);
+                    double c_bar = recurrent_activation(recurrent_clip(gates[3], clip, has_clip), g_code, activation_alpha, activation_beta, d * 3 + 1);
+                    double c_val = f_gate * c_prev + i_gate * c_bar;
+                    double o_gate = recurrent_activation(recurrent_clip(gates[1] + p_o * c_val, clip, has_clip), f_code, activation_alpha, activation_beta, d * 3);
+                    h_next[(size_t)b * hidden + h] = o_gate * recurrent_activation(c_val, h_code, activation_alpha, activation_beta, d * 3 + 2);
+                    c_next[(size_t)b * hidden + h] = c_val;
+                }
+            }
+            for (int b = 0; b < batch; b++) {
+                int active = recurrent_sequence_active(sequence_lens, t, b);
+                for (int h = 0; h < hidden; h++) {
+                    size_t state_idx = ((size_t)d * batch + b) * hidden + h;
+                    if (active) {
+                        h_state[state_idx] = h_next[(size_t)b * hidden + h];
+                        c_state[state_idx] = c_next[(size_t)b * hidden + h];
+                    }
+                    set_tensor_value_from_float(Y, recurrent_y_index(Y, layout, t, d, b, h), h_state[state_idx]);
+                }
+            }
+        }
+    }
+
+    for (int d = 0; d < num_dirs; d++)
+        for (int b = 0; b < batch; b++)
+            for (int h = 0; h < hidden; h++) {
+                size_t idx = ((size_t)d * batch + b) * hidden + h;
+                if (Y_h && Y_h->data) set_tensor_value_from_float(Y_h, idx, h_state[idx]);
+                if (Y_c && Y_c->data) set_tensor_value_from_float(Y_c, idx, c_state[idx]);
+            }
+    free(h_state); free(c_state); free(h_next); free(c_next);
 }
 
 void multinomial_forward(const Tensor* input, Tensor* output, int sample_size, uint32_t seed) {

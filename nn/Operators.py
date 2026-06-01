@@ -1629,6 +1629,15 @@ class MaxRoiPool(Ops):
         self.spatial_scale = float(spatial_scale)
         self.dtype = dtype
         self.version = version
+        if self.lib:
+            self.lib.max_roi_pool_forward.argtypes = [
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_float,
+            ]
 
     def forward(self, x, rois):
         data = np.asarray(x.data)
@@ -1637,6 +1646,26 @@ class MaxRoiPool(Ops):
             raise ValueError(f"MaxRoiPool expects X [N,C,H,W] and rois [num_rois,5], got {data.shape}, {roi_data.shape}")
         pooled_h, pooled_w = self.pooled_shape
         num_rois, channels = roi_data.shape[0], data.shape[1]
+        out_shape = (num_rois, channels, pooled_h, pooled_w)
+        if self.lib is not None and x.dtype in nn.DTYPE_MAP and rois.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
+            rois_c = self._numpy_to_ctensor(np.ascontiguousarray(rois.data), rois.dtype)
+            output_shape_c = (ctypes.c_int * 4)(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, 4, nn.DTYPE_MAP[self.dtype])
+            self.lib.max_roi_pool_forward(
+                x_c,
+                rois_c,
+                output_c,
+                ctypes.c_int(pooled_h),
+                ctypes.c_int(pooled_w),
+                ctypes.c_float(self.spatial_scale),
+            )
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(x_c)
+            self.lib.free_tensor(rois_c)
+            self.lib.free_tensor(output_c)
+            return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
         out = np.zeros((num_rois, channels, pooled_h, pooled_w), dtype=data.dtype)
         height, width = data.shape[2], data.shape[3]
         for roi_idx, roi in enumerate(roi_data):
@@ -1691,6 +1720,35 @@ class RoiAlign(Ops):
         self.coordinate_transformation_mode = coordinate_transformation_mode
         self.dtype = dtype
         self.version = version
+        if self.lib:
+            self.lib.roi_align_forward.argtypes = [
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_float,
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
+
+    def _mode_code(self):
+        mode = self.mode.lower()
+        if mode == "avg":
+            return 0
+        if mode == "max":
+            return 1
+        raise ValueError(f"Unsupported RoiAlign mode {self.mode!r}")
+
+    def _coordinate_transformation_mode_code(self):
+        mode = self.coordinate_transformation_mode.lower()
+        if mode == "half_pixel":
+            return 0
+        if mode == "output_half_pixel":
+            return 1
+        raise ValueError(f"Unsupported RoiAlign coordinate_transformation_mode {self.coordinate_transformation_mode!r}")
 
     def forward(self, x, rois, batch_indices):
         data = np.asarray(x.data)
@@ -1701,6 +1759,38 @@ class RoiAlign(Ops):
         if len(batches) != roi_data.shape[0]:
             raise ValueError("RoiAlign batch_indices length must match number of rois")
         num_rois, channels = roi_data.shape[0], data.shape[1]
+        out_shape = (num_rois, channels, self.output_height, self.output_width)
+        if (
+            self.lib is not None
+            and x.dtype in nn.DTYPE_MAP
+            and rois.dtype in nn.DTYPE_MAP
+            and batch_indices.dtype in nn.DTYPE_MAP
+            and self.dtype in nn.DTYPE_MAP
+        ):
+            x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
+            rois_c = self._numpy_to_ctensor(np.ascontiguousarray(rois.data), rois.dtype)
+            batch_c = self._numpy_to_ctensor(np.ascontiguousarray(batch_indices.data), batch_indices.dtype)
+            output_shape_c = (ctypes.c_int * 4)(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, 4, nn.DTYPE_MAP[self.dtype])
+            self.lib.roi_align_forward(
+                x_c,
+                rois_c,
+                batch_c,
+                output_c,
+                ctypes.c_int(self.output_height),
+                ctypes.c_int(self.output_width),
+                ctypes.c_int(self.sampling_ratio),
+                ctypes.c_float(self.spatial_scale),
+                ctypes.c_int(self._mode_code()),
+                ctypes.c_int(self._coordinate_transformation_mode_code()),
+            )
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(x_c)
+            self.lib.free_tensor(rois_c)
+            self.lib.free_tensor(batch_c)
+            self.lib.free_tensor(output_c)
+            return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
         height, width = data.shape[2], data.shape[3]
         out = np.empty((num_rois, channels, self.output_height, self.output_width), dtype=np.float64)
         half_pixel = self.coordinate_transformation_mode.lower() == "half_pixel"
@@ -1734,7 +1824,7 @@ class RoiAlign(Ops):
                                 if self.mode.lower() == "max":
                                     values.append(max(_roi_align_weighted_terms(image, yy, xx)))
                                 else:
-                                    values.append(_bilinear_sample_2d(image, yy, xx, padding_mode="zeros", align_corners=True))
+                                    values.append(sum(_roi_align_weighted_terms(image, yy, xx)))
                         if self.mode.lower() == "max":
                             out[roi_idx, c, ph, pw] = max(values) if values else 0.0
                         elif self.mode.lower() == "avg":
@@ -1806,6 +1896,21 @@ def _activation_at(activations, alphas, betas, index, default):
     return _activation_function(name, alpha, beta)
 
 
+_ACTIVATION_CODES = {
+    "tanh": 0,
+    "sigmoid": 1,
+    "relu": 2,
+    "affine": 3,
+    "leakyrelu": 4,
+    "thresholdedrelu": 5,
+    "scaledtanh": 6,
+    "hardsigmoid": 7,
+    "elu": 8,
+    "softsign": 9,
+    "softplus": 10,
+}
+
+
 def _clip_if_needed(x, clip):
     return np.clip(x, -clip, clip) if clip is not None else x
 
@@ -1841,12 +1946,96 @@ class RNN(Ops):
         self.layout = layout
         self.dtype = dtype
         self.version = version
+        if self.lib:
+            self.lib.rnn_forward.argtypes = [
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_float),
+                ctypes.POINTER(ctypes.c_float),
+                ctypes.c_int,
+                ctypes.c_float,
+                ctypes.c_int,
+            ]
+
+    def _direction_code(self):
+        return {"forward": 0, "reverse": 1, "bidirectional": 2}[self.direction]
+
+    def _activation_buffers(self):
+        codes = []
+        for activation in self.activations:
+            name = activation.decode("utf-8") if isinstance(activation, bytes) else activation
+            key = str(name).lower()
+            if key not in _ACTIVATION_CODES:
+                raise ValueError(f"Unsupported recurrent activation {activation!r}")
+            codes.append(_ACTIVATION_CODES[key])
+        if not codes:
+            codes = [0]
+        alphas = [np.nan] * len(codes)
+        betas = [np.nan] * len(codes)
+        for idx, value in enumerate(self.activation_alpha[: len(codes)]):
+            alphas[idx] = float(value)
+        for idx, value in enumerate(self.activation_beta[: len(codes)]):
+            betas[idx] = float(value)
+        return (
+            (ctypes.c_int * len(codes))(*codes),
+            (ctypes.c_float * len(codes))(*alphas),
+            (ctypes.c_float * len(codes))(*betas),
+            len(codes),
+        )
+
+    def _optional_ctensor(self, tensor):
+        if tensor is None:
+            return None
+        return self._numpy_to_ctensor(np.ascontiguousarray(tensor.data), tensor.dtype)
+
+    def _c_supported(self, *tensors):
+        return self.lib is not None and self.dtype in nn.DTYPE_MAP and all(
+            tensor is None or tensor.dtype in nn.DTYPE_MAP for tensor in tensors
+        )
 
     def forward(self, x, w, r, b=None, sequence_lens=None, initial_h=None):
         x_time = _recurrent_time_major(np.asarray(x.data), self.layout)
         seq_len, batch_size = x_time.shape[0], x_time.shape[1]
         num_dirs = w.data.shape[0]
         hidden = self.hidden_size or r.data.shape[-1]
+        if self._c_supported(x, w, r, b, sequence_lens, initial_h):
+            y_shape = (batch_size, seq_len, num_dirs, hidden) if self.layout == 1 else (seq_len, num_dirs, batch_size, hidden)
+            y_h_shape = (num_dirs, batch_size, hidden)
+            x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
+            w_c = self._numpy_to_ctensor(np.ascontiguousarray(w.data), w.dtype)
+            r_c = self._numpy_to_ctensor(np.ascontiguousarray(r.data), r.dtype)
+            b_c = self._optional_ctensor(b)
+            seq_c = self._optional_ctensor(sequence_lens)
+            init_c = self._optional_ctensor(initial_h)
+            y_shape_c = (ctypes.c_int * 4)(*y_shape)
+            yh_shape_c = (ctypes.c_int * 3)(*y_h_shape)
+            y_c = self.lib.create_tensor(y_shape_c, 4, nn.DTYPE_MAP[self.dtype])
+            yh_c = self.lib.create_tensor(yh_shape_c, 3, nn.DTYPE_MAP[self.dtype])
+            act_codes, act_alpha, act_beta, act_count = self._activation_buffers()
+            self.lib.rnn_forward(
+                x_c, w_c, r_c, b_c, seq_c, init_c, y_c, yh_c,
+                ctypes.c_int(hidden), ctypes.c_int(self._direction_code()), ctypes.c_int(self.layout),
+                act_codes, act_alpha, act_beta, ctypes.c_int(act_count),
+                ctypes.c_float(0.0 if self.clip is None else self.clip), ctypes.c_int(self.clip is not None),
+            )
+            y_data = self._ctensor_to_numpy(y_c, self.dtype)
+            yh_data = self._ctensor_to_numpy(yh_c, self.dtype)
+            for c_tensor in (x_c, w_c, r_c, b_c, seq_c, init_c, y_c, yh_c):
+                if c_tensor is not None:
+                    self.lib.free_tensor(c_tensor)
+            outputs = (Tensor(*y_shape, dtype=self.dtype, data=y_data), Tensor(*y_h_shape, dtype=self.dtype, data=yh_data))
+            return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
+
         bias = b.data if b is not None else np.zeros((num_dirs, 2 * hidden), dtype=x_time.dtype)
         h_prev = initial_h.data.copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
         y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=x_time.dtype)
@@ -1900,12 +2089,62 @@ class GRU(RNN):
     ):
         super().__init__(inputs, outputs, hidden_size, direction, activations or ["Sigmoid", "Tanh"] * _num_directions(direction), activation_alpha, activation_beta, clip, layout, dtype, version)
         self.linear_before_reset = linear_before_reset
+        if self.lib:
+            self.lib.gru_forward.argtypes = [
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_float),
+                ctypes.POINTER(ctypes.c_float),
+                ctypes.c_int,
+                ctypes.c_float,
+                ctypes.c_int,
+            ]
 
     def forward(self, x, w, r, b=None, sequence_lens=None, initial_h=None):
         x_time = _recurrent_time_major(np.asarray(x.data), self.layout)
         seq_len, batch_size = x_time.shape[0], x_time.shape[1]
         num_dirs = w.data.shape[0]
         hidden = self.hidden_size or r.data.shape[-1]
+        if self._c_supported(x, w, r, b, sequence_lens, initial_h):
+            y_shape = (batch_size, seq_len, num_dirs, hidden) if self.layout == 1 else (seq_len, num_dirs, batch_size, hidden)
+            y_h_shape = (num_dirs, batch_size, hidden)
+            x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
+            w_c = self._numpy_to_ctensor(np.ascontiguousarray(w.data), w.dtype)
+            r_c = self._numpy_to_ctensor(np.ascontiguousarray(r.data), r.dtype)
+            b_c = self._optional_ctensor(b)
+            seq_c = self._optional_ctensor(sequence_lens)
+            init_c = self._optional_ctensor(initial_h)
+            y_shape_c = (ctypes.c_int * 4)(*y_shape)
+            yh_shape_c = (ctypes.c_int * 3)(*y_h_shape)
+            y_c = self.lib.create_tensor(y_shape_c, 4, nn.DTYPE_MAP[self.dtype])
+            yh_c = self.lib.create_tensor(yh_shape_c, 3, nn.DTYPE_MAP[self.dtype])
+            act_codes, act_alpha, act_beta, act_count = self._activation_buffers()
+            self.lib.gru_forward(
+                x_c, w_c, r_c, b_c, seq_c, init_c, y_c, yh_c,
+                ctypes.c_int(hidden), ctypes.c_int(self._direction_code()), ctypes.c_int(self.layout),
+                ctypes.c_int(self.linear_before_reset), act_codes, act_alpha, act_beta,
+                ctypes.c_int(act_count), ctypes.c_float(0.0 if self.clip is None else self.clip),
+                ctypes.c_int(self.clip is not None),
+            )
+            y_data = self._ctensor_to_numpy(y_c, self.dtype)
+            yh_data = self._ctensor_to_numpy(yh_c, self.dtype)
+            for c_tensor in (x_c, w_c, r_c, b_c, seq_c, init_c, y_c, yh_c):
+                if c_tensor is not None:
+                    self.lib.free_tensor(c_tensor)
+            outputs = (Tensor(*y_shape, dtype=self.dtype, data=y_data), Tensor(*y_h_shape, dtype=self.dtype, data=yh_data))
+            return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
+
         bias = b.data if b is not None else np.zeros((num_dirs, 6 * hidden), dtype=x_time.dtype)
         h_prev = initial_h.data.copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
         y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=x_time.dtype)
@@ -1954,12 +2193,74 @@ class LSTM(RNN):
     ):
         super().__init__(inputs, outputs, hidden_size, direction, activations or ["Sigmoid", "Tanh", "Tanh"] * _num_directions(direction), activation_alpha, activation_beta, clip, layout, dtype, version)
         self.input_forget = input_forget
+        if self.lib:
+            self.lib.lstm_forward.argtypes = [
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_float),
+                ctypes.POINTER(ctypes.c_float),
+                ctypes.c_int,
+                ctypes.c_float,
+                ctypes.c_int,
+            ]
 
     def forward(self, x, w, r, b=None, sequence_lens=None, initial_h=None, initial_c=None, p=None):
         x_time = _recurrent_time_major(np.asarray(x.data), self.layout)
         seq_len, batch_size = x_time.shape[0], x_time.shape[1]
         num_dirs = w.data.shape[0]
         hidden = self.hidden_size or r.data.shape[-1]
+        if self._c_supported(x, w, r, b, sequence_lens, initial_h, initial_c, p):
+            y_shape = (batch_size, seq_len, num_dirs, hidden) if self.layout == 1 else (seq_len, num_dirs, batch_size, hidden)
+            y_h_shape = (num_dirs, batch_size, hidden)
+            x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
+            w_c = self._numpy_to_ctensor(np.ascontiguousarray(w.data), w.dtype)
+            r_c = self._numpy_to_ctensor(np.ascontiguousarray(r.data), r.dtype)
+            b_c = self._optional_ctensor(b)
+            seq_c = self._optional_ctensor(sequence_lens)
+            init_h_c = self._optional_ctensor(initial_h)
+            init_c_c = self._optional_ctensor(initial_c)
+            p_c = self._optional_ctensor(p)
+            y_shape_c = (ctypes.c_int * 4)(*y_shape)
+            yh_shape_c = (ctypes.c_int * 3)(*y_h_shape)
+            y_c = self.lib.create_tensor(y_shape_c, 4, nn.DTYPE_MAP[self.dtype])
+            yh_c = self.lib.create_tensor(yh_shape_c, 3, nn.DTYPE_MAP[self.dtype])
+            yc_c = self.lib.create_tensor(yh_shape_c, 3, nn.DTYPE_MAP[self.dtype])
+            act_codes, act_alpha, act_beta, act_count = self._activation_buffers()
+            self.lib.lstm_forward(
+                x_c, w_c, r_c, b_c, seq_c, init_h_c, init_c_c, p_c,
+                y_c, yh_c, yc_c, ctypes.c_int(hidden), ctypes.c_int(self._direction_code()),
+                ctypes.c_int(self.layout), ctypes.c_int(self.input_forget), act_codes,
+                act_alpha, act_beta, ctypes.c_int(act_count),
+                ctypes.c_float(0.0 if self.clip is None else self.clip), ctypes.c_int(self.clip is not None),
+            )
+            y_data = self._ctensor_to_numpy(y_c, self.dtype)
+            yh_data = self._ctensor_to_numpy(yh_c, self.dtype)
+            yc_data = self._ctensor_to_numpy(yc_c, self.dtype)
+            for c_tensor in (x_c, w_c, r_c, b_c, seq_c, init_h_c, init_c_c, p_c, y_c, yh_c, yc_c):
+                if c_tensor is not None:
+                    self.lib.free_tensor(c_tensor)
+            outputs = (
+                Tensor(*y_shape, dtype=self.dtype, data=y_data),
+                Tensor(*y_h_shape, dtype=self.dtype, data=yh_data),
+                Tensor(*y_h_shape, dtype=self.dtype, data=yc_data),
+            )
+            selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
+            return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
+
         bias = b.data if b is not None else np.zeros((num_dirs, 8 * hidden), dtype=x_time.dtype)
         peepholes = p.data if p is not None else np.zeros((num_dirs, 3 * hidden), dtype=x_time.dtype)
         h_prev = initial_h.data.copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
@@ -5470,6 +5771,15 @@ class DFT(Ops):
         self.onesided = bool(onesided)
         self.dtype = dtype
         self.version = version
+        if self.lib:
+            self.lib.dft_forward.argtypes = [
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
 
     @staticmethod
     def _optional_length(dft_length, default):
@@ -5499,6 +5809,8 @@ class DFT(Ops):
         if input_shape[-1] not in (1, 2):
             raise ValueError(f"DFT expects the last dimension to be 1 or 2, got {input_shape[-1]}")
         axis = self.axis % len(input_shape)
+        if axis == len(input_shape) - 1:
+            raise ValueError("DFT axis cannot refer to the trailing complex component dimension")
         default_len = 2 * (input_shape[axis] - 1) if self.inverse and self.onesided else input_shape[axis]
         fft_len = int(default_len if dft_length is None else dft_length)
         out_shape = list(input_shape)
@@ -5513,8 +5825,28 @@ class DFT(Ops):
     def forward(self, input, dft_length=None):
         data = np.asarray(input.data)
         axis = self.axis % data.ndim
+        if axis == data.ndim - 1:
+            raise ValueError("DFT axis cannot refer to the trailing complex component dimension")
         default_len = 2 * (data.shape[axis] - 1) if self.inverse and self.onesided else data.shape[axis]
         fft_len = self._optional_length(dft_length, default_len)
+        out_shape = self._output_shape(data.shape, fft_len)
+        if self.lib is not None and input.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            input_c = self._numpy_to_ctensor(np.ascontiguousarray(input.data), input.dtype)
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+            self.lib.dft_forward(
+                input_c,
+                output_c,
+                ctypes.c_int(self.axis),
+                ctypes.c_int(int(self.inverse)),
+                ctypes.c_int(int(self.onesided)),
+                ctypes.c_int(fft_len),
+            )
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(input_c)
+            self.lib.free_tensor(output_c)
+            return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
+
         complex_data = self._as_complex(data)
         if self.inverse:
             if self.onesided:
@@ -5544,6 +5876,15 @@ class STFT(Ops):
         self.onesided = bool(onesided)
         self.dtype = dtype
         self.version = version
+        if self.lib:
+            self.lib.stft_forward.argtypes = [
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
 
     @staticmethod
     def _scalar(value):
@@ -5568,6 +5909,34 @@ class STFT(Ops):
         n_frames = 1 + (data.shape[-2] - length) // step
         if n_frames < 0:
             raise ValueError("STFT frame_length cannot exceed signal length")
+        bins = length // 2 + 1 if self.onesided else length
+        out_shape = tuple(data.shape[:-2]) + (n_frames, bins, 2)
+        if self.lib is not None and signal.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            signal_c = self._numpy_to_ctensor(np.ascontiguousarray(signal.data), signal.dtype)
+            window_c = None
+            if window is not None:
+                if window.dtype not in nn.DTYPE_MAP:
+                    self.lib.free_tensor(signal_c)
+                    window_c = None
+                else:
+                    window_c = self._numpy_to_ctensor(np.ascontiguousarray(window.data), window.dtype)
+            if window is None or window_c is not None:
+                output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+                output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+                self.lib.stft_forward(
+                    signal_c,
+                    window_c,
+                    output_c,
+                    ctypes.c_int(step),
+                    ctypes.c_int(length),
+                    ctypes.c_int(int(self.onesided)),
+                )
+                out_data = self._ctensor_to_numpy(output_c, self.dtype)
+                self.lib.free_tensor(signal_c)
+                if window_c is not None:
+                    self.lib.free_tensor(window_c)
+                self.lib.free_tensor(output_c)
+                return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
         frame_list = []
         for frame_idx in range(n_frames):

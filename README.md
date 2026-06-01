@@ -6,7 +6,7 @@
 
 普通数值/张量算子的核心计算应优先落在 `tensor_ops/tensor_ops.c`，Python 侧主要负责 ONNX 属性解析、shape 推导、ctypes 调度和少量动态语义 fallback。新增或补齐算子时，不应把主体计算长期停留在 `nn/Operators.py`。
 
-当前整理阶段暂缓后端化的算子为：`MaxRoiPool`、`RoiAlign`、`RNN`、`GRU`、`LSTM`、`DFT`、`STFT`。这些算子仍保留 Python runtime，后续需要单独设计 C/CUDA 语义和验证覆盖。
+当前 ONNXImport 覆盖的普通数值/张量算子均应具备 C runtime path；审计报告中不应出现 Python-only 待后端化项。复杂算子仍可在 Python 保留等价 fallback，但不能作为唯一运行路径。
 
 ## 环境
 
