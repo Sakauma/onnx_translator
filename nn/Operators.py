@@ -2499,17 +2499,20 @@ class Flatten(Ops):
 
     def forward(self, input: Tensor) -> dict:
         out_shape = self._calc_shape(input.size)
-        
-        # 调用 C 的 Flatten (本质是 Copy)
-        input_c = self._numpy_to_ctensor(input.data, self.dtype)
-        output_shape_c = (ctypes.c_int * 2)(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, 2, nn.DTYPE_MAP[self.dtype])
-        
-        self.lib.flatten_forward(input_c, output_c)
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(input_c)
-        self.lib.free_tensor(output_c)
+
+        if self.lib is not None and input.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            input_c = self._numpy_to_ctensor(np.ascontiguousarray(input.data), input.dtype)
+            output_shape_c = (ctypes.c_int * 2)(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, 2, nn.DTYPE_MAP[self.dtype])
+
+            self.lib.flatten_forward(input_c, output_c)
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(input_c)
+            self.lib.free_tensor(output_c)
+        else:
+            out_data = np.asarray(input.data).reshape(out_shape)
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
 
         out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
         values = {"tensor": out_tensor, "parameters": None, "graph": None}
@@ -2574,16 +2577,19 @@ class Reshape(Ops):
         target_shape = shape.data.astype(np.int64).flatten().tolist()
         final_shape = self._resolve_shape(data.size, target_shape)
 
-        # C 调用
-        input_c = self._numpy_to_ctensor(data.data, self.dtype)
-        output_shape_c = (ctypes.c_int * len(final_shape))(*final_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(final_shape), nn.DTYPE_MAP[self.dtype])
-        
-        self.lib.reshape_forward(input_c, output_c)
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(input_c)
-        self.lib.free_tensor(output_c)
+        if self.lib is not None and data.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            input_c = self._numpy_to_ctensor(np.ascontiguousarray(data.data), data.dtype)
+            output_shape_c = (ctypes.c_int * len(final_shape))(*final_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(final_shape), nn.DTYPE_MAP[self.dtype])
+
+            self.lib.reshape_forward(input_c, output_c)
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(input_c)
+            self.lib.free_tensor(output_c)
+        else:
+            out_data = np.asarray(data.data).reshape(final_shape)
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
 
         out_tensor = Tensor(*final_shape, dtype=self.dtype, data=out_data)
         values = {"tensor": out_tensor, "parameters": None, "graph": None}
@@ -2611,9 +2617,9 @@ class Reshape(Ops):
         return values
 
 class Transpose(Ops):
-    def __init__(self, inputs, outputs, perm, dtype="float32", version="17"):
+    def __init__(self, inputs, outputs, perm=None, dtype="float32", version="17"):
         super(Transpose, self).__init__(inputs, outputs)
-        self.perm = perm
+        self.perm = None if perm is None else list(perm)
         self.dtype = dtype
         self.version = version
         
@@ -2622,22 +2628,42 @@ class Transpose(Ops):
                 ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor), ctypes.POINTER(ctypes.c_int)
             ]
 
+    def _resolve_perm(self, rank):
+        if self.perm is None or len(self.perm) == 0:
+            return list(reversed(range(rank)))
+        if len(self.perm) != rank:
+            raise ValueError(
+                f"❌ Transpose Error: Input rank {rank} does not match perm length {len(self.perm)} ({self.perm})"
+            )
+        normalized = []
+        for ax in self.perm:
+            axis = ax + rank if ax < 0 else ax
+            if axis < 0 or axis >= rank:
+                raise IndexError(f"❌ Transpose Index Error: Perm {self.perm} is out of bounds for rank {rank}")
+            if axis in normalized:
+                raise ValueError(f"Transpose perm contains duplicate axis {ax}")
+            normalized.append(axis)
+        return normalized
+
     def forward(self, input: Tensor) -> dict:
-        # 计算输出形状
-        out_shape = [input.size[i] for i in self.perm]
-        
-        input_c = self._numpy_to_ctensor(input.data, self.dtype)
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
-        
-        # 传入 perm 数组
-        perm_arr = (ctypes.c_int * len(self.perm))(*self.perm)
-        
-        self.lib.transpose_forward(input_c, output_c, perm_arr)
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(input_c)
-        self.lib.free_tensor(output_c)
+        perm = self._resolve_perm(len(input.size))
+        out_shape = [input.size[i] for i in perm]
+
+        if self.lib is not None and input.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            input_c = self._numpy_to_ctensor(np.ascontiguousarray(input.data), input.dtype)
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+
+            perm_arr = (ctypes.c_int * len(perm))(*perm)
+
+            self.lib.transpose_forward(input_c, output_c, perm_arr)
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(input_c)
+            self.lib.free_tensor(output_c)
+        else:
+            out_data = np.transpose(np.asarray(input.data), axes=perm)
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
 
         out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
         values = {"tensor": out_tensor, "parameters": None, "graph": None}
@@ -2657,19 +2683,8 @@ class Transpose(Ops):
     #     self.parameters = {"values": values}
     #     return values
     def forward_(self, input: Tensor_) -> dict:
-        # 严格检查维度匹配
-        if len(input.size) != len(self.perm):
-            # 直接抛出异常
-            raise ValueError(
-                f"❌ Transpose Error: Input rank {len(input.size)} ({input.size}) "
-                f"does not match perm length {len(self.perm)} ({self.perm})"
-            )
-            
-        # 计算输出形状
-        try:
-            out_shape = [input.size[i] for i in self.perm]
-        except IndexError as e:
-            raise IndexError(f"❌ Transpose Index Error: Perm {self.perm} is out of bounds for input {input.size}") from e
+        perm = self._resolve_perm(len(input.size))
+        out_shape = [input.size[i] for i in perm]
 
         output_tensor = Tensor_(*out_shape, dtype=self.dtype)
         values = {"tensor": output_tensor, "parameters": None, "graph": None}
@@ -2799,18 +2814,20 @@ class Squeeze(Ops):
             target_axes = axes.data.flatten().tolist()
         
         out_shape = self._calc_shape(data.size, target_axes)
-        
-        # 复用 Reshape/Flatten 的逻辑：直接内存拷贝
-        input_c = self._numpy_to_ctensor(data.data, self.dtype)
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
-        
-        # 借用 reshape_forward 
-        self.lib.reshape_forward(input_c, output_c)
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(input_c)
-        self.lib.free_tensor(output_c)
+
+        if self.lib is not None and data.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            input_c = self._numpy_to_ctensor(np.ascontiguousarray(data.data), data.dtype)
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+
+            self.lib.reshape_forward(input_c, output_c)
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(input_c)
+            self.lib.free_tensor(output_c)
+        else:
+            out_data = np.asarray(data.data).reshape(out_shape)
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
 
         out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
         return {"tensor": out_tensor, "parameters": None, "graph": None}
@@ -2864,16 +2881,20 @@ class Unsqueeze(Ops):
             target_axes = axes.data.flatten().tolist()
             
         out_shape = self._calc_shape(data.size, target_axes)
-        
-        input_c = self._numpy_to_ctensor(data.data, self.dtype)
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
-        
-        self.lib.reshape_forward(input_c, output_c)
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(input_c)
-        self.lib.free_tensor(output_c)
+
+        if self.lib is not None and data.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            input_c = self._numpy_to_ctensor(np.ascontiguousarray(data.data), data.dtype)
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+
+            self.lib.reshape_forward(input_c, output_c)
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(input_c)
+            self.lib.free_tensor(output_c)
+        else:
+            out_data = np.asarray(data.data).reshape(out_shape)
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
 
         out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
         return {"tensor": out_tensor, "parameters": None, "graph": None}
@@ -3014,18 +3035,26 @@ class Slice(Ops):
             out_shape.append(length)
         out_shape = tuple(out_shape)
             
-        input_c = self._numpy_to_ctensor(data.data, self.dtype)
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
-        
-        c_starts = (ctypes.c_int * ndim)(*full_starts)
-        c_steps = (ctypes.c_int * ndim)(*full_steps)
-        
-        self.lib.slice_forward(input_c, output_c, c_starts, c_steps)
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(input_c)
-        self.lib.free_tensor(output_c)
+        if self.lib is not None and data.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            input_c = self._numpy_to_ctensor(np.ascontiguousarray(data.data), data.dtype)
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+
+            c_starts = (ctypes.c_int * ndim)(*full_starts)
+            c_steps = (ctypes.c_int * ndim)(*full_steps)
+
+            self.lib.slice_forward(input_c, output_c, c_starts, c_steps)
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(input_c)
+            self.lib.free_tensor(output_c)
+        else:
+            slices = []
+            for start, end, step in zip(full_starts, full_ends, full_steps):
+                py_end = None if step < 0 and end == -1 else end
+                slices.append(slice(start, py_end, step))
+            out_data = np.asarray(data.data)[tuple(slices)]
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
 
         out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
         values = {"tensor": out_tensor, "parameters": None, "graph": None}
@@ -3833,17 +3862,21 @@ class Gather(Ops):
         # 计算输出形状: data.shape[:axis] + indices.shape + data.shape[axis+1:]
         axis = self.axis if self.axis >= 0 else self.axis + len(data.size)
         out_shape = data.size[:axis] + indices.size + data.size[axis+1:]
-        
-        data_c = self._numpy_to_ctensor(data.data, data.dtype)
-        indices_c = self._numpy_to_ctensor(indices.data, indices.dtype)
-        
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
-        
-        self.lib.gather_forward(data_c, indices_c, output_c, ctypes.c_int(axis))
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(data_c); self.lib.free_tensor(indices_c); self.lib.free_tensor(output_c)
+
+        if self.lib is not None and data.dtype in nn.DTYPE_MAP and indices.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            data_c = self._numpy_to_ctensor(np.ascontiguousarray(data.data), data.dtype)
+            indices_c = self._numpy_to_ctensor(np.ascontiguousarray(indices.data), indices.dtype)
+
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+
+            self.lib.gather_forward(data_c, indices_c, output_c, ctypes.c_int(axis))
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(data_c); self.lib.free_tensor(indices_c); self.lib.free_tensor(output_c)
+        else:
+            out_data = np.take(np.asarray(data.data), np.asarray(indices.data, dtype=np.int64), axis=axis)
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
@@ -5062,17 +5095,27 @@ class GatherND(Ops):
         k = idx_shape[-1]
         out_shape = idx_shape[:-1] + data_shape[k + self.batch_dims:]
         out_shape = tuple(out_shape)
-        
-        data_c = self._numpy_to_ctensor(data.data, data.dtype)
-        idx_c = self._numpy_to_ctensor(indices.data, indices.dtype)
-        
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
-        
-        self.lib.gather_nd_forward(data_c, idx_c, output_c, ctypes.c_int(self.batch_dims))
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(data_c); self.lib.free_tensor(idx_c); self.lib.free_tensor(output_c)
+
+        if self.lib is not None and data.dtype in nn.DTYPE_MAP and indices.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            data_c = self._numpy_to_ctensor(np.ascontiguousarray(data.data), data.dtype)
+            idx_c = self._numpy_to_ctensor(np.ascontiguousarray(indices.data), indices.dtype)
+
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+
+            self.lib.gather_nd_forward(data_c, idx_c, output_c, ctypes.c_int(self.batch_dims))
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(data_c); self.lib.free_tensor(idx_c); self.lib.free_tensor(output_c)
+        else:
+            data_arr = np.asarray(data.data)
+            indices_arr = np.asarray(indices.data, dtype=np.int64)
+            out_data = np.empty(out_shape, dtype=data_arr.dtype)
+            for prefix in np.ndindex(*idx_shape[:-1]):
+                batch_prefix = prefix[:self.batch_dims]
+                gather_index = tuple(int(item) for item in indices_arr[prefix])
+                out_data[prefix] = data_arr[batch_prefix + gather_index]
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
@@ -5093,16 +5136,21 @@ class GatherElements(Ops):
     def forward(self, data, indices):
         # GatherElements 输出形状与 Indices 相同
         out_shape = indices.size
-        
-        data_c = self._numpy_to_ctensor(data.data, data.dtype)
-        idx_c = self._numpy_to_ctensor(indices.data, indices.dtype)
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
-        
-        self.lib.gather_elements_forward(data_c, idx_c, output_c, ctypes.c_int(self.axis))
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(data_c); self.lib.free_tensor(idx_c); self.lib.free_tensor(output_c)
+
+        axis = self.axis if self.axis >= 0 else self.axis + len(data.size)
+        if self.lib is not None and data.dtype in nn.DTYPE_MAP and indices.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            data_c = self._numpy_to_ctensor(np.ascontiguousarray(data.data), data.dtype)
+            idx_c = self._numpy_to_ctensor(np.ascontiguousarray(indices.data), indices.dtype)
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+
+            self.lib.gather_elements_forward(data_c, idx_c, output_c, ctypes.c_int(axis))
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(data_c); self.lib.free_tensor(idx_c); self.lib.free_tensor(output_c)
+        else:
+            out_data = np.take_along_axis(np.asarray(data.data), np.asarray(indices.data, dtype=np.int64), axis=axis)
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     def forward_(self, data, indices):
@@ -7593,7 +7641,7 @@ class Bernoulli(Ops):
         return {"tensor": Tensor_(*input.size, dtype=target_dtype), "parameters": None}
 
 class Dropout(Ops):
-    def __init__(self, inputs, outputs, seed=0.0, ratio=0.5, training_mode=0, version="17"):
+    def __init__(self, inputs, outputs, seed=None, ratio=0.5, training_mode=0, version="17"):
         super().__init__(inputs, outputs)
         self.seed = seed
         self.default_ratio = ratio
@@ -7624,9 +7672,11 @@ class Dropout(Ops):
             self.lib.free_tensor(output_c)
             mask_data = np.ones(data.size, dtype=np.bool_)
         elif mode and r > 0.0:
-            seed = None if self.seed is None else int(self.seed)
-            rng = np.random.default_rng(seed)
-            mask_data = rng.random(data.size) >= r
+            if self.seed is None:
+                mask_data = np.random.default_rng().random(data.size) >= r
+            else:
+                rng = np.random.RandomState(int(self.seed))
+                mask_data = rng.uniform(0.0, 1.0, data.size) >= r
             out_data = data.data * mask_data.astype(data.data.dtype) / (1.0 - r)
         else:
             mask_data = np.ones(data.size, dtype=np.bool_)

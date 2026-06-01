@@ -1005,9 +1005,9 @@ def ONNXImport(file_path, strict=False):
                     elif attr.name == "dtype": dtype = attr.i
                 onnx_graph_list.append(nn.Operators.Bernoulli(node.input, node.output, seed=seed, dtype=dtype, version="17"))
             elif node.op_type == "Dropout":
-                seed, ratio, training_mode = 0.0, 0.5, 0
+                seed, ratio, training_mode = None, 0.5, 0
                 for attr in node.attribute:
-                    if attr.name == "seed": seed = attr.f
+                    if attr.name == "seed": seed = attr.i if attr.type == onnx.AttributeProto.INT else attr.f
                     elif attr.name == "ratio": ratio = attr.f
                     elif attr.name == "training_mode": training_mode = attr.i
                 onnx_graph_list.append(nn.Operators.Dropout(node.input, node.output, seed=seed, ratio=ratio, training_mode=training_mode, version="17"))

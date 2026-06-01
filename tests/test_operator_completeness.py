@@ -25,6 +25,7 @@ from nn.Operators import (
     Einsum,
     EyeLike,
     Expand,
+    Flatten,
     AveragePool,
     ArgMax,
     ArgMin,
@@ -32,6 +33,9 @@ from nn.Operators import (
     BlackmanWindow,
     Cast,
     Conv,
+    Gather,
+    GatherElements,
+    GatherND,
     GlobalAveragePool,
     GlobalLpPool,
     GlobalMaxPool,
@@ -102,6 +106,7 @@ from nn.Operators import (
     TfIdfVectorizer,
     Tile,
     TopK,
+    Transpose,
     Trilu,
     NonZero,
     Unsqueeze,
@@ -574,6 +579,82 @@ def test_squeeze_and_slice_shape_inference(monkeypatch):
     assert sliced.size == (2, 2)
 
 
+def test_shape_copy_ops_support_default_transpose_and_string_payloads(tmp_path):
+    text = np.array([["a", "b", "c"], ["d", "e", "f"]], dtype=np.str_)
+    text_tensor = Tensor(*text.shape, dtype="string", data=text)
+
+    transposed = Transpose(["x"], ["y"], dtype="string").forward(text_tensor)["tensor"]
+    assert transposed.size == (3, 2)
+    np.testing.assert_array_equal(transposed.data, text.T)
+    assert Transpose(["x"], ["y"], dtype="string").forward_(Tensor_(2, 3, 4, dtype="string"))["tensor"].size == (4, 3, 2)
+
+    flattened = Flatten(["x"], ["y"], axis=0, dtype="string").forward(text_tensor)["tensor"]
+    assert flattened.size == (1, 6)
+    np.testing.assert_array_equal(flattened.data, text.reshape(1, 6))
+
+    shape = Tensor(2, dtype="int64", data=np.array([3, 2], dtype=np.int64))
+    reshaped = Reshape(["x", "shape"], ["y"], dtype="string").forward(text_tensor, shape)["tensor"]
+    assert reshaped.size == (3, 2)
+    np.testing.assert_array_equal(reshaped.data, text.reshape(3, 2))
+
+    boxed = Tensor(1, 2, 1, dtype="string", data=np.array([[["left"], ["right"]]], dtype=np.str_))
+    axes = Tensor(1, dtype="int64", data=np.array([0], dtype=np.int64))
+    squeezed = Squeeze(["x", "axes"], ["y"], dtype="string").forward(boxed, axes)["tensor"]
+    assert squeezed.size == (2, 1)
+    np.testing.assert_array_equal(squeezed.data, boxed.data.reshape(2, 1))
+
+    unsqueeze_axes = Tensor(2, dtype="int64", data=np.array([0, -1], dtype=np.int64))
+    unsqueezed = Unsqueeze(["x", "axes"], ["y"], dtype="string").forward(text_tensor, unsqueeze_axes)["tensor"]
+    assert unsqueezed.size == (1, 2, 3, 1)
+    np.testing.assert_array_equal(unsqueezed.data, text.reshape(1, 2, 3, 1))
+
+    model_path = tmp_path / "transpose_default_perm.onnx"
+    graph = helper.make_graph(
+        [helper.make_node("Transpose", ["x"], ["y"])],
+        "transpose_default_perm",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3, 4])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [4, 3, 2])],
+    )
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
+
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, Transpose)]
+    assert imported[0].forward_(Tensor_(2, 3, 4, dtype="float32"))["tensor"].size == (4, 3, 2)
+
+
+def test_indexing_ops_support_string_payloads():
+    text = np.array([["a", "b", "c"], ["d", "e", "f"]], dtype=np.str_)
+    text_tensor = Tensor(*text.shape, dtype="string", data=text)
+
+    sliced = Slice(["x", "starts", "ends", "axes", "steps"], ["y"], dtype="string").forward(
+        text_tensor,
+        Tensor(2, dtype="int64", data=np.array([0, 0], dtype=np.int64)),
+        Tensor(2, dtype="int64", data=np.array([2, 2], dtype=np.int64)),
+        Tensor(2, dtype="int64", data=np.array([0, 1], dtype=np.int64)),
+        Tensor(2, dtype="int64", data=np.array([1, 1], dtype=np.int64)),
+    )["tensor"]
+    np.testing.assert_array_equal(sliced.data, text[:, :2])
+
+    gathered = Gather(["x", "indices"], ["y"], axis=1, dtype="string").forward(
+        text_tensor,
+        Tensor(2, dtype="int64", data=np.array([2, 0], dtype=np.int64)),
+    )["tensor"]
+    np.testing.assert_array_equal(gathered.data, text[:, [2, 0]])
+
+    element_indices = np.array([[2, 1, 0], [0, 2, 1]], dtype=np.int64)
+    gathered_elements = GatherElements(["x", "indices"], ["y"], axis=1, dtype="string").forward(
+        text_tensor,
+        Tensor(*element_indices.shape, dtype="int64", data=element_indices),
+    )["tensor"]
+    np.testing.assert_array_equal(gathered_elements.data, np.take_along_axis(text, element_indices, axis=1))
+
+    nd_indices = np.array([[0, 1], [1, 0]], dtype=np.int64)
+    gathered_nd = GatherND(["x", "indices"], ["y"], dtype="string").forward(
+        text_tensor,
+        Tensor(*nd_indices.shape, dtype="int64", data=nd_indices),
+    )["tensor"]
+    np.testing.assert_array_equal(gathered_nd.data, np.array(["b", "d"], dtype=np.str_))
+
+
 def test_multi_output_shape_inference_preserves_rank(monkeypatch):
     _disable_c_backend(monkeypatch)
 
@@ -667,6 +748,16 @@ def test_global_pooling_and_dropout_optional_mask(monkeypatch):
     assert mask.size == (4,)
     assert mask.dtype == "bool"
     np.testing.assert_array_equal(y.data, mask.data.astype(np.float32) * 2.0)
+
+    seeded_data = np.arange(6, dtype=np.float32).reshape(2, 3)
+    seeded_dropout = Dropout(["x"], ["y", "mask"], seed=0, ratio=0.5, training_mode=1).forward(
+        Tensor(*seeded_data.shape, dtype="float32", data=seeded_data)
+    )["tensor"]
+    np.random.seed(0)
+    expected_mask = np.random.uniform(0.0, 1.0, seeded_data.shape) >= 0.5
+    np.testing.assert_array_equal(seeded_dropout[1].data, expected_mask)
+    np.testing.assert_allclose(seeded_dropout[0].data, seeded_data * expected_mask.astype(np.float32) * 2.0)
+
     inferred_y, inferred_mask = dropout.forward_(Tensor_(4, dtype="float32"))["tensor"]
     assert inferred_y.size == (4,)
     assert inferred_mask.dtype == "bool"
