@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.onnx
 import torch.nn.functional as F
 import os
+import warnings
 
 class FinalSupportedModel(nn.Module):
     """
@@ -16,7 +17,7 @@ class FinalSupportedModel(nn.Module):
         
         # 归一化 
         self.bn = nn.BatchNorm2d(8)
-        self.in_norm = nn.InstanceNorm2d(8)
+        self.in_norm = nn.InstanceNorm2d(8, track_running_stats=True)
         self.ln = nn.LayerNorm([8, 32, 32]) 
         # self.gn = nn.GroupNorm(4, 8) 
         
@@ -119,12 +120,19 @@ def export_model():
     output_path = os.path.join(output_dir, "model.onnx")
     
     print(f"🚀 正在导出最终模型 (移除 GroupNorm) 到: {output_path}")
-    torch.onnx.export(
-        model, dummy_input, output_path,
-        opset_version=17,
-        input_names=['input'], output_names=['output'],
-        do_constant_folding=False
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="You are using the legacy TorchScript-based ONNX export.*",
+            category=DeprecationWarning,
+        )
+        torch.onnx.export(
+            model, dummy_input, output_path,
+            opset_version=17,
+            input_names=['input'], output_names=['output'],
+            do_constant_folding=False,
+            dynamo=False,
+        )
     print("✅ 导出成功！")
 
 if __name__ == "__main__":

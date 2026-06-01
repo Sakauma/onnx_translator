@@ -159,11 +159,24 @@ void dequantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tenso
  * 公式: Y = Sum(X * W) + B
  */
 void conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params);
+
+void conv_transpose2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params);
+
+void conv_integer_forward(const Tensor* X, const Tensor* W,
+                          const Tensor* XZeroPoint, const Tensor* WZeroPoint,
+                          Tensor* Y, ConvParams* params);
+
+void qlinear_conv_forward(const Tensor* X, const Tensor* XScale, const Tensor* XZeroPoint,
+                          const Tensor* W, const Tensor* WScale, const Tensor* WZeroPoint,
+                          const Tensor* YScale, const Tensor* YZeroPoint,
+                          const Tensor* Bias, Tensor* Y, ConvParams* params);
       
 /**
  * MaxPool 前向传播
  */
 void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params);
+
+void max_unpool_forward(const Tensor* X, const Tensor* Indices, Tensor* Y, PoolParams* params);
 
 /**
  * Gemm (General Matrix Multiply) 前向传播
@@ -282,6 +295,82 @@ void clip_forward(const Tensor* input, Tensor* output, const Tensor* min, const 
 void cast_forward(const Tensor* input, Tensor* output);
 
 /**
+ * Sum element-wise variadic addition.
+ * Python layer prepares all inputs with broadcasted output shape.
+ */
+void sum_forward(const Tensor** inputs, int num_inputs, Tensor* output);
+
+/**
+ * PRelu activation.
+ * Python layer prepares X and slope with broadcasted output shape.
+ */
+void prelu_forward(const Tensor* input, const Tensor* slope, Tensor* output);
+
+/**
+ * Batched determinant for tensors shaped [..., M, M].
+ */
+void det_forward(const Tensor* input, Tensor* output);
+
+/**
+ * Flat Unique over all input elements.
+ * Returns the number of unique values written to values/indices/counts.
+ */
+int unique_forward(const Tensor* input, Tensor* values, Tensor* indices, Tensor* inverse, Tensor* counts, int sorted);
+
+/**
+ * MelWeightMatrix generation.
+ */
+void mel_weight_matrix_forward(const Tensor* num_mel_bins, const Tensor* dft_length,
+                               const Tensor* sample_rate, const Tensor* lower_edge_hertz,
+                               const Tensor* upper_edge_hertz, Tensor* output);
+
+/**
+ * Multinomial sampling for rank-2 probability tensors.
+ */
+void multinomial_forward(const Tensor* input, Tensor* output, int sample_size, uint32_t seed);
+
+/**
+ * NegativeLogLikelihoodLoss and SoftmaxCrossEntropyLoss.
+ * reduction: 0=none, 1=mean, 2=sum.
+ */
+void negative_log_likelihood_loss_forward(const Tensor* input, const Tensor* target, const Tensor* weight,
+                                          Tensor* output, int reduction, int has_ignore_index, int64_t ignore_index);
+void softmax_cross_entropy_loss_forward(const Tensor* scores, const Tensor* labels, const Tensor* weights,
+                                        Tensor* loss_output, Tensor* log_prob_output,
+                                        int reduction, int has_ignore_index, int64_t ignore_index);
+
+/**
+ * NonMaxSuppression.
+ * Returns the number of selected [batch, class, box] rows written to output.
+ */
+int non_max_suppression_forward(const Tensor* boxes, const Tensor* scores, Tensor* output,
+                                int max_output_boxes_per_class, float iou_threshold,
+                                float score_threshold, int center_point_box);
+
+/**
+ * GridSample for 4D X [N,C,H,W] and grid [N,Hout,Wout,2].
+ * mode: 0=bilinear, 1=nearest, 2=bicubic.
+ * padding_mode: 0=zeros, 1=border, 2=reflection.
+ */
+void grid_sample_forward(const Tensor* input, const Tensor* grid, Tensor* output,
+                         int mode, int padding_mode, int align_corners);
+
+/**
+ * Local Response Normalization over channel dimension 1.
+ */
+void lrn_forward(const Tensor* input, Tensor* output, int size, float alpha, float beta, float bias);
+
+/**
+ * MeanVarianceNormalization: output keeps input shape and normalizes over axes.
+ */
+void mean_variance_normalization_forward(const Tensor* input, Tensor* output, ReduceParams* params);
+
+/**
+ * EyeLike fills output with an identity matrix offset by k.
+ */
+void eye_like_forward(Tensor* output, int k);
+
+/**
  * Ceil 向上取整
  */
 void ceil_forward(const Tensor* input, Tensor* output);
@@ -296,6 +385,14 @@ void floor_forward(const Tensor* input, Tensor* output);
  * Y = A @ B
  */
 void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y);
+
+void matmul_integer_forward(const Tensor* A, const Tensor* B,
+                            const Tensor* AZeroPoint, const Tensor* BZeroPoint,
+                            Tensor* Y);
+
+void qlinear_matmul_forward(const Tensor* A, const Tensor* AScale, const Tensor* AZeroPoint,
+                            const Tensor* B, const Tensor* BScale, const Tensor* BZeroPoint,
+                            const Tensor* YScale, const Tensor* YZeroPoint, Tensor* Y);
 
 /**
  * Gather 算子

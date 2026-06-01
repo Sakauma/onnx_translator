@@ -1,18 +1,24 @@
 import numpy as np
 import subprocess
 import os
+import argparse
+import sys
 import nn
 from nn import Tensor
 import matplotlib.pyplot as plt
 from nn.Operators import (
-    Gemm, MaxPool, ADD, SUB, MUL, DIV,MatMul, 
+    Gemm, MaxPool, AveragePool, LpPool, GlobalAveragePool, GlobalMaxPool, GlobalLpPool,
+    ADD, SUB, MUL, DIV, MatMul, MatMulInteger, QLinearMatMul,
     ReduceMean, ReduceSum, ReduceMax, ReduceMin, ReduceProd,
-    RELU, Pow, SQRT, Conv, ScatterND, Clip,
+    RELU, ABS, Pow, SQRT, Conv, ConvTranspose, ConvInteger, QLinearConv, ScatterND, Clip,
     Equal, Greater, Less, GreaterOrEqual, LessOrEqual,
     Gather, GatherElements, GatherND,COS, LOG, EXP, SIGMOID, TANH,
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min,Not, And, Or, Xor, IsNaN,
-    CumSum,Softmax,NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum
+    CumSum,Softmax,NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
+    QuantizeLinear, DequantizeLinear, MaxUnpool
 )
+
+CUDA_VERIFY_DIR = os.environ.get("CUDA_VERIFY_DIR", "cache")
 
 # =============================================================================
 # 1. 辅助工具
@@ -152,7 +158,7 @@ def generate_random_data(shape, dtype):
 # =============================================================================
 
 def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=np.float32, target_shape=None):
-    exe = f"./cache/verify_{op_name}"
+    exe = os.path.join(CUDA_VERIFY_DIR, f"verify_{op_name}")
     if not os.path.exists(exe):
         print(f"⚠️  Missing CUDA executable: {exe}")
         return None
@@ -290,7 +296,8 @@ def check_accuracy(nps_val, cuda_val, atol, rtol, dtype):
             
         return False, fail_abs, fail_rel, fail_mask
 
-def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iterations=5):
+def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterations=5):
+    init_args = init_args or {}
     print(f"🧪 Testing {op_name.upper()}: {dtypes} -> {out_dtype}")
     
     atol, rtol = 1e-4, 1e-4
@@ -299,6 +306,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
     if "float8" in out_dtype: atol, rtol = 0.1, 0.1    
     if "int" in out_dtype: atol, rtol = 0, 0
     if op_name == "cos": atol = max(atol, 0.02)
+    if op_name == "einsum":
+        atol, rtol = max(atol, 1e-2), max(rtol, 1e-3)
 
     pass_cnt = 0
     stats_abs = []
@@ -390,6 +399,40 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
             x = x + eps
             inputs_np[0] = x
 
+        if op_name == "max_unpool":
+            inputs_np[1] = np.array([[[[5, 7], [13, 15]]]], dtype=np.int64)
+
+        if op_name == "qlinear_conv":
+            out_channels = shapes[3][0]
+            inputs_np[0] = np.random.randint(0, 32, size=shapes[0]).astype(np.uint8)
+            inputs_np[1] = np.array([0.04], dtype=np.float32)
+            inputs_np[2] = np.array([12], dtype=np.uint8)
+            inputs_np[3] = np.random.randint(0, 24, size=shapes[3]).astype(np.uint8)
+            inputs_np[4] = np.linspace(0.03, 0.06, out_channels, dtype=np.float32)
+            inputs_np[5] = np.linspace(7, 11, out_channels, dtype=np.uint8)
+            inputs_np[6] = np.array([0.05], dtype=np.float32)
+            inputs_np[7] = np.array([121], dtype=np.uint8)
+
+        if op_name == "matmul_integer":
+            m, _k = shapes[0]
+            _k2, n = shapes[1]
+            inputs_np[0] = np.random.randint(0, 32, size=shapes[0]).astype(np.uint8)
+            inputs_np[1] = np.random.randint(-16, 16, size=shapes[1]).astype(np.int8)
+            inputs_np[2] = np.linspace(3, 9, m, dtype=np.uint8)
+            inputs_np[3] = np.linspace(-4, 4, n, dtype=np.int8)
+
+        if op_name == "qlinear_matmul":
+            m, _k = shapes[0]
+            _k2, n = shapes[3]
+            inputs_np[0] = np.random.randint(0, 32, size=shapes[0]).astype(np.uint8)
+            inputs_np[1] = np.linspace(0.02, 0.05, m, dtype=np.float32)
+            inputs_np[2] = np.linspace(5, 11, m, dtype=np.uint8)
+            inputs_np[3] = np.random.randint(0, 24, size=shapes[3]).astype(np.uint8)
+            inputs_np[4] = np.linspace(0.03, 0.07, n, dtype=np.float32)
+            inputs_np[5] = np.linspace(6, 12, n, dtype=np.uint8)
+            inputs_np[6] = np.array([0.04], dtype=np.float32)
+            inputs_np[7] = np.array([117], dtype=np.uint8)
+
         if op_name == "random_uniform_like":
             # 输入只提供 shape，数值本身不会参与 reference 计算
             pass
@@ -413,9 +456,13 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
                 seed = int(init_args.get("seed", 123))
                 nps_out = random_uniform_like_reference(shapes[0], low, high, seed)
 
-            elif op_name == "conv2d" or op_name == "gemm":
+            elif op_name in {"conv2d", "conv_transpose", "gemm"}:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
                 nps_out = op.forward(inputs_tensor[0], inputs_tensor[1], inputs_tensor[2])["tensor"].data
+
+            elif op_name == "conv_integer":
+                op = op_cls(inputs=[], outputs=[], **op_init_args)
+                nps_out = op.forward(inputs_tensor[0], inputs_tensor[1], inputs_tensor[2], inputs_tensor[3])["tensor"].data
 
             else:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
@@ -458,12 +505,95 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
             p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], w.shape[0], w.shape[2], w.shape[3],
                       oh, ow, pads[0], pads[1], s[0], s[1], d[0], d[1], g]
             params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "conv_integer":
+            x, w, x_zp, w_zp = inputs_np[0], inputs_np[1], inputs_np[2], inputs_np[3]
+            pads, s, d, g = init_args['pads'], init_args['strides'], init_args['dilations'], init_args['group']
+            oh = (x.shape[2] + pads[0] + pads[2] - d[0]*(w.shape[2]-1) - 1)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - d[1]*(w.shape[3]-1) - 1)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], w.shape[0], w.shape[2], w.shape[3],
+                      oh, ow, pads[0], pads[1], s[0], s[1], d[0], d[1], g, x_zp.size, w_zp.size]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "qlinear_conv":
+            x, x_scale, x_zp, w, w_scale, w_zp, y_scale, y_zp = inputs_np[:8]
+            pads, s, d, g = init_args['pads'], init_args['strides'], init_args['dilations'], init_args['group']
+            oh = (x.shape[2] + pads[0] + pads[2] - d[0]*(w.shape[2]-1) - 1)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - d[1]*(w.shape[3]-1) - 1)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], w.shape[0], w.shape[2], w.shape[3],
+                      oh, ow, pads[0], pads[1], s[0], s[1], d[0], d[1], g,
+                      x_scale.size, x_zp.size, w_scale.size, w_zp.size, y_scale.size, y_zp.size]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "conv_transpose":
+            x, w = inputs_np[0], inputs_np[1]
+            pads, s, d, g = init_args['pads'], init_args['strides'], init_args['dilations'], init_args['group']
+            output_padding = init_args.get('output_padding', [0, 0])
+            effective_h = d[0] * (w.shape[2] - 1) + 1
+            effective_w = d[1] * (w.shape[3] - 1) + 1
+            oh = s[0] * (x.shape[2] - 1) + output_padding[0] + effective_h - pads[0] - pads[2]
+            ow = s[1] * (x.shape[3] - 1) + output_padding[1] + effective_w - pads[1] - pads[3]
+            out_c = w.shape[1] * g
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], w.shape[1], w.shape[2], w.shape[3],
+                      out_c, oh, ow, pads[0], pads[1], s[0], s[1], d[0], d[1], g]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "matmul_integer":
+            a, b, a_zp, b_zp = inputs_np[0], inputs_np[1], inputs_np[2], inputs_np[3]
+            M, K = a.shape
+            K2, N = b.shape
+            assert K == K2
+            params_bin = np.array([M, K, N, a_zp.size, b_zp.size], dtype=np.int32).tobytes()
+        elif op_name == "qlinear_matmul":
+            a, a_scale, a_zp, b, b_scale, b_zp, y_scale, y_zp = inputs_np[:8]
+            M, K = a.shape
+            K2, N = b.shape
+            assert K == K2
+            params_bin = np.array(
+                [M, K, N, a_scale.size, a_zp.size, b_scale.size, b_zp.size, y_scale.size, y_zp.size],
+                dtype=np.int32,
+            ).tobytes()
         elif op_name == "max_pool":
             x = inputs_np[0]
             k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
             oh = (x.shape[2] + pads[0] + pads[2] - k[0])//s[0] + 1
             ow = (x.shape[3] + pads[1] + pads[3] - k[1])//s[1] + 1
             p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow, k[0], k[1], pads[0], pads[1], s[0], s[1]]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "average_pool":
+            x = inputs_np[0]
+            k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
+            d = init_args.get('dilations', [1, 1])
+            count_include_pad = init_args.get('count_include_pad', 0)
+            kernel_extent_h = d[0] * (k[0] - 1) + 1
+            kernel_extent_w = d[1] * (k[1] - 1) + 1
+            oh = (x.shape[2] + pads[0] + pads[2] - kernel_extent_h)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - kernel_extent_w)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow,
+                      k[0], k[1], pads[0], pads[1], s[0], s[1], d[0], d[1], count_include_pad]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "lp_pool":
+            x = inputs_np[0]
+            k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
+            d = init_args.get('dilations', [1, 1])
+            p_norm = init_args.get('p', 2)
+            kernel_extent_h = d[0] * (k[0] - 1) + 1
+            kernel_extent_w = d[1] * (k[1] - 1) + 1
+            oh = (x.shape[2] + pads[0] + pads[2] - kernel_extent_h)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - kernel_extent_w)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow,
+                      k[0], k[1], pads[0], pads[1], s[0], s[1], d[0], d[1], p_norm]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name in {"global_average_pool", "global_max_pool", "global_lp_pool"}:
+            x = inputs_np[0]
+            spatial_size = int(np.prod(x.shape[2:])) if x.ndim > 2 else 1
+            if op_name == "global_lp_pool":
+                params_bin = np.array([x.shape[0], x.shape[1], spatial_size, init_args.get('p', 2)], dtype=np.int32).tobytes()
+            else:
+                params_bin = np.array([x.shape[0], x.shape[1], spatial_size], dtype=np.int32).tobytes()
+        elif op_name == "max_unpool":
+            x = inputs_np[0]
+            k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
+            oh = (x.shape[2] - 1) * s[0] - pads[0] - pads[2] + k[0]
+            ow = (x.shape[3] - 1) * s[1] - pads[1] - pads[3] + k[1]
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow,
+                      k[0], k[1], pads[0], pads[1], pads[2], pads[3], s[0], s[1]]
             params_bin = np.array(p_list, dtype=np.int32).tobytes()
         elif op_name == "gemm":
             a, b, c = inputs_np[0], inputs_np[1], inputs_np[2]
@@ -576,7 +706,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
         if expected_shape == ():
             expected_shape = (1,) # 统一当成 1 元素张量来跑 CUDA/读写 bin
             nps_out = np.array([nps_out], dtype=nps_out.dtype)
-        is_complex_kernel = op_name in ["conv2d", "max_pool", "gemm", "softmax"] # 这些算子自己处理形状
+        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "max_unpool", "gemm", "softmax"] # 这些算子自己处理形状
         is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
         
         cuda_inputs = []
@@ -584,7 +714,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
             if inp is None:
                 cuda_inputs.append(None)
             else:
-                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk"] and d == "int64":
+                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk", "max_unpool"] and d == "int64":
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int64)))
                     continue
 
@@ -615,6 +745,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
         # out_np_dtype = (np.uint8 if out_dtype == "bool" else (np.float64 if is_double_kernel else np.float32))
         if out_dtype == "bool":
             out_np_dtype = np.uint8
+        elif op_name in {"qlinear_conv", "qlinear_matmul"} and out_dtype == "uint8":
+            out_np_dtype = np.uint8
+        elif out_dtype == "int32":
+            out_np_dtype = np.int32
         elif out_dtype == "int64":
             out_np_dtype = np.int64
         else:
@@ -671,14 +805,15 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
         # 6. 对比
         # nps_f32 = to_float32(nps_out, out_dtype)
         # is_ok, max_abs, max_rel, fail_mask = check_accuracy(nps_f32, cuda_out, atol, rtol, out_dtype)
-        if out_dtype == "int64":
-            nps_i64 = np.asarray(nps_out).astype(np.int64)
-            cuda_i64 = np.asarray(cuda_out).astype(np.int64)
-            is_ok = np.array_equal(nps_i64, cuda_i64)
+        if out_dtype in {"int32", "int64"}:
+            int_dtype = np.int32 if out_dtype == "int32" else np.int64
+            nps_int = np.asarray(nps_out).astype(int_dtype)
+            cuda_int = np.asarray(cuda_out).astype(int_dtype)
+            is_ok = np.array_equal(nps_int, cuda_int)
             max_abs = 0.0 if is_ok else -1.0
             max_rel = 0.0 if is_ok else -1.0
-            fail_mask = None if is_ok else (nps_i64 != cuda_i64)
-            nps_f32 = nps_i64.astype(np.float32)
+            fail_mask = None if is_ok else (nps_int != cuda_int)
+            nps_f32 = nps_int.astype(np.float32)
         else:
             nps_f32 = to_float32(nps_out, out_dtype)
             is_ok, max_abs, max_rel, fail_mask = check_accuracy(nps_f32, cuda_out, atol, rtol, out_dtype)
@@ -725,12 +860,25 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args={}, iteratio
         print(f"  ✅ Pass ({pass_cnt}/{iterations})\n")
     else:
         print(f"  ⚠️  Fail\n")
-    return stats_abs, stats_rel
+    return stats_abs, stats_rel, pass_cnt == iterations
 
 # =============================================================================
 # 3. 测试计划
 # =============================================================================
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run C backend vs CUDA reference numerical checks.")
+    parser.add_argument("--iterations", type=int, default=20, help="Iterations per test plan.")
+    parser.add_argument("--op", action="append", help="Run only the named op. Can be repeated.")
+    parser.add_argument("--cuda-dir", default=CUDA_VERIFY_DIR, help="Directory containing verify_* CUDA executables.")
+    parser.add_argument("--skip-plots", action="store_true", help="Skip matplotlib histogram generation.")
+    args = parser.parse_args()
+    CUDA_VERIFY_DIR = args.cuda_dir
+
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        print(f"ERROR: C backend library not found: {nn.TENSOR_OPS_LIB_PATH}")
+        print("Run `make` before numerical verification.")
+        sys.exit(2)
+
     # plans = [
     #     (ADD, "add", [(64,64), (64,64)], ["float32", "float32"], "float32"),
     #     (SUB, "sub", [(64,64), (64,64)], ["float16", "float16"], "float16"),
@@ -881,9 +1029,13 @@ if __name__ == "__main__":
 
     # ---- 激活 ----
     (RELU, "relu", [(128,128)], ["float32"], "float32"),
+    (ABS, "abs", [(128,128)], ["float32"], "float32"),
 
     # ---- Conv ----
     (Conv, "conv2d",[(1, 1, 5, 5), (1, 1, 3, 3), (1,)],["float32", "float32", "float32"], "float32",{"pads":[0,0,0,0], "strides":[1,1], "dilations":[1,1], "group":1}),
+    (ConvInteger, "conv_integer",[(1, 2, 5, 5), (2, 2, 3, 3), (1,), (2,)],["uint8", "int8", "uint8", "int8"], "int32",{"pads":[1,1,1,1], "strides":[2,2], "dilations":[1,1], "group":1}),
+    (QLinearConv, "qlinear_conv",[(1, 2, 5, 5), (1,), (1,), (2, 2, 3, 3), (2,), (2,), (1,), (1,)],["uint8", "float32", "uint8", "uint8", "float32", "uint8", "float32", "uint8"], "uint8",{"pads":[1,1,1,1], "strides":[2,2], "dilations":[1,1], "group":1}),
+    (ConvTranspose, "conv_transpose",[(1, 2, 4, 4), (2, 3, 3, 3), (3,)],["float32", "float32", "float32"], "float32",{"pads":[1,1,1,1], "strides":[2,2], "dilations":[1,1], "group":1, "output_padding":[1,1]}),
 
     # ---- Softmax ----
     (Softmax, "softmax",[(4, 64)], ["float32"], "float32", {"axis":-1}),
@@ -893,6 +1045,12 @@ if __name__ == "__main__":
 
     # ---- MaxPool ----
     (MaxPool, "max_pool",[(1, 2, 16, 16)], ["float32"], "float32",{"kernel_shape":[2,2], "pads":[0,0,0,0], "strides":[2,2]}),
+    (AveragePool, "average_pool",[(1, 2, 7, 7)], ["float32"], "float32",{"kernel_shape":[3,3], "pads":[1,1,1,1], "strides":[2,2], "dilations":[1,1], "count_include_pad":1}),
+    (LpPool, "lp_pool",[(1, 2, 7, 7)], ["float32"], "float32",{"kernel_shape":[3,3], "pads":[1,1,1,1], "strides":[2,2], "dilations":[1,1], "p":2}),
+    (GlobalAveragePool, "global_average_pool",[(1, 3, 5, 4)], ["float32"], "float32"),
+    (GlobalMaxPool, "global_max_pool",[(1, 3, 5, 4)], ["float32"], "float32"),
+    (GlobalLpPool, "global_lp_pool",[(1, 3, 5, 4)], ["float32"], "float32", {"p": 2}),
+    (MaxUnpool, "max_unpool",[(1, 1, 2, 2), (1, 1, 2, 2)], ["float32", "int64"], "float32",{"kernel_shape":[2,2], "pads":[0,0,0,0], "strides":[2,2]}),
 
     (Equal,   "equal",   [(64,64), (64,64)], ["float32", "float32"], "bool"),
     (Greater, "greater", [(64,64), (64,64)], ["float32", "float32"], "bool"),
@@ -900,11 +1058,16 @@ if __name__ == "__main__":
 
     (Clip, "clip",[(64,64), (1,), (1,)],["float32", "float32", "float32"],"float32"),
 
+    (QuantizeLinear, "quantize_linear", [(64,64), (1,), (1,)], ["float32", "float32", "int8"], "int8"),
+    (DequantizeLinear, "dequantize_linear", [(64,64), (1,), (1,)], ["int8", "float32", "int8"], "float32"),
+
     (SQRT, "sqrt", [(64, 64)], ["float32"], "float32"),
 
     (Pow, "pow", [(64,64), (64,64)], ["float32", "float32"], "float32"),
 
     (MatMul, "matmul",[(32, 64), (64,16)],["float32", "float32"],"float32"),
+    (MatMulInteger, "matmul_integer", [(4, 6), (6, 5), (4,), (5,)], ["uint8", "int8", "uint8", "int8"], "int32"),
+    (QLinearMatMul, "qlinear_matmul", [(4, 6), (4,), (4,), (6, 5), (5,), (5,), (1,), (1,)], ["uint8", "float32", "uint8", "uint8", "float32", "uint8", "float32", "uint8"], "uint8"),
 
     (ReduceMean, "reduce_mean",[(32, 64)],["float32"], "float32"),
 
@@ -966,8 +1129,21 @@ if __name__ == "__main__":
     (RandomUniformLike, "random_uniform_like", [(32, 32)], ["float32"], "float32", {"low": -1.0, "high": 1.0, "seed": 123}),
 ]
 
+    if args.op:
+        selected_ops = set(args.op)
+        plans = [plan for plan in plans if len(plan) >= 2 and plan[1] in selected_ops]
+        missing_ops = selected_ops - {plan[1] for plan in plans}
+        if missing_ops:
+            print(f"ERROR: requested op(s) not found in test plans: {sorted(missing_ops)}")
+            sys.exit(2)
+
+    if not plans:
+        print("ERROR: no numerical test plans selected.")
+        sys.exit(2)
+
     print("🚀 开始数值验证 ...")
     ops_stats = {}
+    failed_ops = []
     for plan in plans:
         if len(plan) == 5:
             op_cls, op_name, shapes, dtypes, out_dtype = plan
@@ -976,66 +1152,62 @@ if __name__ == "__main__":
             op_cls, op_name, shapes, dtypes, out_dtype, init_args = plan
         else:
             print(f"⚠️ 跳过格式错误的测试计划: {plan}")
+            failed_ops.append("<malformed-plan>")
             continue
-        abs_errs, rel_errs = verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=init_args, iterations=20)# 这里把200改成了20，每个plan只生成20组输入
+        abs_errs, rel_errs, ok = verify_op(
+            op_cls,
+            op_name,
+            shapes,
+            dtypes,
+            out_dtype,
+            init_args=init_args,
+            iterations=args.iterations,
+        )
+        if not ok:
+            failed_ops.append(op_name)
         # 按算子名称聚合数据
         if op_name not in ops_stats:
             ops_stats[op_name] = {'abs': [], 'rel': []}
         ops_stats[op_name]['abs'].extend(abs_errs)
         ops_stats[op_name]['rel'].extend(rel_errs)
-    print("\n📊 正在按算子绘制误差分布直方图...")
-    for op_name, stats in ops_stats.items():
-        # valid_abs = [x for x in stats['abs'] if x >= 0]
-        # valid_rel = [x for x in stats['rel'] if x >= 0]
-        # if len(stats['abs']) == 0:
-        #     print(f"⚠️ [{op_name.upper()}] 没有收集到有效误差数据 (可能全为逻辑匹配)")
-        #     continue 
+    if not args.skip_plots:
+        print("\n📊 正在按算子绘制误差分布直方图...")
+        for op_name, stats in ops_stats.items():
+            valid_abs = [x for x in stats['abs'] if np.isfinite(x) and x >= 0]
+            valid_rel = [x for x in stats['rel'] if np.isfinite(x) and x >= 0]
 
-        valid_abs = [x for x in stats['abs'] if np.isfinite(x) and x >= 0]
-        valid_rel = [x for x in stats['rel'] if np.isfinite(x) and x >= 0]
+            if len(valid_abs) == 0 or len(valid_rel) == 0:
+                print(f"⚠️ [{op_name.upper()}] 没有可用的有限误差数据，跳过绘图")
+                continue
 
-        if len(valid_abs) == 0 or len(valid_rel) == 0:
-            print(f"⚠️ [{op_name.upper()}] 没有可用的有限误差数据，跳过绘图")
-            continue
-
-        plt.figure(figsize=(14, 6)) 
-        # --- 子图 1: 绝对误差分布 ---
-        plt.subplot(1, 2, 1)
-        # plt.hist(stats['abs'], bins=50, color='skyblue', edgecolor='black', log=True)
-        plt.hist(valid_abs, bins=50, color='skyblue', edgecolor='black', log=True)
-        plt.title(f'Operator [{op_name.upper()}] - Absolute Error Dist')
-        plt.xlabel('Max Absolute Error')
-        plt.ylabel('Count (Log Scale)')
-        plt.grid(True, which="both", ls="-", alpha=0.2) 
-        # 标注 99% 分位数 (P99)
-        if len(stats['abs']) > 0:
-            p99_abs = np.percentile(stats['abs'], 99)
-            plt.axvline(p99_abs, color='red', linestyle='dashed', linewidth=1)
-            plt.text(p99_abs, plt.ylim()[1]*0.9, f' P99: {p99_abs:.2e}', color='red')
-        # --- 子图 2: 相对误差分布 ---
-        plt.subplot(1, 2, 2)
-        # plt.hist(stats['rel'], bins=50, color='salmon', edgecolor='black', log=True)
-        plt.hist(valid_rel, bins=50, color='salmon', edgecolor='black', log=True)
-        plt.title(f'Operator [{op_name.upper()}] - Relative Error Dist')
-        plt.xlabel('Max Relative Error')
-        plt.ylabel('Count (Log Scale)')
-        plt.grid(True, which="both", ls="-", alpha=0.2)
-        # 标注 99% 分位数 (P99)
-        if len(stats['rel']) > 0:
-            p99_rel = np.percentile(stats['rel'], 99)
-            plt.axvline(p99_rel, color='red', linestyle='dashed', linewidth=1)
-            plt.text(p99_rel, plt.ylim()[1]*0.9, f' P99: {p99_rel:.2e}', color='red')
+            plt.figure(figsize=(14, 6))
+            # --- 子图 1: 绝对误差分布 ---
+            plt.subplot(1, 2, 1)
+            plt.hist(valid_abs, bins=50, color='skyblue', edgecolor='black', log=True)
+            plt.title(f'Operator [{op_name.upper()}] - Absolute Error Dist')
+            plt.xlabel('Max Absolute Error')
+            plt.ylabel('Count (Log Scale)')
+            plt.grid(True, which="both", ls="-", alpha=0.2)
+            # 标注 99% 分位数 (P99)
+            if len(valid_abs) > 0:
+                p99_abs = np.percentile(valid_abs, 99)
+                plt.axvline(p99_abs, color='red', linestyle='dashed', linewidth=1)
+                plt.text(p99_abs, plt.ylim()[1]*0.9, f' P99: {p99_abs:.2e}', color='red')
+            # --- 子图 2: 相对误差分布 ---
+            plt.subplot(1, 2, 2)
+            plt.hist(valid_rel, bins=50, color='salmon', edgecolor='black', log=True)
+            plt.title(f'Operator [{op_name.upper()}] - Relative Error Dist')
+            plt.xlabel('Max Relative Error')
+            plt.ylabel('Count (Log Scale)')
+            plt.grid(True, which="both", ls="-", alpha=0.2)
+            # 标注 99% 分位数 (P99)
+            if len(valid_rel) > 0:
+                p99_rel = np.percentile(valid_rel, 99)
+                plt.axvline(p99_rel, color='red', linestyle='dashed', linewidth=1)
+                plt.text(p99_rel, plt.ylim()[1]*0.9, f' P99: {p99_rel:.2e}', color='red')
 
             plt.tight_layout()
             plt.close()
-        
-        # # 保存图片
-        # filename = f'error_dist_{op_name}.png'
-        # plt.tight_layout()
-        # plt.savefig(filename)
-        # plt.close() # 关闭画布释放内存
-        # plt.show()
-        # print(f"✅ [{op_name.upper()}] 图表已保存至: {filename}")
     print("\n📈 详细统计报告 (99th Percentile Summary):")
     print(f"{'Operator':<10} | {'Abs (99%)':<12} | {'Rel (99%)':<12} | {'Samples':<8}")
     print("-" * 50)
@@ -1046,3 +1218,7 @@ if __name__ == "__main__":
             count = len(stats['abs'])
             print(f"{op_name.upper():<10} | {p99_abs:.2e}     | {p99_rel:.2e}     | {count:<8}")
     print("-" * 50)
+
+    if failed_ops:
+        print(f"ERROR: numerical verification failed for: {sorted(set(failed_ops))}")
+        sys.exit(1)

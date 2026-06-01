@@ -30,6 +30,20 @@ static pthread_mutex_t cos_lut_mutex = PTHREAD_MUTEX_INITIALIZER;
 // 半圆周率
 #define HALF_PI (PI / 2.0)
 
+static uint32_t simple_lcg(uint32_t* state);
+
+static inline uint32_t float_to_bits(float value) {
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static inline float bits_to_float(uint32_t bits) {
+    float value;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
 // 获取数据类型的字节大小
 static inline size_t get_dtype_size(DataType dtype) {
     switch (dtype) {
@@ -102,7 +116,7 @@ static inline int32_t saturate_cast_int32(int64_t val) {
  * @return 16位浮点数
  */
 static inline uint16_t float_to_float16(float value) {
-    uint32_t bits = *(uint32_t*)&value;
+    uint32_t bits = float_to_bits(value);
     uint16_t sign = (bits >> 16) & 0x8000;
 
     int32_t exp = ((bits >> 23) & 0xFF);
@@ -163,10 +177,10 @@ static inline float float16_to_float(uint16_t value) {
     uint32_t frac = value & 0x3FF;
 
     if (exp == 0 && frac == 0) {
-        return *(float*)&sign; 
+        return bits_to_float(sign);
     }
     if (exp == 31) {
-        return *(float*)&(uint32_t){sign | 0x7F800000 | (frac << 13)};
+        return bits_to_float(sign | 0x7F800000 | (frac << 13));
     }
     if (exp == 0) {
         int32_t new_exp = -14 + 127; 
@@ -176,11 +190,11 @@ static inline float float16_to_float(uint16_t value) {
         }
         frac &= 0x3FF; 
         uint32_t bits = sign | (new_exp << 23) | (frac << 13);
-        return *(float*)&bits;
+        return bits_to_float(bits);
     }
     uint32_t new_exp = exp - 15 + 127;
     uint32_t bits = sign | (new_exp << 23) | (frac << 13);
-    return *(float*)&bits;
+    return bits_to_float(bits);
 }
 
 /**
@@ -190,7 +204,7 @@ static inline float float16_to_float(uint16_t value) {
  * @return 16位bfloat16格式数据
  */
 static inline uint16_t float_to_bfloat16(float value) {
-    uint32_t bits = *(uint32_t*)&value;
+    uint32_t bits = float_to_bits(value);
 
     if ((bits & 0x7F800000) == 0x7F800000 && (bits & 0x007FFFFF) != 0) {
         return (uint16_t)(bits >> 16) | 0x0040; // 强制设为 Quiet NaN
@@ -224,7 +238,7 @@ static inline float bfloat16_to_float(uint16_t value) {
     uint32_t frac = (value & 0x007F) << 16;
     // 组合符号位、指数位和尾数位
     uint32_t bits = sign | exp | frac;
-    return *(float*)&bits;
+    return bits_to_float(bits);
 }
 
 /**
@@ -237,9 +251,9 @@ static inline float fp8_e4m3_to_float(uint8_t val) {
     uint32_t sign = ((uint32_t)val & 0x80) << 24;
     uint32_t exp  = (val & 0x78) >> 3;
     uint32_t mant = (val & 0x07);
-    if (exp == 0 && mant == 0) return *(float*)&sign;
+    if (exp == 0 && mant == 0) return bits_to_float(sign);
     if (exp == 15 && mant == 7) {
-        return *(float*)&(uint32_t){sign | 0x7F800000 | 0x400000};
+        return bits_to_float(sign | 0x7F800000 | 0x400000);
     }
 
     if (exp == 0) {
@@ -249,14 +263,14 @@ static inline float fp8_e4m3_to_float(uint8_t val) {
             new_exp--;
         }
         mant &= 0x07;
-        return *(float*)&(uint32_t){sign | (new_exp << 23) | (mant << 20)};
+        return bits_to_float(sign | (new_exp << 23) | (mant << 20));
     }
     uint32_t new_exp = exp + 120;
-    return *(float*)&(uint32_t){sign | (new_exp << 23) | (mant << 20)};
+    return bits_to_float(sign | (new_exp << 23) | (mant << 20));
 }
 
 static inline uint8_t float_to_fp8_e4m3(float f) {
-    uint32_t bits = *(uint32_t*)&f;
+    uint32_t bits = float_to_bits(f);
     uint32_t sign = (bits & 0x80000000) >> 24; 
     int32_t exp = (int32_t)((bits & 0x7F800000) >> 23);
     uint32_t mant = bits & 0x007FFFFF;
@@ -296,11 +310,11 @@ static inline float fp8_e5m2_to_float(uint8_t val) {
     uint32_t sign = ((uint32_t)val & 0x80) << 24;
     uint32_t exp  = (val & 0x7C) >> 2;
     uint32_t mant = (val & 0x03);
-    if (exp == 0 && mant == 0) return *(float*)&sign;
+    if (exp == 0 && mant == 0) return bits_to_float(sign);
     if (exp == 31) {
         uint32_t f32_mant = mant << 21;
-        if (mant != 0) f32_mant |= 0x400000; 
-        return *(float*)&(uint32_t){sign | 0x7F800000 | f32_mant};
+        if (mant != 0) f32_mant |= 0x400000;
+        return bits_to_float(sign | 0x7F800000 | f32_mant);
     }
     if (exp == 0) {
         int32_t new_exp = -14 + 127;
@@ -309,14 +323,14 @@ static inline float fp8_e5m2_to_float(uint8_t val) {
             new_exp--;
         }
         mant &= 0x03;
-        return *(float*)&(uint32_t){sign | (new_exp << 23) | (mant << 21)};
+        return bits_to_float(sign | (new_exp << 23) | (mant << 21));
     }
     uint32_t new_exp = exp + 112;
-    return *(float*)&(uint32_t){sign | (new_exp << 23) | (mant << 21)};
+    return bits_to_float(sign | (new_exp << 23) | (mant << 21));
 }
 
 static inline uint8_t float_to_fp8_e5m2(float f) {
-    uint32_t bits = *(uint32_t*)&f;
+    uint32_t bits = float_to_bits(f);
     uint32_t sign = (bits & 0x80000000) >> 24;
     int32_t exp = (int32_t)((bits & 0x7F800000) >> 23);
     uint32_t mant = bits & 0x007FFFFF;
@@ -355,6 +369,10 @@ static inline uint8_t float_to_fp8_e5m2(float f) {
  * @return 创建的张量指针
  */
 Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
+    if (ndim < 0) {
+        return NULL;
+    }
+
     // 分配张量结构体内存
     Tensor* tensor = (Tensor*)malloc(sizeof(Tensor));
     if (!tensor) {
@@ -365,12 +383,19 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
     tensor->ndim = ndim;
     
     // 分配并复制形状数组
-    tensor->shape = (int*)malloc(ndim * sizeof(int));
-    if (!tensor->shape) {
-        free(tensor);
-        return NULL;
+    tensor->shape = NULL;
+    if (ndim > 0) {
+        if (!shape) {
+            free(tensor);
+            return NULL;
+        }
+        tensor->shape = (int*)malloc(ndim * sizeof(int));
+        if (!tensor->shape) {
+            free(tensor);
+            return NULL;
+        }
+        memcpy(tensor->shape, shape, ndim * sizeof(int));
     }
-    memcpy(tensor->shape, shape, ndim * sizeof(int));
     
     // 设置数据类型
     tensor->dtype = dtype;
@@ -378,6 +403,11 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
     // 计算总元素数
     tensor->size = 1;
     for (int i = 0; i < ndim; i++) {
+        if (shape[i] < 0) {
+            free(tensor->shape);
+            free(tensor);
+            return NULL;
+        }
         tensor->size *= shape[i];
     }
     
@@ -423,7 +453,8 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
     
     // 分配数据内存
     //tensor->data = malloc(tensor->size * elem_size);
-    tensor->data = calloc(tensor->size, elem_size);
+    size_t alloc_count = tensor->size == 0 ? 1 : tensor->size;
+    tensor->data = calloc(alloc_count, elem_size);
     if (!tensor->data) {
         free(tensor->shape);
         free(tensor);
@@ -585,6 +616,21 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
         case DTYPE_INT64:   ((int64_t*)tensor->data)[index] = (int64_t)rint(value); break;
         default: break;
     }
+}
+
+static inline void copy_tensor_element(Tensor* dst, size_t dst_index, const Tensor* src, size_t src_index) {
+    if (!dst || !src || !dst->data || !src->data) return;
+
+    size_t dst_elem_size = get_dtype_size(dst->dtype);
+    size_t src_elem_size = get_dtype_size(src->dtype);
+    if (dst->dtype == src->dtype && dst_elem_size == src_elem_size) {
+        memcpy((uint8_t*)dst->data + dst_index * dst_elem_size,
+               (const uint8_t*)src->data + src_index * src_elem_size,
+               dst_elem_size);
+        return;
+    }
+
+    set_tensor_value_from_float(dst, dst_index, get_value_as_double(src, src_index));
 }
 
 /* 判断是否为整数类型 */
@@ -1058,14 +1104,14 @@ void conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y
     int group = params->group;
     
     int in_c_per_group = in_c / group;
-    int out_c_per_group = out_c / group; 
+    int out_c_per_group = out_c / group;
 
     // 核心计算循环
     #pragma omp parallel for collapse(2)
     for (int n = 0; n < batch; n++) {
         for (int m = 0; m < out_c; m++) {
             // 当前 filter 属于第 g 个组
-            int g = m / (out_c / group);
+            int g = m / out_c_per_group;
             
             // 获取 Bias
             double bias_val = 0.0;
@@ -1107,6 +1153,228 @@ void conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y
                                    ((size_t)oh * out_w) + ow;
                     
                     set_tensor_value_from_float(Y, y_idx, sum + bias_val);
+                }
+            }
+        }
+    }
+}
+
+void conv_transpose2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params) {
+    if (!X || !W || !Y || !params || X->ndim != 4 || W->ndim != 4 || Y->ndim != 4) return;
+
+    int batch = X->shape[0];
+    int in_c = X->shape[1];
+    int in_h = X->shape[2];
+    int in_w = X->shape[3];
+    int m_per_group = W->shape[1];
+    int k_h = W->shape[2];
+    int k_w = W->shape[3];
+    int out_c = Y->shape[1];
+    int out_h = Y->shape[2];
+    int out_w = Y->shape[3];
+
+    int pad_top = params->pads[0];
+    int pad_left = params->pads[1];
+    int stride_h = params->strides[0];
+    int stride_w = params->strides[1];
+    int dilation_h = params->dilations[0];
+    int dilation_w = params->dilations[1];
+    int group = params->group;
+    if (group <= 0 || stride_h <= 0 || stride_w <= 0 || dilation_h <= 0 || dilation_w <= 0) return;
+    if (in_c % group != 0 || out_c != m_per_group * group || W->shape[0] != in_c) return;
+
+    int in_c_per_group = in_c / group;
+
+    _Pragma("omp parallel for collapse(2)")
+    for (int n = 0; n < batch; n++) {
+        for (int oc = 0; oc < out_c; oc++) {
+            int group_idx = oc / m_per_group;
+            int oc_local = oc - group_idx * m_per_group;
+            int ic_begin = group_idx * in_c_per_group;
+            int ic_end = ic_begin + in_c_per_group;
+            double bias_val = (B && B->data) ? get_value_as_double(B, oc) : 0.0;
+
+            for (int oh = 0; oh < out_h; oh++) {
+                for (int ow = 0; ow < out_w; ow++) {
+                    double sum = bias_val;
+                    for (int ic = ic_begin; ic < ic_end; ic++) {
+                        for (int kh = 0; kh < k_h; kh++) {
+                            int h_offset = oh + pad_top - kh * dilation_h;
+                            if (h_offset % stride_h != 0) continue;
+                            int ih = h_offset / stride_h;
+                            if (ih < 0 || ih >= in_h) continue;
+
+                            for (int kw = 0; kw < k_w; kw++) {
+                                int w_offset = ow + pad_left - kw * dilation_w;
+                                if (w_offset % stride_w != 0) continue;
+                                int iw = w_offset / stride_w;
+                                if (iw < 0 || iw >= in_w) continue;
+
+                                size_t x_idx = ((size_t)n * in_c * in_h * in_w) +
+                                               ((size_t)ic * in_h * in_w) +
+                                               ((size_t)ih * in_w) + iw;
+                                size_t w_idx = ((size_t)ic * m_per_group * k_h * k_w) +
+                                               ((size_t)oc_local * k_h * k_w) +
+                                               ((size_t)kh * k_w) + kw;
+                                sum += get_value_as_double(X, x_idx) * get_value_as_double(W, w_idx);
+                            }
+                        }
+                    }
+
+                    size_t y_idx = ((size_t)n * out_c * out_h * out_w) +
+                                   ((size_t)oc * out_h * out_w) +
+                                   ((size_t)oh * out_w) + ow;
+                    set_tensor_value_from_float(Y, y_idx, sum);
+                }
+            }
+        }
+    }
+}
+
+void conv_integer_forward(const Tensor* X, const Tensor* W,
+                          const Tensor* XZeroPoint, const Tensor* WZeroPoint,
+                          Tensor* Y, ConvParams* params) {
+    if (!X || !W || !Y || !params || X->ndim != 4 || W->ndim != 4 || Y->ndim != 4) return;
+
+    int batch = X->shape[0];
+    int in_c  = X->shape[1];
+    int out_c = W->shape[0];
+    int k_h   = W->shape[2];
+    int k_w   = W->shape[3];
+    int out_h = Y->shape[2];
+    int out_w = Y->shape[3];
+
+    int pad_top = params->pads[0];
+    int pad_left = params->pads[1];
+    int stride_h = params->strides[0];
+    int stride_w = params->strides[1];
+    int dilation_h = params->dilations[0];
+    int dilation_w = params->dilations[1];
+    int group = params->group;
+    if (group <= 0) return;
+
+    int in_c_per_group = in_c / group;
+    int out_c_per_group = out_c / group;
+
+    _Pragma("omp parallel for collapse(2)")
+    for (int n = 0; n < batch; n++) {
+        for (int m = 0; m < out_c; m++) {
+            int g = m / out_c_per_group;
+            for (int oh = 0; oh < out_h; oh++) {
+                for (int ow = 0; ow < out_w; ow++) {
+                    int64_t sum = 0;
+                    for (int ic_g = 0; ic_g < in_c_per_group; ic_g++) {
+                        int ic = g * in_c_per_group + ic_g;
+                        for (int kh = 0; kh < k_h; kh++) {
+                            for (int kw = 0; kw < k_w; kw++) {
+                                int h_in = oh * stride_h + kh * dilation_h - pad_top;
+                                int w_in = ow * stride_w + kw * dilation_w - pad_left;
+                                if (h_in < 0 || h_in >= X->shape[2] || w_in < 0 || w_in >= X->shape[3]) {
+                                    continue;
+                                }
+
+                                size_t x_idx = ((size_t)n * in_c * X->shape[2] * X->shape[3]) +
+                                               ((size_t)ic * X->shape[2] * X->shape[3]) +
+                                               ((size_t)h_in * X->shape[3]) + w_in;
+                                size_t w_idx = ((size_t)m * in_c_per_group * k_h * k_w) +
+                                               ((size_t)ic_g * k_h * k_w) +
+                                               ((size_t)kh * k_w) + kw;
+
+                                int64_t x_val = get_value_as_int64(X, x_idx);
+                                int64_t w_val = get_value_as_int64(W, w_idx);
+                                int64_t x_zp = (XZeroPoint && XZeroPoint->data) ? get_value_as_int64(XZeroPoint, x_idx) : 0;
+                                int64_t w_zp = (WZeroPoint && WZeroPoint->data) ? get_value_as_int64(WZeroPoint, w_idx) : 0;
+                                sum += (x_val - x_zp) * (w_val - w_zp);
+                            }
+                        }
+                    }
+
+                    size_t y_idx = ((size_t)n * out_c * out_h * out_w) +
+                                   ((size_t)m * out_h * out_w) +
+                                   ((size_t)oh * out_w) + ow;
+                    if (Y->dtype == DTYPE_INT32) {
+                        ((int32_t*)Y->data)[y_idx] = (int32_t)sum;
+                    } else {
+                        set_tensor_value_from_int(Y, y_idx, sum);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void qlinear_conv_forward(const Tensor* X, const Tensor* XScale, const Tensor* XZeroPoint,
+                          const Tensor* W, const Tensor* WScale, const Tensor* WZeroPoint,
+                          const Tensor* YScale, const Tensor* YZeroPoint,
+                          const Tensor* Bias, Tensor* Y, ConvParams* params) {
+    if (!X || !XScale || !W || !WScale || !YScale || !YZeroPoint || !Y || !params) return;
+    if (X->ndim != 4 || W->ndim != 4 || Y->ndim != 4) return;
+
+    int batch = X->shape[0];
+    int in_c  = X->shape[1];
+    int out_c = W->shape[0];
+    int k_h   = W->shape[2];
+    int k_w   = W->shape[3];
+    int out_h = Y->shape[2];
+    int out_w = Y->shape[3];
+
+    int pad_top = params->pads[0];
+    int pad_left = params->pads[1];
+    int stride_h = params->strides[0];
+    int stride_w = params->strides[1];
+    int dilation_h = params->dilations[0];
+    int dilation_w = params->dilations[1];
+    int group = params->group;
+    if (group <= 0 || in_c % group != 0 || out_c % group != 0) return;
+
+    int in_c_per_group = in_c / group;
+    int out_c_per_group = out_c / group;
+
+    _Pragma("omp parallel for collapse(2)")
+    for (int n = 0; n < batch; n++) {
+        for (int m = 0; m < out_c; m++) {
+            int g = m / out_c_per_group;
+            size_t w_scale_idx = (size_t)m * in_c_per_group * k_h * k_w;
+            double w_scale = get_value_as_double(WScale, w_scale_idx);
+            int64_t bias = (Bias && Bias->data) ? get_value_as_int64(Bias, m) : 0;
+
+            for (int oh = 0; oh < out_h; oh++) {
+                for (int ow = 0; ow < out_w; ow++) {
+                    int64_t acc = 0;
+                    for (int ic_g = 0; ic_g < in_c_per_group; ic_g++) {
+                        int ic = g * in_c_per_group + ic_g;
+                        for (int kh = 0; kh < k_h; kh++) {
+                            for (int kw = 0; kw < k_w; kw++) {
+                                int h_in = oh * stride_h + kh * dilation_h - pad_top;
+                                int w_in = ow * stride_w + kw * dilation_w - pad_left;
+                                if (h_in < 0 || h_in >= X->shape[2] || w_in < 0 || w_in >= X->shape[3]) {
+                                    continue;
+                                }
+
+                                size_t x_idx = ((size_t)n * in_c * X->shape[2] * X->shape[3]) +
+                                               ((size_t)ic * X->shape[2] * X->shape[3]) +
+                                               ((size_t)h_in * X->shape[3]) + w_in;
+                                size_t w_idx = ((size_t)m * in_c_per_group * k_h * k_w) +
+                                               ((size_t)ic_g * k_h * k_w) +
+                                               ((size_t)kh * k_w) + kw;
+
+                                int64_t x_val = get_value_as_int64(X, x_idx);
+                                int64_t w_val = get_value_as_int64(W, w_idx);
+                                int64_t x_zp = (XZeroPoint && XZeroPoint->data) ? get_value_as_int64(XZeroPoint, x_idx) : 0;
+                                int64_t w_zp = (WZeroPoint && WZeroPoint->data) ? get_value_as_int64(WZeroPoint, w_idx) : 0;
+                                acc += (x_val - x_zp) * (w_val - w_zp);
+                            }
+                        }
+                    }
+
+                    size_t y_idx = ((size_t)n * out_c * out_h * out_w) +
+                                   ((size_t)m * out_h * out_w) +
+                                   ((size_t)oh * out_w) + ow;
+                    double x_scale = get_value_as_double(XScale, 0);
+                    double y_scale = get_value_as_double(YScale, y_idx);
+                    double y_zp = get_value_as_double(YZeroPoint, y_idx);
+                    double q = ((double)(acc + bias) * x_scale * w_scale) / y_scale + y_zp;
+                    set_tensor_value_from_float(Y, y_idx, q);
                 }
             }
         }
@@ -1160,6 +1428,57 @@ void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params) {
                     set_tensor_value_from_float(Y, y_idx, max_val);
                 }
             }
+        }
+    }
+}
+
+void max_unpool_forward(const Tensor* X, const Tensor* Indices, Tensor* Y, PoolParams* params) {
+    if (!X || !Indices || !Y || !params || !X->data || !Indices->data || !Y->data) return;
+    if (X->ndim != Indices->ndim || X->ndim != Y->ndim || X->ndim < 3 || X->ndim > MAX_NDIM) return;
+    if (X->size != Indices->size) return;
+
+    int spatial_rank = X->ndim - 2;
+    int inferred_shape[MAX_NDIM];
+    inferred_shape[0] = X->shape[0];
+    inferred_shape[1] = X->shape[1];
+    for (int dim = 0; dim < spatial_rank; dim++) {
+        int inferred = (X->shape[dim + 2] - 1) * params->strides[dim]
+                       - params->pads[dim]
+                       - params->pads[spatial_rank + dim]
+                       + params->kernel_shape[dim];
+        if (inferred <= 0) return;
+        inferred_shape[dim + 2] = inferred;
+    }
+
+    int64_t inferred_total = 1;
+    for (int dim = 0; dim < X->ndim; dim++) {
+        inferred_total *= inferred_shape[dim];
+    }
+
+    for (size_t src_idx = 0; src_idx < X->size; src_idx++) {
+        int64_t flat_index = get_value_as_int64(Indices, src_idx);
+        if (flat_index < 0 || flat_index >= inferred_total) {
+            continue;
+        }
+
+        int coords[MAX_NDIM];
+        int64_t remaining = flat_index;
+        for (int dim = X->ndim - 1; dim >= 0; dim--) {
+            coords[dim] = (int)(remaining % inferred_shape[dim]);
+            remaining /= inferred_shape[dim];
+        }
+
+        size_t dst_idx = 0;
+        int in_bounds = 1;
+        for (int dim = 0; dim < Y->ndim; dim++) {
+            if (coords[dim] < 0 || coords[dim] >= Y->shape[dim]) {
+                in_bounds = 0;
+                break;
+            }
+            dst_idx = dst_idx * (size_t)Y->shape[dim] + (size_t)coords[dim];
+        }
+        if (in_bounds) {
+            copy_tensor_element(Y, dst_idx, X, src_idx);
         }
     }
 }
@@ -1327,8 +1646,8 @@ void transpose_forward(const Tensor* input, Tensor* output, int* perm) {
 
     #pragma omp parallel for
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[MAX_NDIM]; // 输出坐标
-        int in_coords[MAX_NDIM];  // 输入坐标
+        int out_coords[MAX_NDIM] = {0}; // 输出坐标
+        int in_coords[MAX_NDIM] = {0};  // 输入坐标
         
         // 1. 根据输出的平坦索引 i，反解出输出坐标
         get_coords_from_index(i, out_coords, output->shape, ndim);
@@ -1446,8 +1765,7 @@ void concat_forward(const Tensor** inputs, int num_inputs, Tensor* output, int a
             // 4. 读取源数据并写入
             const Tensor* src = inputs[input_idx];
             size_t src_idx = get_index_from_coords(coords, src->shape, ndim);
-            double val = get_value_as_double(src, src_idx);
-            set_tensor_value_from_float(output, i, val);
+            copy_tensor_element(output, i, src, src_idx);
         }
     }
 }
@@ -1475,8 +1793,7 @@ void slice_forward(const Tensor* input, Tensor* output, int* starts, int* steps)
         
         // 3. 读写数据
         size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim);
-        double val = get_value_as_double(input, in_idx);
-        set_tensor_value_from_float(output, i, val);
+        copy_tensor_element(output, i, input, in_idx);
     }
 }
 
@@ -1496,11 +1813,18 @@ UNARY_OP_IMPL(floor_forward, floor(val))
 // 读取时自动转 double，写入 set_tensor_value 时会自动转为 output->dtype
 void cast_forward(const Tensor* input, Tensor* output) {
     if (!input || !output || !input->data || !output->data || input->size != output->size) return;
+
+    if (input->dtype == output->dtype) {
+        size_t elem_size = get_dtype_size(input->dtype);
+        memcpy(output->data, input->data, input->size * elem_size);
+        return;
+    }
     
     // 检查是否是 "浮点 -> 整数" 的情况
     int is_float_to_int = (input->dtype == DTYPE_FLOAT32 || input->dtype == DTYPE_FLOAT64 || 
                            input->dtype == DTYPE_FLOAT16 || input->dtype == DTYPE_BFLOAT16) &&
                           IS_INT_TYPE(output->dtype);
+    int is_int_to_int = IS_INT_TYPE(input->dtype) && IS_INT_TYPE(output->dtype);
 
     _Pragma("omp parallel for")
     for (size_t i = 0; i < input->size; i++) {
@@ -1508,13 +1832,789 @@ void cast_forward(const Tensor* input, Tensor* output) {
         double val = get_value_as_double(input, i);
         
         // 2. 写入输出
-        if (is_float_to_int) {
-            int64_t trunc_val = (int64_t)val;
-            set_tensor_value_from_int(output, i, trunc_val);
+        if (is_float_to_int || is_int_to_int) {
+            int64_t int_val = is_int_to_int ? get_value_as_int64(input, i) : (int64_t)val;
+            set_tensor_value_from_int(output, i, int_val);
         } else {
             // 其他情况 (Int->Float, Float->Float, Int->Int) 保持原有逻辑
             set_tensor_value_from_float(output, i, val);
         }
+    }
+}
+
+void sum_forward(const Tensor** inputs, int num_inputs, Tensor* output) {
+    if (!inputs || !output || num_inputs < 1) return;
+    for (int k = 0; k < num_inputs; k++) {
+        if (!inputs[k] || inputs[k]->size != output->size) return;
+    }
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        double sum = 0.0;
+        for (int k = 0; k < num_inputs; k++) {
+            sum += get_value_as_double(inputs[k], i);
+        }
+        set_tensor_value_from_float(output, i, sum);
+    }
+}
+
+void prelu_forward(const Tensor* input, const Tensor* slope, Tensor* output) {
+    if (!input || !slope || !output || input->size != output->size || slope->size != output->size) return;
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        double x = get_value_as_double(input, i);
+        double s = get_value_as_double(slope, i);
+        double y = x >= 0.0 ? x : x * s;
+        set_tensor_value_from_float(output, i, y);
+    }
+}
+
+void det_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output || input->ndim < 2) return;
+
+    int n = input->shape[input->ndim - 1];
+    int m = input->shape[input->ndim - 2];
+    if (n != m || n <= 0) return;
+
+    size_t matrix_size = (size_t)n * (size_t)n;
+    size_t batch = output->size;
+
+    _Pragma("omp parallel for")
+    for (size_t b = 0; b < batch; b++) {
+        double* work = (double*)malloc(matrix_size * sizeof(double));
+        if (!work) continue;
+
+        size_t base = b * matrix_size;
+        for (size_t i = 0; i < matrix_size; i++) {
+            work[i] = get_value_as_double(input, base + i);
+        }
+
+        double det = 1.0;
+        int sign = 1;
+        for (int col = 0; col < n; col++) {
+            int pivot = col;
+            double pivot_abs = fabs(work[(size_t)col * n + col]);
+            for (int row = col + 1; row < n; row++) {
+                double candidate = fabs(work[(size_t)row * n + col]);
+                if (candidate > pivot_abs) {
+                    pivot_abs = candidate;
+                    pivot = row;
+                }
+            }
+
+            if (pivot_abs == 0.0) {
+                det = 0.0;
+                break;
+            }
+
+            if (pivot != col) {
+                for (int j = 0; j < n; j++) {
+                    double tmp = work[(size_t)col * n + j];
+                    work[(size_t)col * n + j] = work[(size_t)pivot * n + j];
+                    work[(size_t)pivot * n + j] = tmp;
+                }
+                sign = -sign;
+            }
+
+            double pivot_val = work[(size_t)col * n + col];
+            det *= pivot_val;
+            for (int row = col + 1; row < n; row++) {
+                double factor = work[(size_t)row * n + col] / pivot_val;
+                work[(size_t)row * n + col] = 0.0;
+                for (int j = col + 1; j < n; j++) {
+                    work[(size_t)row * n + j] -= factor * work[(size_t)col * n + j];
+                }
+            }
+        }
+
+        set_tensor_value_from_float(output, b, det * sign);
+        free(work);
+    }
+}
+
+static int tensor_scalar_equal(const Tensor* tensor, size_t lhs, size_t rhs) {
+    if (!tensor || !tensor->data) return 0;
+    if (IS_INT_TYPE(tensor->dtype)) {
+        return get_value_as_int64(tensor, lhs) == get_value_as_int64(tensor, rhs);
+    }
+    double a = get_value_as_double(tensor, lhs);
+    double b = get_value_as_double(tensor, rhs);
+    if (isnan(a) && isnan(b)) return 1;
+    return a == b;
+}
+
+static int tensor_scalar_compare(const Tensor* tensor, size_t lhs, size_t rhs) {
+    if (IS_INT_TYPE(tensor->dtype)) {
+        int64_t a = get_value_as_int64(tensor, lhs);
+        int64_t b = get_value_as_int64(tensor, rhs);
+        return (a > b) - (a < b);
+    }
+    double a = get_value_as_double(tensor, lhs);
+    double b = get_value_as_double(tensor, rhs);
+    int a_nan = isnan(a);
+    int b_nan = isnan(b);
+    if (a_nan && b_nan) return 0;
+    if (a_nan) return 1;
+    if (b_nan) return -1;
+    return (a > b) - (a < b);
+}
+
+int unique_forward(const Tensor* input, Tensor* values, Tensor* indices, Tensor* inverse, Tensor* counts, int sorted) {
+    if (!input || !values || !indices || !inverse || !counts) return 0;
+    if (!input->data || !values->data || !indices->data || !inverse->data || !counts->data) return 0;
+    if (values->size < input->size || indices->size < input->size || inverse->size < input->size || counts->size < input->size) return 0;
+
+    size_t n = input->size;
+    size_t elem_size = get_dtype_size(values->dtype);
+    size_t* first_indices = (size_t*)malloc((n == 0 ? 1 : n) * sizeof(size_t));
+    int* order = (int*)malloc((n == 0 ? 1 : n) * sizeof(int));
+    int* remap = (int*)malloc((n == 0 ? 1 : n) * sizeof(int));
+    if (!first_indices || !order || !remap) {
+        free(first_indices);
+        free(order);
+        free(remap);
+        return 0;
+    }
+
+    int unique_count = 0;
+    for (size_t i = 0; i < n; i++) {
+        int found = -1;
+        for (int j = 0; j < unique_count; j++) {
+            if (tensor_scalar_equal(input, i, first_indices[j])) {
+                found = j;
+                break;
+            }
+        }
+
+        if (found < 0) {
+            first_indices[unique_count] = i;
+            copy_tensor_element(values, unique_count, input, i);
+            set_tensor_value_from_int(indices, unique_count, (int64_t)i);
+            set_tensor_value_from_int(counts, unique_count, 1);
+            set_tensor_value_from_int(inverse, i, unique_count);
+            unique_count++;
+        } else {
+            int64_t old_count = get_value_as_int64(counts, found);
+            set_tensor_value_from_int(counts, found, old_count + 1);
+            set_tensor_value_from_int(inverse, i, found);
+        }
+    }
+
+    if (sorted && unique_count > 1) {
+        for (int i = 0; i < unique_count; i++) order[i] = i;
+        for (int i = 1; i < unique_count; i++) {
+            int current = order[i];
+            int j = i - 1;
+            while (j >= 0 && tensor_scalar_compare(input, first_indices[order[j]], first_indices[current]) > 0) {
+                order[j + 1] = order[j];
+                j--;
+            }
+            order[j + 1] = current;
+        }
+
+        void* tmp_values = malloc((size_t)unique_count * elem_size);
+        int64_t* tmp_indices = (int64_t*)malloc((size_t)unique_count * sizeof(int64_t));
+        int64_t* tmp_counts = (int64_t*)malloc((size_t)unique_count * sizeof(int64_t));
+        if (tmp_values && tmp_indices && tmp_counts) {
+            for (int new_pos = 0; new_pos < unique_count; new_pos++) {
+                int old_pos = order[new_pos];
+                remap[old_pos] = new_pos;
+                memcpy((uint8_t*)tmp_values + (size_t)new_pos * elem_size,
+                       (uint8_t*)values->data + (size_t)old_pos * elem_size,
+                       elem_size);
+                tmp_indices[new_pos] = get_value_as_int64(indices, old_pos);
+                tmp_counts[new_pos] = get_value_as_int64(counts, old_pos);
+            }
+
+            memcpy(values->data, tmp_values, (size_t)unique_count * elem_size);
+            for (int i = 0; i < unique_count; i++) {
+                set_tensor_value_from_int(indices, i, tmp_indices[i]);
+                set_tensor_value_from_int(counts, i, tmp_counts[i]);
+            }
+            for (size_t i = 0; i < n; i++) {
+                int old_inverse = (int)get_value_as_int64(inverse, i);
+                set_tensor_value_from_int(inverse, i, remap[old_inverse]);
+            }
+        }
+        free(tmp_values);
+        free(tmp_indices);
+        free(tmp_counts);
+    }
+
+    free(first_indices);
+    free(order);
+    free(remap);
+    return unique_count;
+}
+
+static double hz_to_mel(double frequency) {
+    return 2595.0 * log10(1.0 + frequency / 700.0);
+}
+
+static double mel_to_hz(double mel) {
+    return 700.0 * (pow(10.0, mel / 2595.0) - 1.0);
+}
+
+void mel_weight_matrix_forward(const Tensor* num_mel_bins, const Tensor* dft_length,
+                               const Tensor* sample_rate, const Tensor* lower_edge_hertz,
+                               const Tensor* upper_edge_hertz, Tensor* output) {
+    if (!num_mel_bins || !dft_length || !sample_rate || !lower_edge_hertz || !upper_edge_hertz || !output) return;
+
+    int bins = (int)get_value_as_int64(num_mel_bins, 0);
+    int dft_len = (int)get_value_as_int64(dft_length, 0);
+    int rate = (int)get_value_as_int64(sample_rate, 0);
+    double lower = get_value_as_double(lower_edge_hertz, 0);
+    double upper = get_value_as_double(upper_edge_hertz, 0);
+    if (bins < 0 || dft_len < 0 || rate <= 0 || upper < lower) return;
+
+    int spectrogram_bins = dft_len / 2 + 1;
+    if (output->ndim != 2 || output->shape[0] != spectrogram_bins || output->shape[1] != bins) return;
+
+    double mel_lower = hz_to_mel(lower);
+    double mel_upper = hz_to_mel(upper);
+
+    for (int i = 0; i < bins; i++) {
+        double left_mel = mel_lower + (mel_upper - mel_lower) * (double)i / (double)(bins + 1);
+        double center_mel = mel_lower + (mel_upper - mel_lower) * (double)(i + 1) / (double)(bins + 1);
+        double right_mel = mel_lower + (mel_upper - mel_lower) * (double)(i + 2) / (double)(bins + 1);
+
+        int left = (int)floor((double)(dft_len + 1) * mel_to_hz(left_mel) / (double)rate);
+        int center = (int)floor((double)(dft_len + 1) * mel_to_hz(center_mel) / (double)rate);
+        int right = (int)floor((double)(dft_len + 1) * mel_to_hz(right_mel) / (double)rate);
+
+        if (left < 0) left = 0;
+        if (center < 0) center = 0;
+        if (center > spectrogram_bins - 1) center = spectrogram_bins - 1;
+        if (right < 0) right = 0;
+        if (right > spectrogram_bins) right = spectrogram_bins;
+
+        if (center == left && center >= 0 && center < spectrogram_bins) {
+            set_tensor_value_from_float(output, (size_t)center * bins + i, 1.0);
+        } else {
+            for (int j = left; j <= center && j < spectrogram_bins; j++) {
+                if (j >= 0) {
+                    double value = (double)(j - left) / (double)(center - left);
+                    set_tensor_value_from_float(output, (size_t)j * bins + i, value);
+                }
+            }
+        }
+
+        if (right > center) {
+            for (int j = center; j < right && j < spectrogram_bins; j++) {
+                if (j >= 0) {
+                    double value = (double)(right - j) / (double)(right - center);
+                    set_tensor_value_from_float(output, (size_t)j * bins + i, value);
+                }
+            }
+        }
+    }
+}
+
+void multinomial_forward(const Tensor* input, Tensor* output, int sample_size, uint32_t seed) {
+    if (!input || !output || input->ndim != 2 || output->ndim != 2 || sample_size < 0) return;
+    int batch = input->shape[0];
+    int classes = input->shape[1];
+    if (output->shape[0] != batch || output->shape[1] != sample_size) return;
+
+    for (int row = 0; row < batch; row++) {
+        double total = 0.0;
+        for (int c = 0; c < classes; c++) {
+            double p = get_value_as_double(input, (size_t)row * classes + c);
+            if (p > 0.0) total += p;
+        }
+        if (total <= 0.0) continue;
+
+        uint32_t state = seed ? (seed + (uint32_t)row * 747796405u) : (uint32_t)time(NULL) + (uint32_t)row;
+        for (int sample = 0; sample < sample_size; sample++) {
+            uint32_t r = simple_lcg(&state);
+            double threshold = ((double)r / 2147483648.0) * total;
+            double cumulative = 0.0;
+            int selected = classes - 1;
+            for (int c = 0; c < classes; c++) {
+                double p = get_value_as_double(input, (size_t)row * classes + c);
+                if (p <= 0.0) continue;
+                cumulative += p;
+                if (threshold < cumulative) {
+                    selected = c;
+                    break;
+                }
+            }
+            set_tensor_value_from_int(output, (size_t)row * sample_size + sample, selected);
+        }
+    }
+}
+
+static size_t loss_spatial_size(const Tensor* input) {
+    size_t spatial = 1;
+    for (int i = 2; i < input->ndim; i++) spatial *= (size_t)input->shape[i];
+    return spatial;
+}
+
+static double loss_target_weight(const Tensor* weight, int64_t cls) {
+    if (!weight) return 1.0;
+    return get_value_as_double(weight, (size_t)cls);
+}
+
+void negative_log_likelihood_loss_forward(const Tensor* input, const Tensor* target, const Tensor* weight,
+                                          Tensor* output, int reduction, int has_ignore_index, int64_t ignore_index) {
+    if (!input || !target || !output || input->ndim < 2) return;
+    int batch = input->shape[0];
+    int classes = input->shape[1];
+    size_t spatial = loss_spatial_size(input);
+    size_t total = (size_t)batch * spatial;
+    double sum = 0.0;
+    double denom = 0.0;
+
+    for (size_t i = 0; i < total; i++) {
+        int64_t cls = get_value_as_int64(target, i);
+        double weighted_loss = 0.0;
+        double cur_weight = 0.0;
+        if (!(has_ignore_index && cls == ignore_index) && cls >= 0 && cls < classes) {
+            cur_weight = loss_target_weight(weight, cls);
+            size_t n = i / spatial;
+            size_t s = i % spatial;
+            size_t input_idx = n * (size_t)classes * spatial + (size_t)cls * spatial + s;
+            weighted_loss = -get_value_as_double(input, input_idx) * cur_weight;
+        }
+
+        if (reduction == 0) {
+            set_tensor_value_from_float(output, i, weighted_loss);
+        } else {
+            sum += weighted_loss;
+            if (weight || has_ignore_index) denom += cur_weight;
+            else denom += 1.0;
+        }
+    }
+
+    if (reduction == 2) {
+        set_tensor_value_from_float(output, 0, sum);
+    } else if (reduction == 1) {
+        set_tensor_value_from_float(output, 0, denom == 0.0 ? NAN : sum / denom);
+    }
+}
+
+void softmax_cross_entropy_loss_forward(const Tensor* scores, const Tensor* labels, const Tensor* weights,
+                                        Tensor* loss_output, Tensor* log_prob_output,
+                                        int reduction, int has_ignore_index, int64_t ignore_index) {
+    if (!scores || !labels || !loss_output || scores->ndim < 2) return;
+    int batch = scores->shape[0];
+    int classes = scores->shape[1];
+    size_t spatial = loss_spatial_size(scores);
+    double loss_sum = 0.0;
+    double denom = 0.0;
+
+    for (size_t n = 0; n < (size_t)batch; n++) {
+        for (size_t s = 0; s < spatial; s++) {
+            double max_val = -INFINITY;
+            for (int c = 0; c < classes; c++) {
+                size_t idx = n * (size_t)classes * spatial + (size_t)c * spatial + s;
+                double value = get_value_as_double(scores, idx);
+                if (value > max_val) max_val = value;
+            }
+
+            double exp_sum = 0.0;
+            for (int c = 0; c < classes; c++) {
+                size_t idx = n * (size_t)classes * spatial + (size_t)c * spatial + s;
+                exp_sum += exp(get_value_as_double(scores, idx) - max_val);
+            }
+            double log_sum = log(exp_sum);
+
+            size_t flat_target = n * spatial + s;
+            int64_t cls = get_value_as_int64(labels, flat_target);
+            double selected_loss = 0.0;
+            double cur_weight = 0.0;
+            for (int c = 0; c < classes; c++) {
+                size_t idx = n * (size_t)classes * spatial + (size_t)c * spatial + s;
+                double log_prob = get_value_as_double(scores, idx) - max_val - log_sum;
+                if (log_prob_output) set_tensor_value_from_float(log_prob_output, idx, log_prob);
+                if (c == cls && !(has_ignore_index && cls == ignore_index)) {
+                    cur_weight = loss_target_weight(weights, cls);
+                    selected_loss = -log_prob * cur_weight;
+                }
+            }
+
+            if (reduction == 0) {
+                set_tensor_value_from_float(loss_output, flat_target, selected_loss);
+            } else {
+                loss_sum += selected_loss;
+                if (!(has_ignore_index && cls == ignore_index)) {
+                    if (weights) denom += cur_weight;
+                    else denom += 1.0;
+                }
+            }
+        }
+    }
+
+    if (reduction == 2) {
+        set_tensor_value_from_float(loss_output, 0, loss_sum);
+    } else if (reduction == 1) {
+        set_tensor_value_from_float(loss_output, 0, denom == 0.0 ? NAN : loss_sum / denom);
+    }
+}
+
+static void nms_box_corners(const Tensor* boxes, int batch, int box_idx, int center_point_box,
+                            double* y1, double* x1, double* y2, double* x2) {
+    int num_boxes = boxes->shape[1];
+    size_t base = ((size_t)batch * num_boxes + (size_t)box_idx) * 4;
+    double a = get_value_as_double(boxes, base + 0);
+    double b = get_value_as_double(boxes, base + 1);
+    double c = get_value_as_double(boxes, base + 2);
+    double d = get_value_as_double(boxes, base + 3);
+
+    if (center_point_box) {
+        double x_center = a;
+        double y_center = b;
+        double width = c;
+        double height = d;
+        *y1 = y_center - height / 2.0;
+        *x1 = x_center - width / 2.0;
+        *y2 = y_center + height / 2.0;
+        *x2 = x_center + width / 2.0;
+    } else {
+        *y1 = a;
+        *x1 = b;
+        *y2 = c;
+        *x2 = d;
+    }
+
+    if (*y1 > *y2) {
+        double tmp = *y1;
+        *y1 = *y2;
+        *y2 = tmp;
+    }
+    if (*x1 > *x2) {
+        double tmp = *x1;
+        *x1 = *x2;
+        *x2 = tmp;
+    }
+}
+
+static double nms_iou(const Tensor* boxes, int batch, int lhs, int rhs, int center_point_box) {
+    double ay1, ax1, ay2, ax2;
+    double by1, bx1, by2, bx2;
+    nms_box_corners(boxes, batch, lhs, center_point_box, &ay1, &ax1, &ay2, &ax2);
+    nms_box_corners(boxes, batch, rhs, center_point_box, &by1, &bx1, &by2, &bx2);
+
+    double inter_h = fmax(0.0, fmin(ay2, by2) - fmax(ay1, by1));
+    double inter_w = fmax(0.0, fmin(ax2, bx2) - fmax(ax1, bx1));
+    double inter = inter_h * inter_w;
+    double area_a = fmax(0.0, ay2 - ay1) * fmax(0.0, ax2 - ax1);
+    double area_b = fmax(0.0, by2 - by1) * fmax(0.0, bx2 - bx1);
+    double union_area = area_a + area_b - inter;
+    return union_area <= 0.0 ? 0.0 : inter / union_area;
+}
+
+int non_max_suppression_forward(const Tensor* boxes, const Tensor* scores, Tensor* output,
+                                int max_output_boxes_per_class, float iou_threshold,
+                                float score_threshold, int center_point_box) {
+    if (!boxes || !scores || !output) return 0;
+    if (boxes->ndim != 3 || scores->ndim != 3 || boxes->shape[2] != 4) return 0;
+    int batch_count = boxes->shape[0];
+    int num_boxes = boxes->shape[1];
+    int class_count = scores->shape[1];
+    if (scores->shape[0] != batch_count || scores->shape[2] != num_boxes || max_output_boxes_per_class <= 0) return 0;
+
+    int* candidates = (int*)malloc((num_boxes == 0 ? 1 : num_boxes) * sizeof(int));
+    int* kept = (int*)malloc((num_boxes == 0 ? 1 : num_boxes) * sizeof(int));
+    if (!candidates || !kept) {
+        free(candidates);
+        free(kept);
+        return 0;
+    }
+
+    int out_rows = 0;
+    for (int b = 0; b < batch_count; b++) {
+        for (int cls = 0; cls < class_count; cls++) {
+            int candidate_count = 0;
+            for (int box = 0; box < num_boxes; box++) {
+                size_t score_idx = ((size_t)b * class_count + (size_t)cls) * num_boxes + (size_t)box;
+                double score = get_value_as_double(scores, score_idx);
+                if (score >= (double)score_threshold) {
+                    candidates[candidate_count++] = box;
+                }
+            }
+
+            for (int i = 1; i < candidate_count; i++) {
+                int current = candidates[i];
+                size_t current_idx = ((size_t)b * class_count + (size_t)cls) * num_boxes + (size_t)current;
+                double current_score = get_value_as_double(scores, current_idx);
+                int j = i - 1;
+                while (j >= 0) {
+                    int prev = candidates[j];
+                    size_t prev_idx = ((size_t)b * class_count + (size_t)cls) * num_boxes + (size_t)prev;
+                    double prev_score = get_value_as_double(scores, prev_idx);
+                    if (prev_score >= current_score) break;
+                    candidates[j + 1] = candidates[j];
+                    j--;
+                }
+                candidates[j + 1] = current;
+            }
+
+            int kept_count = 0;
+            for (int i = 0; i < candidate_count && kept_count < max_output_boxes_per_class; i++) {
+                int candidate = candidates[i];
+                int suppress = 0;
+                for (int k = 0; k < kept_count; k++) {
+                    if (nms_iou(boxes, b, candidate, kept[k], center_point_box) > (double)iou_threshold) {
+                        suppress = 1;
+                        break;
+                    }
+                }
+                if (!suppress) {
+                    kept[kept_count++] = candidate;
+                    if ((size_t)(out_rows + 1) * 3 <= output->size) {
+                        set_tensor_value_from_int(output, (size_t)out_rows * 3 + 0, b);
+                        set_tensor_value_from_int(output, (size_t)out_rows * 3 + 1, cls);
+                        set_tensor_value_from_int(output, (size_t)out_rows * 3 + 2, candidate);
+                    }
+                    out_rows++;
+                }
+            }
+        }
+    }
+
+    free(candidates);
+    free(kept);
+    return out_rows;
+}
+
+static double grid_denormalize(double coord, int length, int align_corners) {
+    if (align_corners) {
+        return (coord + 1.0) * (double)(length - 1) / 2.0;
+    }
+    return ((coord + 1.0) * (double)length - 1.0) / 2.0;
+}
+
+static double grid_reflect_coordinate(double coord, double low, double high) {
+    if (high <= low) return low;
+    double span = high - low;
+    double value = fabs(fmod(coord - low, 2.0 * span));
+    if (value > span) value = 2.0 * span - value;
+    return value + low;
+}
+
+static double grid_sample_coordinate(double coord, int length, int padding_mode, int align_corners) {
+    if (padding_mode == 1) {
+        return fmin(fmax(coord, 0.0), (double)(length - 1));
+    }
+    if (padding_mode == 2) {
+        double low = align_corners ? 0.0 : -0.5;
+        double high = align_corners ? (double)(length - 1) : (double)length - 0.5;
+        double reflected = grid_reflect_coordinate(coord, low, high);
+        return fmin(fmax(reflected, 0.0), (double)(length - 1));
+    }
+    return coord;
+}
+
+static double grid_get_pixel_2d(const Tensor* input, int n, int c, double y, double x,
+                                int padding_mode, int align_corners) {
+    int height = input->shape[2];
+    int width = input->shape[3];
+    if (padding_mode == 1 || padding_mode == 2) {
+        y = grid_sample_coordinate(y, height, padding_mode, align_corners);
+        x = grid_sample_coordinate(x, width, padding_mode, align_corners);
+    }
+    int yi = (int)y;
+    int xi = (int)x;
+    if (yi < 0 || yi >= height || xi < 0 || xi >= width) return 0.0;
+    size_t idx = ((size_t)n * input->shape[1] * height * width)
+               + ((size_t)c * height * width)
+               + ((size_t)yi * width)
+               + (size_t)xi;
+    return get_value_as_double(input, idx);
+}
+
+static double grid_bilinear_sample_2d(const Tensor* input, int n, int c, double y, double x,
+                                      int padding_mode, int align_corners) {
+    int y0 = (int)floor(y);
+    int x0 = (int)floor(x);
+    int y1 = y0 + 1;
+    int x1 = x0 + 1;
+    double ly = y - (double)y0;
+    double lx = x - (double)x0;
+    double hy = 1.0 - ly;
+    double hx = 1.0 - lx;
+    return grid_get_pixel_2d(input, n, c, y0, x0, padding_mode, align_corners) * hy * hx
+         + grid_get_pixel_2d(input, n, c, y0, x1, padding_mode, align_corners) * hy * lx
+         + grid_get_pixel_2d(input, n, c, y1, x0, padding_mode, align_corners) * ly * hx
+         + grid_get_pixel_2d(input, n, c, y1, x1, padding_mode, align_corners) * ly * lx;
+}
+
+static void grid_cubic_coefficients(double t, double coeffs[4]) {
+    double alpha = -0.75;
+    double x = fabs(t);
+    coeffs[0] = ((alpha * (x + 1.0) - 5.0 * alpha) * (x + 1.0) + 8.0 * alpha) * (x + 1.0) - 4.0 * alpha;
+    coeffs[1] = ((alpha + 2.0) * x - (alpha + 3.0)) * x * x + 1.0;
+    coeffs[2] = ((alpha + 2.0) * (1.0 - x) - (alpha + 3.0)) * (1.0 - x) * (1.0 - x) + 1.0;
+    coeffs[3] = ((alpha * (2.0 - x) - 5.0 * alpha) * (2.0 - x) + 8.0 * alpha) * (2.0 - x) - 4.0 * alpha;
+}
+
+static double grid_bicubic_sample_2d(const Tensor* input, int n, int c, double y, double x,
+                                     int padding_mode, int align_corners) {
+    int y0 = (int)floor(y);
+    int x0 = (int)floor(x);
+    double cy[4];
+    double cx[4];
+    grid_cubic_coefficients(y - (double)y0, cy);
+    grid_cubic_coefficients(x - (double)x0, cx);
+    double total = 0.0;
+    for (int iy = 0; iy < 4; iy++) {
+        for (int ix = 0; ix < 4; ix++) {
+            total += cy[iy] * cx[ix] * grid_get_pixel_2d(
+                input, n, c, y0 - 1 + iy, x0 - 1 + ix, padding_mode, align_corners
+            );
+        }
+    }
+    return total;
+}
+
+void grid_sample_forward(const Tensor* input, const Tensor* grid, Tensor* output,
+                         int mode, int padding_mode, int align_corners) {
+    if (!input || !grid || !output) return;
+    if (input->ndim != 4 || grid->ndim != 4 || output->ndim != 4 || grid->shape[3] != 2) return;
+    int n_batches = input->shape[0];
+    int channels = input->shape[1];
+    int height = input->shape[2];
+    int width = input->shape[3];
+    int out_h = grid->shape[1];
+    int out_w = grid->shape[2];
+    if (grid->shape[0] != n_batches || output->shape[0] != n_batches || output->shape[1] != channels ||
+        output->shape[2] != out_h || output->shape[3] != out_w) return;
+
+    _Pragma("omp parallel for collapse(4)")
+    for (int n = 0; n < n_batches; n++) {
+        for (int c = 0; c < channels; c++) {
+            for (int oy = 0; oy < out_h; oy++) {
+                for (int ox = 0; ox < out_w; ox++) {
+                    size_t grid_idx = ((size_t)n * out_h * out_w * 2) + ((size_t)oy * out_w * 2) + ((size_t)ox * 2);
+                    double x_norm = get_value_as_double(grid, grid_idx);
+                    double y_norm = get_value_as_double(grid, grid_idx + 1);
+                    double in_x = grid_denormalize(x_norm, width, align_corners);
+                    double in_y = grid_denormalize(y_norm, height, align_corners);
+                    double value;
+                    if (mode == 1) {
+                        double sy = nearbyint(grid_sample_coordinate(in_y, height, padding_mode, align_corners));
+                        double sx = nearbyint(grid_sample_coordinate(in_x, width, padding_mode, align_corners));
+                        value = grid_get_pixel_2d(input, n, c, sy, sx, padding_mode, align_corners);
+                    } else if (mode == 2) {
+                        value = grid_bicubic_sample_2d(input, n, c, in_y, in_x, padding_mode, align_corners);
+                    } else {
+                        value = grid_bilinear_sample_2d(input, n, c, in_y, in_x, padding_mode, align_corners);
+                    }
+                    size_t out_idx = ((size_t)n * channels * out_h * out_w)
+                                   + ((size_t)c * out_h * out_w)
+                                   + ((size_t)oy * out_w)
+                                   + (size_t)ox;
+                    set_tensor_value_from_float(output, out_idx, value);
+                }
+            }
+        }
+    }
+}
+
+void lrn_forward(const Tensor* input, Tensor* output, int size, float alpha, float beta, float bias) {
+    if (!input || !output || input->ndim < 3 || input->size != output->size || size <= 0) return;
+
+    int channels = input->shape[1];
+    size_t spatial_size = 1;
+    for (int i = 2; i < input->ndim; i++) spatial_size *= input->shape[i];
+    size_t batch_size = input->shape[0];
+    int lower = (size - 1) / 2;
+    int upper = size - 1 - lower;
+
+    _Pragma("omp parallel for collapse(2)")
+    for (size_t n = 0; n < batch_size; n++) {
+        for (int c = 0; c < channels; c++) {
+            int begin = c - lower;
+            int end = c + upper + 1;
+            if (begin < 0) begin = 0;
+            if (end > channels) end = channels;
+
+            for (size_t s = 0; s < spatial_size; s++) {
+                double square_sum = 0.0;
+                for (int cc = begin; cc < end; cc++) {
+                    size_t idx = (n * (size_t)channels + (size_t)cc) * spatial_size + s;
+                    double val = get_value_as_double(input, idx);
+                    square_sum += val * val;
+                }
+                size_t out_idx = (n * (size_t)channels + (size_t)c) * spatial_size + s;
+                double x = get_value_as_double(input, out_idx);
+                double denom = pow((double)bias + ((double)alpha / (double)size) * square_sum, (double)beta);
+                set_tensor_value_from_float(output, out_idx, x / denom);
+            }
+        }
+    }
+}
+
+void mean_variance_normalization_forward(const Tensor* input, Tensor* output, ReduceParams* params) {
+    if (!input || !output || !params || input->size != output->size) return;
+
+    int ndim = input->ndim;
+    int* axes = params->axes;
+    int num_axes = params->num_axes;
+    if (ndim > MAX_NDIM || num_axes < 1) return;
+
+    size_t reduce_total_steps = 1;
+    for (int i = 0; i < num_axes; i++) {
+        if (axes[i] < 0 || axes[i] >= ndim) return;
+        reduce_total_steps *= input->shape[axes[i]];
+    }
+    if (reduce_total_steps == 0) return;
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        int base_coords[MAX_NDIM] = {0};
+        get_coords_from_index(i, base_coords, input->shape, ndim);
+
+        double sum = 0.0;
+        for (size_t r = 0; r < reduce_total_steps; r++) {
+            int coords[MAX_NDIM];
+            memcpy(coords, base_coords, ndim * sizeof(int));
+            size_t temp_r = r;
+            for (int k = num_axes - 1; k >= 0; k--) {
+                int axis_idx = axes[k];
+                int dim_size = input->shape[axis_idx];
+                coords[axis_idx] = temp_r % dim_size;
+                temp_r /= dim_size;
+            }
+            size_t idx = get_index_from_coords(coords, input->shape, ndim);
+            sum += get_value_as_double(input, idx);
+        }
+
+        double mean = sum / (double)reduce_total_steps;
+        double sq_sum = 0.0;
+        for (size_t r = 0; r < reduce_total_steps; r++) {
+            int coords[MAX_NDIM];
+            memcpy(coords, base_coords, ndim * sizeof(int));
+            size_t temp_r = r;
+            for (int k = num_axes - 1; k >= 0; k--) {
+                int axis_idx = axes[k];
+                int dim_size = input->shape[axis_idx];
+                coords[axis_idx] = temp_r % dim_size;
+                temp_r /= dim_size;
+            }
+            size_t idx = get_index_from_coords(coords, input->shape, ndim);
+            double diff = get_value_as_double(input, idx) - mean;
+            sq_sum += diff * diff;
+        }
+
+        double variance = sq_sum / (double)reduce_total_steps;
+        double x = get_value_as_double(input, i);
+        set_tensor_value_from_float(output, i, (x - mean) / sqrt(variance));
+    }
+}
+
+void eye_like_forward(Tensor* output, int k) {
+    if (!output || output->ndim != 2) return;
+    int cols = output->shape[1];
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        int row = (int)(i / (size_t)cols);
+        int col = (int)(i % (size_t)cols);
+        double value = (col == row + k) ? 1.0 : 0.0;
+        set_tensor_value_from_float(output, i, value);
     }
 }
 
@@ -1550,12 +2650,10 @@ void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
         return;
     }
     if (ndim < 2) return; // 至少是 2D
-    int M = A->shape[A->ndim - 2];
     int K = A->shape[A->ndim - 1];
-    int N = B->shape[B->ndim - 1];
     #pragma omp parallel for
     for (size_t i = 0; i < Y->size; i++) {
-        int coords[MAX_NDIM]; // 最大 16 维
+        int coords[MAX_NDIM] = {0}; // 最大 16 维
         get_coords_from_index(i, coords, Y->shape, ndim);
         // 当前计算的是 Y[..., m, n]
         int m = coords[ndim - 2];
@@ -1602,6 +2700,134 @@ void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
         }
         // 结果存回
         set_tensor_value_from_float(Y, i, sum);
+    }
+}
+
+void matmul_integer_forward(const Tensor* A, const Tensor* B,
+                            const Tensor* AZeroPoint, const Tensor* BZeroPoint,
+                            Tensor* Y) {
+    if (!A || !B || !Y) return;
+    int ndim = Y->ndim;
+    if (ndim > MAX_NDIM || ndim < 2) return;
+
+    int K = A->shape[A->ndim - 1];
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < Y->size; i++) {
+        int coords[MAX_NDIM] = {0};
+        get_coords_from_index(i, coords, Y->shape, ndim);
+
+        int m = coords[ndim - 2];
+        int n = coords[ndim - 1];
+        int64_t sum = 0;
+
+        for (int k = 0; k < K; k++) {
+            size_t idx_a = 0;
+            size_t stride_a = 1;
+            int offset_a = ndim - A->ndim;
+            for (int d = A->ndim - 1; d >= 0; d--) {
+                int val;
+                if (d == A->ndim - 1) val = k;
+                else if (d == A->ndim - 2) val = m;
+                else {
+                    int y_dim_idx = d + offset_a;
+                    val = (A->shape[d] == 1) ? 0 : coords[y_dim_idx];
+                }
+                idx_a += (size_t)val * stride_a;
+                stride_a *= A->shape[d];
+            }
+
+            size_t idx_b = 0;
+            size_t stride_b = 1;
+            int offset_b = ndim - B->ndim;
+            for (int d = B->ndim - 1; d >= 0; d--) {
+                int val;
+                if (d == B->ndim - 1) val = n;
+                else if (d == B->ndim - 2) val = k;
+                else {
+                    int y_dim_idx = d + offset_b;
+                    val = (B->shape[d] == 1) ? 0 : coords[y_dim_idx];
+                }
+                idx_b += (size_t)val * stride_b;
+                stride_b *= B->shape[d];
+            }
+
+            int64_t a_val = get_value_as_int64(A, idx_a);
+            int64_t b_val = get_value_as_int64(B, idx_b);
+            int64_t a_zp = (AZeroPoint && AZeroPoint->data) ? get_value_as_int64(AZeroPoint, idx_a) : 0;
+            int64_t b_zp = (BZeroPoint && BZeroPoint->data) ? get_value_as_int64(BZeroPoint, idx_b) : 0;
+            sum += (a_val - a_zp) * (b_val - b_zp);
+        }
+
+        if (Y->dtype == DTYPE_INT32) {
+            ((int32_t*)Y->data)[i] = (int32_t)sum;
+        } else {
+            set_tensor_value_from_int(Y, i, sum);
+        }
+    }
+}
+
+void qlinear_matmul_forward(const Tensor* A, const Tensor* AScale, const Tensor* AZeroPoint,
+                            const Tensor* B, const Tensor* BScale, const Tensor* BZeroPoint,
+                            const Tensor* YScale, const Tensor* YZeroPoint, Tensor* Y) {
+    if (!A || !AScale || !AZeroPoint || !B || !BScale || !BZeroPoint || !YScale || !YZeroPoint || !Y) return;
+    int ndim = Y->ndim;
+    if (ndim > MAX_NDIM || ndim < 2) return;
+
+    int K = A->shape[A->ndim - 1];
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < Y->size; i++) {
+        int coords[MAX_NDIM] = {0};
+        get_coords_from_index(i, coords, Y->shape, ndim);
+
+        int m = coords[ndim - 2];
+        int n = coords[ndim - 1];
+        double acc = 0.0;
+
+        for (int k = 0; k < K; k++) {
+            size_t idx_a = 0;
+            size_t stride_a = 1;
+            int offset_a = ndim - A->ndim;
+            for (int d = A->ndim - 1; d >= 0; d--) {
+                int val;
+                if (d == A->ndim - 1) val = k;
+                else if (d == A->ndim - 2) val = m;
+                else {
+                    int y_dim_idx = d + offset_a;
+                    val = (A->shape[d] == 1) ? 0 : coords[y_dim_idx];
+                }
+                idx_a += (size_t)val * stride_a;
+                stride_a *= A->shape[d];
+            }
+
+            size_t idx_b = 0;
+            size_t stride_b = 1;
+            int offset_b = ndim - B->ndim;
+            for (int d = B->ndim - 1; d >= 0; d--) {
+                int val;
+                if (d == B->ndim - 1) val = n;
+                else if (d == B->ndim - 2) val = k;
+                else {
+                    int y_dim_idx = d + offset_b;
+                    val = (B->shape[d] == 1) ? 0 : coords[y_dim_idx];
+                }
+                idx_b += (size_t)val * stride_b;
+                stride_b *= B->shape[d];
+            }
+
+            double a_real = (get_value_as_double(A, idx_a) - get_value_as_double(AZeroPoint, idx_a)) * get_value_as_double(AScale, idx_a);
+            double b_real = (get_value_as_double(B, idx_b) - get_value_as_double(BZeroPoint, idx_b)) * get_value_as_double(BScale, idx_b);
+            acc += a_real * b_real;
+        }
+
+        double y_scale = get_value_as_double(YScale, i);
+        double y_zp = get_value_as_double(YZeroPoint, i);
+        double q = y_zp;
+        if (y_scale != 0.0) {
+            q = nearbyint(acc / y_scale + y_zp);
+        }
+        set_tensor_value_from_float(Y, i, q);
     }
 }
 
@@ -1678,8 +2904,7 @@ void expand_forward(const Tensor* input, Tensor* output) {
         }
         
         size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim_in);
-        double val = get_value_as_double(input, in_idx);
-        set_tensor_value_from_float(output, i, val);
+        copy_tensor_element(output, i, input, in_idx);
     }
 }
 
@@ -1804,12 +3029,7 @@ void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor*
     _Pragma("omp parallel for")
     for (size_t i = 0; i < O->size; i++) {
         double c_val = get_value_as_double(Cond, i);
-        double x_val = get_value_as_double(X, i);
-        double y_val = get_value_as_double(Y, i);
-        
-        // 条件非 0 即为 True
-        double res = (c_val != 0) ? x_val : y_val;
-        set_tensor_value_from_float(O, i, res);
+        copy_tensor_element(O, i, (c_val != 0) ? X : Y, i);
     }
 }
 
@@ -1817,21 +3037,20 @@ void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor*
 void constant_of_shape_forward(Tensor* output, const Tensor* value) {
     if (!output) return;
 
-    double fill_val = 0.0;
-    if (value && value->data) {
-        fill_val = get_value_as_double(value, 0);
-    }
-
     size_t loop_size = output->size;
     _Pragma("omp parallel for")
     for (size_t i = 0; i < loop_size; i++) {
-        set_tensor_value_from_float(output, i, fill_val);
+        if (value && value->data) {
+            copy_tensor_element(output, i, value, 0);
+        } else {
+            set_tensor_value_from_float(output, i, 0.0);
+        }
     }
 }
 
 // Range
 void range_forward(const Tensor* start, const Tensor* limit, const Tensor* delta, Tensor* output) {
-    if (!start || !delta || !output) return;
+    if (!start || !limit || !delta || !output) return;
     
     double val_start = get_value_as_double(start, 0);
     double val_delta = get_value_as_double(delta, 0);
@@ -1853,8 +3072,8 @@ void tile_forward(const Tensor* input, Tensor* output) {
 
     _Pragma("omp parallel for")
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[MAX_NDIM];
-        int in_coords[MAX_NDIM];
+        int out_coords[MAX_NDIM] = {0};
+        int in_coords[MAX_NDIM] = {0};
         
         get_coords_from_index(i, out_coords, output->shape, ndim);
         
@@ -1863,8 +3082,7 @@ void tile_forward(const Tensor* input, Tensor* output) {
         }
 
         size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim);
-        double val = get_value_as_double(input, in_idx);
-        set_tensor_value_from_float(output, i, val);
+        copy_tensor_element(output, i, input, in_idx);
     }
 }
 
@@ -1876,10 +3094,8 @@ void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const T
     int ndim = data->ndim;
     
     int64_t pad_begins[MAX_NDIM];
-    int64_t pad_ends[MAX_NDIM];
     for (int d = 0; d < ndim; d++) {
         pad_begins[d] = get_value_as_int64(pads, d);
-        pad_ends[d]   = get_value_as_int64(pads, d + ndim);
     }
     
     double const_val = 0.0;
@@ -1889,8 +3105,8 @@ void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const T
 
     _Pragma("omp parallel for")
     for (size_t i = 0; i < output->size; i++) {
-        int out_coords[MAX_NDIM];
-        int in_coords[MAX_NDIM];
+        int out_coords[MAX_NDIM] = {0};
+        int in_coords[MAX_NDIM] = {0};
         int in_bounds = 1; // 标记是否在源数据范围内
         
         get_coords_from_index(i, out_coords, output->shape, ndim);
@@ -1925,16 +3141,27 @@ void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const T
                         c = k;
                     }
                     in_coords[d] = (int)c;
+                } else if (mode == 3) { // Wrap
+                    if (dim_len <= 0) {
+                        in_bounds = 0;
+                        break;
+                    }
+                    c %= dim_len;
+                    if (c < 0) c += dim_len;
+                    in_coords[d] = (int)c;
                 }
             }
         }
         
         if (in_bounds) {
             size_t in_idx = get_index_from_coords(in_coords, data->shape, ndim);
-            double val = get_value_as_double(data, in_idx);
-            set_tensor_value_from_float(output, i, val);
+            copy_tensor_element(output, i, data, in_idx);
         } else {
-            set_tensor_value_from_float(output, i, const_val);
+            if (constant_value && constant_value->data) {
+                copy_tensor_element(output, i, constant_value, 0);
+            } else {
+                set_tensor_value_from_float(output, i, const_val);
+            }
         }
     }
 }
@@ -2025,6 +3252,7 @@ void FUNC_NAME(const Tensor* input, Tensor* output, int axis, int select_last_in
     if (!input || !output) return; \
     int ndim = input->ndim; \
     int axis_dim = input->shape[axis]; \
+    int keepdims = (output->ndim == input->ndim); \
     \
     _Pragma("omp parallel for") \
     for (size_t i = 0; i < output->size; i++) { \
@@ -2036,7 +3264,11 @@ void FUNC_NAME(const Tensor* input, Tensor* output, int axis, int select_last_in
         int out_ptr = 0; \
         for (int d = 0; d < ndim; d++) { \
             if (d == axis) coords[d] = 0; \
-            else coords[d] = out_coords[out_ptr++]; \
+            else { \
+                coords[d] = out_coords[out_ptr]; \
+                out_ptr++; \
+            } \
+            if (keepdims && d == axis) out_ptr++; \
         } \
         \
         /* 搜索最值 */ \
@@ -2222,7 +3454,7 @@ void gather_elements_forward(const Tensor* data, const Tensor* indices, Tensor* 
     
     _Pragma("omp parallel for")
     for (size_t i = 0; i < output->size; i++) {
-        int coords[MAX_NDIM];
+        int coords[MAX_NDIM] = {0};
         get_coords_from_index(i, coords, output->shape, ndim);
         
         // 获取 index 值
@@ -2397,6 +3629,7 @@ int compare_asc(const void* a, const void* b) {
 
 void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis, int largest, int sorted, int K) {
     if (!input || !values || !indices) return;
+    (void)sorted;
     
     int ndim = input->ndim;
     if (axis < 0) axis += ndim;
@@ -2845,22 +4078,16 @@ void global_average_pool_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     int ndim = input->ndim;
     if (ndim < 2) return;
-    if (ndim != 4) {
-        return;
-    }
     
-    // N = 前 ndim-2 维的乘积
-    int N = 1;
-    for (int i = 0; i < ndim - 2; i++) N *= input->shape[i];
-    int H = input->shape[ndim - 2];
-    int W = input->shape[ndim - 1];
-    int spatial_size = H * W;
+    size_t outer_size = (size_t)input->shape[0] * (size_t)input->shape[1];
+    size_t spatial_size = 1;
+    for (int i = 2; i < ndim; i++) spatial_size *= input->shape[i];
     
     _Pragma("omp parallel for")
-    for (int n = 0; n < N; n++) {
+    for (size_t n = 0; n < outer_size; n++) {
         double sum = 0.0;
-        size_t offset = (size_t)n * spatial_size;
-        for (int i = 0; i < spatial_size; i++) {
+        size_t offset = n * spatial_size;
+        for (size_t i = 0; i < spatial_size; i++) {
             sum += get_value_as_double(input, offset + i);
         }
         set_tensor_value_from_float(output, n, sum / spatial_size);
@@ -2873,17 +4100,15 @@ void global_max_pool_forward(const Tensor* input, Tensor* output) {
     int ndim = input->ndim;
     if (ndim < 2) return;
     
-    int N = 1;
-    for (int i = 0; i < ndim - 2; i++) N *= input->shape[i];
-    int H = input->shape[ndim - 2];
-    int W = input->shape[ndim - 1];
-    int spatial_size = H * W;
+    size_t outer_size = (size_t)input->shape[0] * (size_t)input->shape[1];
+    size_t spatial_size = 1;
+    for (int i = 2; i < ndim; i++) spatial_size *= input->shape[i];
     
     _Pragma("omp parallel for")
-    for (int n = 0; n < N; n++) {
+    for (size_t n = 0; n < outer_size; n++) {
         double max_val = -DBL_MAX;
-        size_t offset = (size_t)n * spatial_size;
-        for (int i = 0; i < spatial_size; i++) {
+        size_t offset = n * spatial_size;
+        for (size_t i = 0; i < spatial_size; i++) {
             double val = get_value_as_double(input, offset + i);
             if (val > max_val) max_val = val;
         }
@@ -2897,18 +4122,15 @@ void global_lp_pool_forward(const Tensor* input, Tensor* output, int p) {
     int ndim = input->ndim;
     if (ndim < 2) return;
     
-    // N = 前 ndim-2 维的乘积 (Batch * Channel)
-    int N = 1;
-    for (int i = 0; i < ndim - 2; i++) N *= input->shape[i];
-    int H = input->shape[ndim - 2];
-    int W = input->shape[ndim - 1];
-    int spatial_size = H * W;
+    size_t outer_size = (size_t)input->shape[0] * (size_t)input->shape[1];
+    size_t spatial_size = 1;
+    for (int i = 2; i < ndim; i++) spatial_size *= input->shape[i];
     
     _Pragma("omp parallel for")
-    for (int n = 0; n < N; n++) {
+    for (size_t n = 0; n < outer_size; n++) {
         double sum_pow = 0.0;
-        size_t offset = (size_t)n * spatial_size;
-        for (int i = 0; i < spatial_size; i++) {
+        size_t offset = n * spatial_size;
+        for (size_t i = 0; i < spatial_size; i++) {
             double val = get_value_as_double(input, offset + i);
             sum_pow += pow(fabs(val), p);
         }
@@ -2967,9 +4189,6 @@ void one_hot_forward(const Tensor* indices, const Tensor* values, Tensor* output
     
     int depth = output->shape[axis];
 
-    double off_val = get_value_as_double(values, 0);
-    double on_val = get_value_as_double(values, 1);
-    
     _Pragma("omp parallel for")
     for (size_t i = 0; i < output->size; i++) {
         int out_coords[MAX_NDIM];
@@ -2990,8 +4209,7 @@ void one_hot_forward(const Tensor* indices, const Tensor* values, Tensor* output
         
         int current_depth_idx = out_coords[axis];
         
-        double res = (current_depth_idx == target_idx) ? on_val : off_val;
-        set_tensor_value_from_float(output, i, res);
+        copy_tensor_element(output, i, values, (current_depth_idx == target_idx) ? 1 : 0);
     }
 }
 
@@ -3001,12 +4219,9 @@ void triangular_forward(const Tensor* input, Tensor* output, int k, int upper) {
     int ndim = input->ndim;
     if (ndim < 2) return; 
     
-    int H = input->shape[ndim - 2];
-    int W = input->shape[ndim - 1];
-    
     _Pragma("omp parallel for")
     for (size_t i = 0; i < input->size; i++) {
-        int coords[MAX_NDIM];
+        int coords[MAX_NDIM] = {0};
         get_coords_from_index(i, coords, input->shape, ndim);
         
         int row = coords[ndim - 2];
@@ -3453,13 +4668,11 @@ void lp_normalization_forward(const Tensor* input, Tensor* output, int axis, int
             }
             
             double norm = pow(sum_pow, 1.0 / p);
-            // Avoid division by zero
-            if (norm < 1e-12) norm = 1e-12; 
-            
             for (int j = 0; j < inner_dim; j++) {
                 size_t idx = (size_t)i * inner_dim * remaining_dim + (size_t)j * remaining_dim + k;
                 double val = get_value_as_double(input, idx);
-                set_tensor_value_from_float(output, idx, val / norm);
+                double numerator = (p == 1) ? fabs(val) : val;
+                set_tensor_value_from_float(output, idx, norm == 0.0 ? 0.0 : numerator / norm);
             }
         }
     }
@@ -3470,10 +4683,6 @@ void depth_to_space_forward(const Tensor* input, Tensor* output, int blocksize, 
     if (!input || !output) return;
     
     int N = input->shape[0];
-    int C = input->shape[1];
-    int H = input->shape[2];
-    int W = input->shape[3];
-    
     int C_out = output->shape[1];
     int H_out = output->shape[2];
     int W_out = output->shape[3];
@@ -3521,13 +4730,12 @@ void space_to_depth_forward(const Tensor* input, Tensor* output, int blocksize) 
     int H_out = output->shape[2];
     int W_out = output->shape[3];
     
-    int C_in = input->shape[1];
-    
     #pragma omp parallel for collapse(2)
     for (int n = 0; n < N; n++) {
         for (int c = 0; c < C_out; c++) {
-            int in_c = c / (blocksize * blocksize);
-            int rem = c % (blocksize * blocksize);
+            int C_in = input->shape[1];
+            int in_c = c % C_in;
+            int rem = c / C_in;
             int dy = rem / blocksize;
             int dx = rem % blocksize;
             
@@ -3558,15 +4766,13 @@ void reverse_sequence_forward(const Tensor* input, const Tensor* sequence_lens, 
     size_t elem_size = get_dtype_size(input->dtype);
     memcpy(output->data, input->data, input->size * elem_size);
     
-    int batch_dim = input->shape[batch_axis];
-
     size_t strides[MAX_NDIM];
     strides[ndim - 1] = 1;
     for (int i = ndim - 2; i >= 0; i--) strides[i] = strides[i+1] * input->shape[i+1];
     
     #pragma omp parallel for
     for (size_t i = 0; i < output->size; i++) {
-        int coords[MAX_NDIM];
+        int coords[MAX_NDIM] = {0};
         get_coords_from_index(i, coords, output->shape, ndim);
         
         int b_idx = coords[batch_axis];
@@ -3602,7 +4808,7 @@ void compress_forward(const Tensor* input, const Tensor* condition, Tensor* outp
     
     #pragma omp parallel for
     for (size_t i = 0; i < output->size; i++) {
-        int coords[MAX_NDIM];
+        int coords[MAX_NDIM] = {0};
         get_coords_from_index(i, coords, output->shape, ndim);
         
         // 映射 axis 坐标

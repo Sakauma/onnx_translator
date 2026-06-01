@@ -2,6 +2,10 @@
 
 开发一个新算子需要修改以下 **5 个位置** 的代码：
 
+核心原则：普通数值/张量算子的主体计算必须优先放到 `tensor_ops/tensor_ops.c`，Python 只承担 ONNX 导入、参数整理、shape 推导、ctypes 调度，以及确实难以静态表达的动态 fallback。不要把新增算子的主要功能长期用 Python 实现，否则无法体现本工程的 C 后端和 CUDA 验证价值。
+
+当前整理阶段暂缓后端化的算子：`MaxRoiPool`、`RoiAlign`、`RNN`、`GRU`、`LSTM`、`DFT`、`STFT`。这些算子可以保留现有 Python runtime，但后续补齐时仍应按本文流程落到 C/CUDA。
+
 ---
 
 ## 1. C 后端接口 (`tensor_ops/tensor_ops.h`)
@@ -53,5 +57,15 @@
     1.  `import` 新算子类。
     2.  在 `verify_op` 中添加该算子的 **参数打包逻辑**（将 Python 参数转为 bytes 传给 CUDA）。
     3.  在 `plans` 列表中添加测试用例（覆盖 float32, float16, float8 等混合精度场景）。
+
+## 6. 覆盖审计
+
+完成算子修改后刷新审计报告：
+
+```bash
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python audit
+```
+
+报告会写入 `算子实现情况统计.md`，用于确认 `forward()` 是否真正走到 C runtime path、是否只有合理的 Python 调度/元数据算子留在 Python，以及 CUDA verifier / active numerical plan 是否同步更新。
 
 ---

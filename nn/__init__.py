@@ -1,10 +1,14 @@
-import sys
 from collections import OrderedDict
 import ctypes
 import numpy as np
 from typing import List, Union
 import os
 import nn
+
+TENSOR_OPS_LIB_PATH = os.environ.get(
+    "TENSOR_OPS_LIB",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "tensor_ops.so")),
+)
 
 class CTensor(ctypes.Structure):
     """C张量结构体，用于与C库交互"""
@@ -44,10 +48,16 @@ DTYPE_TO_NUMPY = {
     "int4": np.int8,
     "int8": np.int8,
     "uint8": np.uint8,
+    "uint16": np.uint16,
+    "uint32": np.uint32,
+    "uint64": np.uint64,
     "int16": np.int16,
     "int32": np.int32,
     "int64": np.int64,
     "bool": np.bool_,
+    "string": np.str_,
+    "complex64": np.complex64,
+    "complex128": np.complex128,
 }
 
 # NumPy 类型到 NPS 字符串类型的反向映射
@@ -58,9 +68,16 @@ NUMPY_TO_DTYPE = {
     np.float64: "float64",
     np.int8: "int8",
     np.uint8: "uint8",
+    np.uint16: "uint16",
+    np.uint32: "uint32",
+    np.uint64: "uint64",
     np.int16: "int16",
     np.int32: "int32",
     np.int64: "int64",
+    np.bool_: "bool",
+    np.str_: "string",
+    np.complex64: "complex64",
+    np.complex128: "complex128",
     # int4 需要显式指定 dtype="int4"
 }
 
@@ -172,7 +189,11 @@ class Ops:
         """
         if cls._lib is None:
             # 加载C库
-            cls._lib = ctypes.CDLL('./tensor_ops.so')
+            if not os.path.exists(TENSOR_OPS_LIB_PATH):
+                raise FileNotFoundError(
+                    f"C backend library not found: {TENSOR_OPS_LIB_PATH}. Run `make` first."
+                )
+            cls._lib = ctypes.CDLL(TENSOR_OPS_LIB_PATH)
             
             # 设置函数返回类型
             cls._lib.create_tensor.restype = ctypes.POINTER(CTensor)
@@ -384,7 +405,13 @@ class Graph:
             model_name: 模型名称
         """
         self.input_name = input_name if isinstance(input_name, list) else [input_name]
-        self.output_name = output_name if isinstance(output_name, list) else [output_name]
+        self.input_name = [name for name in self.input_name if name]
+        if output_name is None:
+            self.output_name = []
+        elif isinstance(output_name, list):
+            self.output_name = [name for name in output_name if name]
+        else:
+            self.output_name = [output_name] if output_name else []
         self.ops = OrderedDict()
         self.update(ops)
         self.model_name = model_name
@@ -392,13 +419,15 @@ class Graph:
     def update(self, ops):
         """
         更新计算图中的操作节点
-        
+
         Args:
             ops: 操作节点列表
         """
         name_dict = {}
+        self.ops = OrderedDict()
         self.output_in_degree = {na: 0 for na in self.input_name}
-        
+        produced_edges = []
+
         for op in ops:
             # 生成操作名称
             name = str(op.__class__).split("'")[1].split(".")[-1]
@@ -406,100 +435,145 @@ class Graph:
                 name_dict[name] = 0
             else:
                 name_dict[name] += 1
-                
+
             # 设置操作名称
-            if not op.name:
-                op.name = name + ".%d" % name_dict[name]
-                self.ops[op.name] = op
-                
+            op_name = op.name or name + ".%d" % name_dict[name]
+            if op_name in self.ops:
+                suffix = 1
+                base_name = op_name
+                while f"{base_name}.{suffix}" in self.ops:
+                    suffix += 1
+                op_name = f"{base_name}.{suffix}"
+            op.name = op_name
+            self.ops[op.name] = op
+
             # 更新输入输出节点的入度
-            for i in op.inputs:
-                if i in self.output_in_degree:
+            for i in self._op_consumed_edges(op):
+                if i and i in self.output_in_degree:
                     self.output_in_degree[i] += 1
-                    
+
             for o in op.outputs:
+                if not o:
+                    continue
                 if o not in self.output_in_degree:
                     self.output_in_degree[o] = 0
+                    produced_edges.append(o)
                 else:
-                    print("output edge name %s repeat!!!" % o)
-                    sys.exit()
-                    
-            # 如果没有指定输出节点，则自动推断
-            if not self.output_name[0]:
-                for na in self.output_in_degree:
-                    if self.output_in_degree[na] == 0:
-                        self.output_name.append(na)
-                        self.output_in_degree[na] = 1
-                        self.output_name = self.output_name[1:]
+                    raise ValueError(f"output edge name {o} repeat!!!")
+
+        # 如果没有指定输出节点，则自动推断为无消费者的算子输出。
+        if not self.output_name:
+            self.output_name = [
+                edge for edge in produced_edges
+                if self.output_in_degree.get(edge, 0) == 0
+            ]
+
+    def _init_edge_data(self, inputs):
+        if len(inputs) != len(self.input_name):
+            raise ValueError(
+                f"Graph expects {len(self.input_name)} inputs, got {len(inputs)}"
+            )
+        return {na: inputs[idx] for idx, na in enumerate(self.input_name)}
+
+    @staticmethod
+    def _extract_tensor_result(outputs):
+        if isinstance(outputs, dict):
+            if "tensor" in outputs:
+                return outputs["tensor"]
+            raise KeyError("operator result dict does not contain 'tensor'")
+        return outputs
+
+    @staticmethod
+    def _normalize_multi_output(outputs, idx):
+        if isinstance(outputs, (list, tuple)):
+            if idx < len(outputs):
+                return outputs[idx]
+            raise IndexError(f"operator returned {len(outputs)} outputs, index {idx} requested")
+        if idx == 0:
+            return outputs
+        raise TypeError(f"operator should return a list/tuple for multiple outputs, got {type(outputs)}")
+
+    @staticmethod
+    def _op_consumed_edges(op):
+        names = []
+        for name in list(op.inputs) + list(getattr(op, "outer_scope_names", [])):
+            if name and name not in names:
+                names.append(name)
+        return names
+
+    def _collect_graph_outputs(self, edge_data_buffer):
+        missing = [name for name in self.output_name if name not in edge_data_buffer]
+        if missing:
+            raise KeyError(f"Graph output(s) not produced: {missing}")
+        outputs = [edge_data_buffer[name] for name in self.output_name]
+        if len(outputs) == 1:
+            return outputs[0]
+        return tuple(outputs)
 
     def forward(self, *inputs):
         """
         执行前向传播计算（使用真实数据）
-        
+
         Args:
             *inputs: 输入数据
-            
+
         Returns:
             计算结果
         """
-        # 初始化边数据缓冲区
-        edge_data_buffer = {}
+        # 初始化边数据缓冲区。每次执行都复制使用计数，避免污染图对象。
+        edge_data_buffer = self._init_edge_data(inputs)
+        edge_usage = dict(self.output_in_degree)
+        protected_outputs = set(self.output_name)
         outputs = ()
-        
-        # 设置输入数据
-        for idx, na in enumerate(self.input_name):
-            edge_data_buffer[na] = inputs[idx]
-            
+
         length = len(self.ops)
-        
+
         # 依次执行每个操作
         for (cc, op_na) in zip(range(length), self.ops):
             op = self.ops[op_na]
-            inputs = (edge_data_buffer[na] for na in op.inputs)
-            outputs = op.forward(*inputs)
-            
-            # 处理输出结果
-            if "graph" in outputs:
-                outputs, graph = outputs["tensor"], outputs["graph"]
-                do_graph = True
-            elif "parameters" in outputs:
-                outputs, parameters = outputs["tensor"], outputs["parameters"]
-                do_graph = False
-                
+            op_inputs = tuple(None if not na else edge_data_buffer[na] for na in op.inputs)
+            if hasattr(op, "forward_with_context"):
+                outputs = self._extract_tensor_result(op.forward_with_context(edge_data_buffer, *op_inputs))
+            else:
+                outputs = self._extract_tensor_result(op.forward(*op_inputs))
+
             # 更新入度
-            for idx, inp_na in enumerate(op.inputs):
-                self.output_in_degree[inp_na] -= 1
-                
+            for inp_na in self._op_consumed_edges(op):
+                if inp_na and inp_na in edge_usage:
+                    edge_usage[inp_na] -= 1
+
             # 保存输出结果
             for idx, out_na in enumerate(op.outputs):
-                if len(op.outputs) == 1:
-                    edge_data_buffer[out_na] = outputs
+                if not out_na:
                     continue
-                edge_data_buffer[out_na] = outputs[idx]
-                
+                edge_data_buffer[out_na] = (
+                    outputs if len(op.outputs) == 1
+                    else self._normalize_multi_output(outputs, idx)
+                )
+
             # 清理无用的边数据
             for na in list(edge_data_buffer.keys()):
-                if self.output_in_degree[na] == 0:
+                if edge_usage.get(na, 0) == 0 and na not in protected_outputs:
                     edge_data_buffer.pop(na)
-                    
+
+        return self._collect_graph_outputs(edge_data_buffer)
+
     def forward_(self, *inputs):
         """
         执行前向传播计算（不使用真实数据，用于图构建）
         """
-        # 初始化边数据缓冲区
-        edge_data_buffer = {}
+        # 初始化边数据缓冲区。每次执行都复制使用计数，避免污染图对象。
+        edge_data_buffer = self._init_edge_data(inputs)
+        edge_usage = dict(self.output_in_degree)
+        protected_outputs = set(self.output_name)
         outputs = ()
-        
-        # 设置输入数据
-        for idx, na in enumerate(self.input_name):
-            edge_data_buffer[na] = inputs[idx]
-            
+
         length = len(self.ops)
-        
+
         # 依次执行每个操作
         for (cc, op_na) in zip(range(length), self.ops):
             op = self.ops[op_na]
-            
+
             op_inputs_list = []
             try:
                 for na in op.inputs:
@@ -543,9 +617,9 @@ class Graph:
                     do_graph = False
             
             # 更新入度
-            for idx, inp_na in enumerate(op.inputs):
-                if inp_na and inp_na in self.output_in_degree: # 忽略空字符串和常量
-                    self.output_in_degree[inp_na] -= 1
+            for inp_na in self._op_consumed_edges(op):
+                if inp_na and inp_na in edge_usage: # 忽略空字符串和常量
+                    edge_usage[inp_na] -= 1
                 
             # 分配输出
             try:
@@ -576,5 +650,7 @@ class Graph:
                 
             # 清理无用的边数据
             for na in list(edge_data_buffer.keys()):
-                if na in self.output_in_degree and self.output_in_degree[na] == 0:
-                    edge_data_buffer.pop(na)  
+                if edge_usage.get(na, 0) == 0 and na not in protected_outputs:
+                    edge_data_buffer.pop(na)
+
+        return self._collect_graph_outputs(edge_data_buffer)
