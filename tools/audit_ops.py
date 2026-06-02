@@ -558,7 +558,7 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
         "# 算子实现情况评估",
         "",
         f"> 自动生成时间：{generated_at}",
-        "> 生成命令：`python tools/audit_ops.py --output 算子实现情况统计.md`",
+        "> 生成命令：`python tools/audit_ops.py --output docs/reports/operator_coverage.md`",
         "",
         "## 评估口径",
         "",
@@ -745,7 +745,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Audit operator implementation and verification coverage.")
     parser.add_argument(
         "--output",
-        default="算子实现情况统计.md",
+        default="docs/reports/operator_coverage.md",
         help="Markdown report path, relative to the repository root unless absolute.",
     )
     args = parser.parse_args()

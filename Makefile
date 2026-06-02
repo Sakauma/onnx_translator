@@ -39,7 +39,7 @@ test:
 	$(PYTHON) -m pytest -q
 
 audit:
-	$(PYTHON) tools/audit_ops.py --output 算子实现情况统计.md
+	$(PYTHON) tools/audit_ops.py --output docs/reports/operator_coverage.md
 
 verify:
 	$(PYTHON) tools/verify_all.py

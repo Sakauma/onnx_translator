@@ -6,10 +6,13 @@
 
 - [工程架构说明](docs/architecture.md)：说明 ONNXImport、算子层、C 后端、CUDA verifier 和测试框架的关系。
 - [新增算子流程](docs/add_operator.md)：说明新增算子的 Python、ONNX factory、C ABI、CUDA verifier、数值计划和 pytest 覆盖步骤。
+- [开发流程清单](docs/development.md)：记录算子开发时需要同步修改和验证的位置。
+- [验证总结](docs/reports/verify_summary.md)：记录当前数值验证和图结构验证覆盖范围。
+- [算子覆盖报告](docs/reports/operator_coverage.md)：记录 ONNXImport、C 后端、CUDA verifier 和数值计划覆盖情况。
 
 ## 后端化边界
 
-普通数值/张量算子的核心计算应优先落在 `tensor_ops/tensor_ops.c`，Python 侧主要负责 ONNX 属性解析、shape 推导、ctypes 调度和少量动态语义 fallback。新增或补齐算子时，不应把主体计算长期停留在 `nn/Operators.py`。
+普通数值/张量算子的核心计算应优先落在 `tensor_ops/tensor_ops_*.c`，Python 侧主要负责 ONNX 属性解析、shape 推导、ctypes 调度和少量动态语义 fallback。新增或补齐算子时，不应把主体计算长期停留在 `nn/operators/`。
 
 当前 ONNXImport 覆盖的普通数值/张量算子均应具备 C runtime path；审计报告中不应出现 Python-only 待后端化项。复杂算子仍可在 Python 保留等价 fallback，但不能作为唯一运行路径。
 
@@ -101,7 +104,7 @@ $PYTHON tools/verify_all.py --keep-artifacts
 make PYTHON=$PYTHON audit
 ```
 
-报告写入 `算子实现情况统计.md`，会区分实际 C runtime path、合理 Python 调度/元数据算子、当前暂缓后端化算子、当前暂缓深度语义/数值验证算子，以及 CUDA/数值验证覆盖。
+报告写入 `docs/reports/operator_coverage.md`，会区分实际 C runtime path、合理 Python 调度/元数据算子、当前暂缓后端化算子、当前暂缓深度语义/数值验证算子，以及 CUDA/数值验证覆盖。
 
 ## 生成 ONNX 模型
 
