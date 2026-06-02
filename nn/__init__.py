@@ -1,9 +1,6 @@
-"""Core tensor, graph, and dtype abstractions.
-
-Egor Izmaylov: This package-level module defines the small runtime objects that
-both Python operators and ctypes calls share. Keep dtype names stable here: they
-are the glue between ONNX TensorProto ids, NumPy arrays, and tensor_ops.c enum
-values.
+"""文件功能：定义 Tensor、Tensor_、Ops 和 Graph 等核心运行时抽象，以及 Python 与 C 后端共享的 dtype 映射。
+作者：Egor Izmaylov
+时间：2026-06-02
 """
 
 from collections import OrderedDict
@@ -17,9 +14,8 @@ TENSOR_OPS_LIB_PATH = os.environ.get(
     "TENSOR_OPS_LIB",
     os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "tensor_ops.so")),
 )
-# Egor Izmaylov: TENSOR_OPS_LIB lets tests point at a freshly built shared
-# library without changing import code. The default keeps local development
-# simple by resolving tensor_ops.so relative to the repository root.
+# TENSOR_OPS_LIB 允许测试指向刚构建好的共享库，而不需要修改导入代码。
+# 默认路径会从仓库根目录解析 tensor_ops.so，方便本地开发和验证。
 
 class CTensor(ctypes.Structure):
     """C张量结构体，用于与C库交互"""
@@ -31,9 +27,8 @@ class CTensor(ctypes.Structure):
         ("dtype", ctypes.c_int)                   # 数据类型
     ]
 
-# Egor Izmaylov: These integer ids must match the DataType enum in
-# tensor_ops/tensor_ops.h. A mismatch silently corrupts ctypes calls because the
-# C backend will reinterpret the same memory with the wrong element type.
+# 这些整数编码必须与 tensor_ops/tensor_ops.h 中的 DataType 枚举保持一致。
+# 如果映射不一致，ctypes 调用会让 C 后端按错误元素类型解释同一段内存。
 # 数据类型映射到整数编码
 DTYPE_MAP = {
     "float8_e4m3": 0,
@@ -102,9 +97,8 @@ if hasattr(np, 'uint32'):
 if hasattr(np, 'uint64'):
     NUMPY_TO_DTYPE[np.uint64] = "uint64"
 
-# Egor Izmaylov: ONNXImport uses this table when converting TensorProto dtype ids
-# into local dtype strings. If a new ONNX dtype is enabled, add both a NumPy
-# representation and a C enum mapping before routing it through tensor_ops.
+# ONNXImport 使用该表将 TensorProto dtype id 转换为本地 dtype 字符串。
+# 如果启用新的 ONNX dtype，需要同时补齐 NumPy 表示和 C 枚举映射后再接入 tensor_ops。
 # ONNX数据类型映射
 onnx_dtype_mapping = {
     1: "float32",
@@ -128,7 +122,7 @@ onnx_dtype_mapping = {
 class Tensor:
     """张量类，用于存储和操作多维数组数据"""
     
-    # Egor Izmaylov: Function `Tensor.__init__` initializes Tensor, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Tensor` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, *size, dtype="float32", data=None):
         """
         初始化张量
@@ -169,7 +163,7 @@ class Tensor:
 class Tensor_:
     """张量占位符类，用于图构建阶段"""
     
-    # Egor Izmaylov: Function `Tensor_.__init__` initializes Tensor_, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Tensor_` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, *size, dtype="float32"):
         """
         初始化张量占位符
@@ -198,7 +192,7 @@ class Ops:
     _lib = None
     _lib_initialized = False
 
-    # Egor Izmaylov: Function `Ops._get_lib` centralizes the get lib helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_lib` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @classmethod
     def _get_lib(cls):
         """
@@ -238,7 +232,7 @@ class Ops:
             
         return cls._lib
 
-    # Egor Izmaylov: Function `Ops.__init__` initializes Ops, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Ops` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs):
         """
         初始化操作
@@ -253,7 +247,7 @@ class Ops:
         self.name = None
         self.lib = self._get_lib()
     
-    # Egor Izmaylov: Function `Ops._execute_unary` centralizes the execute unary helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_execute_unary` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _execute_unary(self, input_tensor, c_func_name):
         """通用一元算子执行模板"""
         # 1. 准备连续内存输入
@@ -275,7 +269,7 @@ class Ops:
         
         return Tensor(*input_tensor.size, dtype=out_dtype, data=out_data)
     
-    # Egor Izmaylov: Function `Ops._execute_binary` centralizes the execute binary helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_execute_binary` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _execute_binary(self, input_a, input_b, c_func_name):
         """通用二元算子执行模板 (含广播逻辑)"""
         # 1. 广播处理
@@ -316,7 +310,7 @@ class Ops:
 
         return Tensor(*out_shape, dtype=out_dtype, data=out_data)
     
-    # Egor Izmaylov: Function `Ops._execute_ternary` centralizes the execute ternary helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_execute_ternary` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _execute_ternary(self, in_a, in_b, in_c, c_func_name):
         """通用三元算子执行模板 (含广播逻辑，用于 QDQ)"""
         try:
@@ -327,7 +321,7 @@ class Ops:
             
         out_shape = a_bc.shape
         out_dtype = self.dtype if self.dtype else "float32"
-        # Egor Izmaylov: Function `Ops._execute_ternary.prep_ctensor` implements the prep ctensor step for the core tensor and graph runtime, normalizing inputs and returning the exact data or metadata contract expected downstream.
+        # 实现 `prep_ctensor` 步骤，规范化输入并返回下游期望的数据或元信息。
         def prep_ctensor(arr_bcast, original_tensor):
             np_dtype = nn.DTYPE_TO_NUMPY[original_tensor.dtype]
             arr_safe = arr_bcast.astype(np_dtype, copy=False)
@@ -349,7 +343,7 @@ class Ops:
 
         return Tensor(*out_shape, dtype=out_dtype, data=out_data)
 
-    # Egor Izmaylov: Function `Ops.forward` executes the concrete runtime path for Ops, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Ops` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         """
         前向传播方法（使用真实数据计算）
@@ -362,7 +356,7 @@ class Ops:
         """
         pass
 
-    # Egor Izmaylov: Function `Ops.forward_` performs shape-only inference for Ops, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Ops` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         """
         前向传播方法（不使用真实数据计算，用于图构建）
@@ -375,7 +369,7 @@ class Ops:
         """
         pass
 
-    # Egor Izmaylov: Function `Ops._numpy_to_ctensor` centralizes the numpy to ctensor helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_numpy_to_ctensor` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _numpy_to_ctensor(self, arr: np.ndarray, dtype: str) -> ctypes.POINTER(CTensor):
         """
         将NumPy数组转换为C张量
@@ -396,7 +390,7 @@ class Ops:
         ctypes.memmove(c_tensor.contents.data, arr.ctypes.data, data_size)
         return c_tensor
 
-    # Egor Izmaylov: Function `Ops._ctensor_to_numpy` centralizes the ctensor to numpy helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_ctensor_to_numpy` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _ctensor_to_numpy(self, c_tensor: ctypes.POINTER(CTensor), dtype: str) -> np.ndarray:
         """
         将C张量转换为NumPy数组
@@ -423,7 +417,7 @@ class Ops:
 class Graph:
     """计算图类，用于管理操作节点和数据流"""
     
-    # Egor Izmaylov: Function `Graph.__init__` initializes Graph, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Graph` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, ops, input_name, output_name=None, model_name=None):
         """
         初始化计算图
@@ -446,7 +440,7 @@ class Graph:
         self.update(ops)
         self.model_name = model_name
 
-    # Egor Izmaylov: Function `Graph.update` implements the update step for the core tensor and graph runtime, normalizing inputs and returning the exact data or metadata contract expected downstream.
+    # 实现 `update` 步骤，规范化输入并返回下游期望的数据或元信息。
     def update(self, ops):
         """
         更新计算图中的操作节点
@@ -499,7 +493,7 @@ class Graph:
                 if self.output_in_degree.get(edge, 0) == 0
             ]
 
-    # Egor Izmaylov: Function `Graph._init_edge_data` centralizes the init edge data helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_init_edge_data` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _init_edge_data(self, inputs):
         if len(inputs) != len(self.input_name):
             raise ValueError(
@@ -507,7 +501,7 @@ class Graph:
             )
         return {na: inputs[idx] for idx, na in enumerate(self.input_name)}
 
-    # Egor Izmaylov: Function `Graph._extract_tensor_result` centralizes the extract tensor result helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_extract_tensor_result` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _extract_tensor_result(outputs):
         if isinstance(outputs, dict):
@@ -516,7 +510,7 @@ class Graph:
             raise KeyError("operator result dict does not contain 'tensor'")
         return outputs
 
-    # Egor Izmaylov: Function `Graph._normalize_multi_output` centralizes the normalize multi output helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_normalize_multi_output` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _normalize_multi_output(outputs, idx):
         if isinstance(outputs, (list, tuple)):
@@ -527,7 +521,7 @@ class Graph:
             return outputs
         raise TypeError(f"operator should return a list/tuple for multiple outputs, got {type(outputs)}")
 
-    # Egor Izmaylov: Function `Graph._op_consumed_edges` centralizes the op consumed edges helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_op_consumed_edges` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _op_consumed_edges(op):
         names = []
@@ -536,7 +530,7 @@ class Graph:
                 names.append(name)
         return names
 
-    # Egor Izmaylov: Function `Graph._collect_graph_outputs` centralizes the collect graph outputs helper logic for the core tensor and graph runtime, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_collect_graph_outputs` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _collect_graph_outputs(self, edge_data_buffer):
         missing = [name for name in self.output_name if name not in edge_data_buffer]
         if missing:
@@ -546,7 +540,7 @@ class Graph:
             return outputs[0]
         return tuple(outputs)
 
-    # Egor Izmaylov: Function `Graph.forward` executes the concrete runtime path for Graph, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Graph` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs):
         """
         执行前向传播计算（使用真实数据）
@@ -595,7 +589,7 @@ class Graph:
 
         return self._collect_graph_outputs(edge_data_buffer)
 
-    # Egor Izmaylov: Function `Graph.forward_` performs shape-only inference for Graph, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Graph` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs):
         """
         执行前向传播计算（不使用真实数据，用于图构建）

@@ -1,10 +1,6 @@
-"""ONNX model importer.
-
-Egor Izmaylov: The importer translates ONNX graph nodes into local operator
-objects while preserving opset-17 attributes, inferred dtypes, and initializer
-constants. It should stay declarative: parse attributes here, then delegate all
-runtime behavior to nn.Operators so graph construction and execution remain
-testable independently.
+"""文件功能：将 ONNX 模型中的 initializer、节点和属性转换为本地算子对象，供图运行时使用。
+作者：Egor Izmaylov
+时间：2026-06-02
 """
 
 import onnx
@@ -19,7 +15,7 @@ class GenericNode:
     """
     通用占位节点：用于承载尚未实现、解析失败或自定义的算子。
     """
-    # Egor Izmaylov: Function `GenericNode.__init__` initializes GenericNode, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GenericNode` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, op_type, inputs, outputs, name=None, attributes=None, error=None):
         self.op_type = op_type
         self.inputs = list(inputs) if inputs else []
@@ -28,12 +24,12 @@ class GenericNode:
         self.attributes = attributes if attributes else {}
         self.error = error
 
-    # Egor Izmaylov: Function `GenericNode.forward` executes the concrete runtime path for GenericNode, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GenericNode` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *args):
         # 运行时占位
         return {"tensor": [None] * len(self.outputs), "parameters": None}
 
-    # Egor Izmaylov: Function `GenericNode.forward_` performs shape-only inference for GenericNode, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `GenericNode` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *args):
         # 图推断占位
         out_tensors = []
@@ -42,7 +38,7 @@ class GenericNode:
         res = out_tensors[0] if len(out_tensors) == 1 else out_tensors
         return {"tensor": res, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `GenericNode.parameters` exposes the imported node parameters for GenericNode, including unsupported-node diagnostics used by non-strict import mode.
+    # 汇总 `GenericNode` 的导入参数和诊断信息，供图可视化或非严格导入模式读取。
     @property
     def parameters(self):
         info = []
@@ -54,7 +50,7 @@ class GenericNode:
             info.append(f"{k}={val_str}")
         return {"info": "\\n".join(info)}
 
-# Egor Izmaylov: Function `ONNXImport` implements the ONNXImport step for the ONNX importer, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `ONNXImport` 步骤，规范化输入并返回下游期望的数据或元信息。
 def ONNXImport(file_path, strict=False):
     """
     [Optimized] 从ONNX模型文件导入计算图节点
@@ -74,10 +70,8 @@ def ONNXImport(file_path, strict=False):
         print(f" Critical Error: Failed to load ONNX file. {e}")
         raise e
 
-    # Egor Izmaylov: dtype inference is done once up front because many operator
-    # constructors need the output dtype to choose a C tensor type or a Python
-    # fallback dtype. Re-running shape inference per node would be both slow and
-    # less predictable for partially inferred graphs.
+    # dtype 推断只在导入开始时执行一次；很多算子构造函数需要输出 dtype 来选择 C 张量类型或 Python fallback。
+    # 如果每个节点都重新执行形状推断，不仅性能较差，对部分推断成功的图也更难保持行为稳定。
     # =========================================================================
     # 预计算类型映射表
     # =========================================================================
@@ -102,13 +96,12 @@ def ONNXImport(file_path, strict=False):
     for t in graph.value_info: dtype_map[t.name] = t.type.tensor_type.elem_type
 
     # 内部辅助函数：获取 dtype
-    # Egor Izmaylov: Function `ONNXImport.get_dtype` implements the get dtype step for the ONNX importer, normalizing inputs and returning the exact data or metadata contract expected downstream.
+    # 实现 `get_dtype` 步骤，规范化输入并返回下游期望的数据或元信息。
     def get_dtype(name, default=onnx.TensorProto.FLOAT):
         return dtype_map.get(name, default)
 
-    # Egor Izmaylov: initializers are emitted as Constant operators before graph
-    # nodes so later runtime code can treat weights and model inputs uniformly.
-    # This keeps graph traversal simple and avoids a second parameter namespace.
+    # initializer 会先转换成 Constant 算子，这样后续运行时可以用同一套边数据逻辑处理权重和普通输入。
+    # 这种做法能保持图遍历简单，也避免额外维护一套参数命名空间。
     # =========================================================================
     # 解析 Initializers
     # =========================================================================
@@ -122,10 +115,8 @@ def ONNXImport(file_path, strict=False):
         except Exception as e:
             print(f" Warning: Failed to convert initializer {init.name}: {e}")
 
-    # Egor Izmaylov: each branch below should copy ONNX attribute defaults from
-    # the official schema for opset 17. When an op has optional tensor inputs,
-    # keep empty-string placeholders intact because runtime dispatch uses input
-    # positions to match ONNX semantics.
+    # 下面每个分支都应遵循 ONNX opset 17 的属性默认值；遇到可选张量输入时保留空字符串占位。
+    # 运行时会依赖输入位置还原 ONNX 语义，因此不能随意压缩 optional 输入列表。
     # =========================================================================
     # 解析 Nodes
     # =========================================================================

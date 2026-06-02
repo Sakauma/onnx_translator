@@ -1,9 +1,14 @@
+"""文件功能：构造用于验证图连接、常量和基础图算子的 ONNX 测试模型。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 import os
 import numpy as np
 import onnx
 from onnx import helper, TensorProto, numpy_helper
 
-# Egor Izmaylov: Function `make_const` implements the make const step for the ONNX fixture generator, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `make_const` 步骤，规范化输入并返回下游期望的数据或元信息。
 def make_const(name: str, value: np.ndarray):
     return helper.make_node(
         "Constant",
@@ -12,7 +17,7 @@ def make_const(name: str, value: np.ndarray):
         value=numpy_helper.from_array(value, name=name + "_value"),
     )
 
-# Egor Izmaylov: Function `export_graph_ops_model` implements the export graph ops model step for the ONNX fixture generator, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `export_graph_ops_model` 步骤，规范化输入并返回下游期望的数据或元信息。
 def export_graph_ops_model(out_path="./onnx_model/model.onnx"):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 

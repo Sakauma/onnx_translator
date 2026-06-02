@@ -1,10 +1,15 @@
+"""文件功能：验证 tools.verify_all 的步骤编排、参数传递和清理逻辑。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 import argparse
 from pathlib import Path
 
 from tools.verify_all import build_steps, cleanup_artifacts
 
 
-# Egor Izmaylov: Function `_args` centralizes the args helper logic for the pytest verification suite, so edge-case normalization stays in one implementation boundary.
+# 封装 `_args` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _args(**overrides):
     values = {
         "skip_cuda": False,
@@ -16,7 +21,7 @@ def _args(**overrides):
     return argparse.Namespace(**values)
 
 
-# Egor Izmaylov: Function `test_skip_cuda_plan_omits_cuda_and_numerical_steps` locks down the test skip cuda plan omits cuda and numerical steps behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_skip_cuda_plan_omits_cuda_and_numerical_steps` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_skip_cuda_plan_omits_cuda_and_numerical_steps():
     steps = build_steps(_args(skip_cuda=True), Path("/repo"))
     names = [step.name for step in steps]
@@ -26,7 +31,7 @@ def test_skip_cuda_plan_omits_cuda_and_numerical_steps():
     assert "--require-cuda" not in steps[0].command
 
 
-# Egor Izmaylov: Function `test_full_plan_includes_numerical_filters` locks down the test full plan includes numerical filters behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_full_plan_includes_numerical_filters` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_full_plan_includes_numerical_filters():
     steps = build_steps(_args(iterations=3, op=["add", "mul"]), Path("/repo"))
     numerical_step = next(step for step in steps if step.name == "run numerical correctness checks")
@@ -42,7 +47,7 @@ def test_full_plan_includes_numerical_filters():
     ]
 
 
-# Egor Izmaylov: Function `test_cleanup_artifacts_removes_known_generated_paths` locks down the test cleanup artifacts removes known generated paths behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_cleanup_artifacts_removes_known_generated_paths` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_cleanup_artifacts_removes_known_generated_paths(tmp_path):
     (tmp_path / "cache").mkdir()
     (tmp_path / "onnx_model").mkdir()

@@ -1,3 +1,8 @@
+"""文件功能：验证 ONNX 导入器在严格模式和非严格模式下对不支持节点的处理行为。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 import onnx
 import pytest
 from onnx import TensorProto, helper
@@ -5,7 +10,7 @@ from onnx import TensorProto, helper
 from nn.ONNXImport import GenericNode, ONNXImport
 
 
-# Egor Izmaylov: Function `_write_unsupported_model` centralizes the write unsupported model helper logic for the pytest verification suite, so edge-case normalization stays in one implementation boundary.
+# 封装 `_write_unsupported_model` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _write_unsupported_model(path):
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])
     y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])
@@ -15,7 +20,7 @@ def _write_unsupported_model(path):
     onnx.save(model, path)
 
 
-# Egor Izmaylov: Function `test_onnx_import_strict_raises_on_unsupported_node` locks down the test onnx import strict raises on unsupported node behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onnx_import_strict_raises_on_unsupported_node` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onnx_import_strict_raises_on_unsupported_node(tmp_path):
     model_path = tmp_path / "unsupported.onnx"
     _write_unsupported_model(model_path)
@@ -24,7 +29,7 @@ def test_onnx_import_strict_raises_on_unsupported_node(tmp_path):
         ONNXImport(str(model_path), strict=True)
 
 
-# Egor Izmaylov: Function `test_onnx_import_non_strict_records_generic_error` locks down the test onnx import non strict records generic error behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onnx_import_non_strict_records_generic_error` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onnx_import_non_strict_records_generic_error(tmp_path):
     model_path = tmp_path / "unsupported.onnx"
     _write_unsupported_model(model_path)

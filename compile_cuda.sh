@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
+# 文件功能：查找 nvcc 并编译 cuda 目录下的所有 CUDA 验证程序，将可执行文件写入 cache 目录。
+# 作者：Egor Izmaylov
+# 时间：2026-06-02
 set -euo pipefail
 
 CUDA_DIR="${CUDA_DIR:-cuda}"
 CACHE_DIR="${CACHE_DIR:-cache}"
 NVCC="${NVCC:-nvcc}"
 
-# Egor Izmaylov: Function `resolve_nvcc` locates the CUDA compiler from NVCC, PATH, or common install roots, so verifier compilation fails with a clear diagnostic when nvcc is unavailable.
+# 定位 `resolve_nvcc` 所需工具或执行入口，让后续构建步骤在缺少依赖时给出明确诊断。
 resolve_nvcc() {
     if command -v "${NVCC}" >/dev/null 2>&1; then
         command -v "${NVCC}"

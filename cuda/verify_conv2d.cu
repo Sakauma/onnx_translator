@@ -1,10 +1,16 @@
+/*
+ * 文件功能：提供 conv2d 算子的 CUDA 参考验证程序，供数值正确性脚本与 C 后端结果对比。
+ * 作者：Egor Izmaylov
+ * 时间：2026-06-02
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
 #include <float.h>
 
 // 辅助：读取 4D 数据 (带 padding 检查)
-// Egor Izmaylov: Function `get_val_4d` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
+// 实现 `get_val_4d` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
 __device__ double get_val_4d(const double* data, int n, int c, int h, int w, 
                              int N, int C, int H, int W) {
     if (n < 0 || n >= N || c < 0 || c >= C || h < 0 || h >= H || w < 0 || w >= W) {
@@ -13,7 +19,7 @@ __device__ double get_val_4d(const double* data, int n, int c, int h, int w,
     return data[((n * C + c) * H + h) * W + w];
 }
 
-// Egor Izmaylov: Function `conv2d_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
+// 实现 `conv2d_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void conv2d_kernel(const double* X, const double* W, const double* B, double* Y,
                               int batch, int in_c, int in_h, int in_w,
                               int out_c, int k_h, int k_w,
@@ -65,7 +71,7 @@ __global__ void conv2d_kernel(const double* X, const double* W, const double* B,
     Y[idx] = sum;
 }
 
-// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
+// 作为 CUDA 验证程序入口，从二进制文件读取输入、执行参考计算并写回结果。
 int main(int argc, char** argv) {
     if (argc < 6) return 1;
 

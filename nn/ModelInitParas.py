@@ -1,3 +1,8 @@
+"""文件功能：提取 ONNX 模型 initializer 的 dtype 与参数信息，辅助模型导入和检查。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 import onnx
 from nn import Tensor
 from nn import onnx_dtype_mapping
@@ -13,7 +18,7 @@ onnx_np_dtype_mapping = {
  "bool": np.bool_,
 }
 
-# Egor Izmaylov: Function `get_tensor_dtype` implements the get tensor dtype step for the initializer metadata extractor, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `get_tensor_dtype` 步骤，规范化输入并返回下游期望的数据或元信息。
 def get_tensor_dtype(tensor_name, model):
     """
     获取张量的数据类型
@@ -42,7 +47,7 @@ def get_tensor_dtype(tensor_name, model):
             
     return None
 
-# Egor Izmaylov: Function `ONNXParasGen` implements the ONNXParasGen step for the initializer metadata extractor, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `ONNXParasGen` 步骤，规范化输入并返回下游期望的数据或元信息。
 def ONNXParasGen(file_path):
     """
     从ONNX模型文件生成初始参数张量 (已修复权重冲突问题)

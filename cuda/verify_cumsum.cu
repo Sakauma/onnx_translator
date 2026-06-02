@@ -1,3 +1,9 @@
+/*
+ * 文件功能：提供 cumsum 算子的 CUDA 参考验证程序，供数值正确性脚本与 C 后端结果对比。
+ * 作者：Egor Izmaylov
+ * 时间：2026-06-02
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -9,7 +15,7 @@ struct CumSumParams {
     int32_t reverse;    // 0/1
 };
 
-// Egor Izmaylov: Function `cumsum_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
+// 实现 `cumsum_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void cumsum_kernel(const float* in, float* out, int N, int exclusive, int reverse) {
     if (blockIdx.x != 0 || threadIdx.x != 0) return;
 
@@ -41,7 +47,7 @@ __global__ void cumsum_kernel(const float* in, float* out, int N, int exclusive,
     }
 }
 
-// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
+// 作为 CUDA 验证程序入口，从二进制文件读取输入、执行参考计算并写回结果。
 int main(int argc, char** argv) {
     // <out_len> <in.bin> <params.bin> <out.bin>
     if (argc != 5) {

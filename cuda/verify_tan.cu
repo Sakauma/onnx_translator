@@ -1,9 +1,15 @@
+/*
+ * 文件功能：提供 tan 算子的 CUDA 参考验证程序，供数值正确性脚本与 C 后端结果对比。
+ * 作者：Egor Izmaylov
+ * 时间：2026-06-02
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
 #include <math.h>
 
-// Egor Izmaylov: Function `tan_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
+// 实现 `tan_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void tan_kernel(const float* in, float* out, size_t n) {
     size_t idx = (size_t)blockIdx.x * (size_t)blockDim.x + (size_t)threadIdx.x;
     if (idx < n) {
@@ -12,7 +18,7 @@ __global__ void tan_kernel(const float* in, float* out, size_t n) {
     }
 }
 
-// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
+// 作为 CUDA 验证程序入口，从二进制文件读取输入、执行参考计算并写回结果。
 int main(int argc, char** argv) {
     // <n> <in.bin> <out.bin>
     if (argc != 4) {

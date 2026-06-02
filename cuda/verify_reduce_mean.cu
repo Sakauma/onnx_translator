@@ -1,3 +1,9 @@
+/*
+ * 文件功能：提供 reduce mean 算子的 CUDA 参考验证程序，供数值正确性脚本与 C 后端结果对比。
+ * 作者：Egor Izmaylov
+ * 时间：2026-06-02
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
@@ -7,7 +13,7 @@ struct ReduceMeanParams {
     int N;
 };
 
-// Egor Izmaylov: Function `sum_all_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
+// 实现 `sum_all_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void sum_all_kernel(const float* x, double* partial, int total) {
     __shared__ double sdata[256];
     int tid = threadIdx.x;
@@ -26,7 +32,7 @@ __global__ void sum_all_kernel(const float* x, double* partial, int total) {
     if (tid == 0) partial[blockIdx.x] = sdata[0];
 }
 
-// Egor Izmaylov: Function `sum_partial_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
+// 实现 `sum_partial_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void sum_partial_kernel(const double* partial, double* out, int nblocks) {
     __shared__ double sdata[256];
     int tid = threadIdx.x;
@@ -45,7 +51,7 @@ __global__ void sum_partial_kernel(const double* partial, double* out, int nbloc
     if (tid == 0) out[0] = sdata[0];
 }
 
-// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
+// 作为 CUDA 验证程序入口，从二进制文件读取输入、执行参考计算并写回结果。
 int main(int argc, char** argv) {
     // <out_len> <in0.bin> <params.bin> <out.bin>
     if (argc != 5) {

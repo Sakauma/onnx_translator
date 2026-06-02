@@ -1,11 +1,6 @@
-"""ONNX operator runtime and shape-inference implementations.
-
-Egor Izmaylov: This module is intentionally the narrow Python control layer
-between imported ONNX nodes and the C backend in ``tensor_ops``.  Each operator
-should keep expensive numeric work on the C path whenever the dtype is supported;
-Python code is used for ONNX attribute normalization, dynamic shape reasoning,
-sequence/optional/control-flow orchestration, and fallback behavior for payloads
-such as strings that cannot be represented by the C tensor ABI.
+"""文件功能：实现 ONNX 算子的运行逻辑、形状推断、C 后端调用和必要的 Python fallback 路径。
+作者：Egor Izmaylov
+时间：2026-06-02
 """
 
 from nn import Ops
@@ -18,9 +13,7 @@ import os
 import unicodedata
 
 class CConvParams(ctypes.Structure):
-    # Egor Izmaylov: ctypes mirrors the C structs exactly; field order is part of
-    # the ABI contract with tensor_ops.c, so keep these definitions synchronized
-    # with tensor_ops/tensor_ops.h whenever convolution parameters change.
+    # ctypes 结构体字段顺序必须与 C 后端保持一致；卷积参数变更时需要同步 tensor_ops/tensor_ops.h。
     _fields_ = [
         ("pads", ctypes.POINTER(ctypes.c_int)),
         ("strides", ctypes.POINTER(ctypes.c_int)),
@@ -29,8 +22,7 @@ class CConvParams(ctypes.Structure):
     ]
 
 class CPoolParams(ctypes.Structure):
-    # Egor Izmaylov: pooling operators pass all spatial metadata as raw int
-    # arrays to avoid per-element Python callbacks inside the C implementation.
+    # 池化算子将空间参数以原始 int 数组传入 C 后端，避免逐元素计算时回调 Python。
     _fields_ = [
         ("pads", ctypes.POINTER(ctypes.c_int)),
         ("strides", ctypes.POINTER(ctypes.c_int)),
@@ -39,8 +31,7 @@ class CPoolParams(ctypes.Structure):
     ]
     
 class CReduceParams(ctypes.Structure):
-    # Egor Izmaylov: reductions share one C parameter block because ONNX reduce
-    # ops differ mainly by accumulation rule while axes/keepdims semantics match.
+    # 归约算子共享同一参数结构，因为它们主要差异在累积规则，axes/keepdims 语义基本一致。
     _fields_ = [
         ("axes", ctypes.POINTER(ctypes.c_int)),
         ("num_axes", ctypes.c_int),
@@ -50,7 +41,7 @@ class CReduceParams(ctypes.Structure):
 class RELU(Ops):
     """ReLU激活函数操作类"""
     
-    # Egor Izmaylov: Function `RELU.__init__` initializes RELU, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `RELU` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         """
         初始化ReLU操作
@@ -65,7 +56,7 @@ class RELU(Ops):
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `RELU.forward` executes the concrete runtime path for RELU, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `RELU` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> Tensor:
         """
         ReLU函数的C后端实现，使用真实数据进行计算
@@ -81,7 +72,7 @@ class RELU(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `RELU.forward_` performs shape-only inference for RELU, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `RELU` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> Tensor_:
         """
         ReLU函数的Python实现，不使用真实数据进行计算
@@ -103,7 +94,7 @@ class RELU(Ops):
 class COS(Ops):
     """余弦函数操作类"""
     
-    # Egor Izmaylov: Function `COS.__init__` initializes COS, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `COS` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         """
         初始化COS操作
@@ -118,7 +109,7 @@ class COS(Ops):
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `COS.forward` executes the concrete runtime path for COS, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `COS` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> Tensor:
         """
         余弦函数的C后端实现，使用真实数据进行计算
@@ -134,7 +125,7 @@ class COS(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `COS.forward_` performs shape-only inference for COS, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `COS` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> Tensor_:
         """
         余弦函数的Python实现，不使用真实数据进行计算
@@ -156,7 +147,7 @@ class COS(Ops):
 class ABS(Ops):
     """Abs激活函数操作类"""
     
-    # Egor Izmaylov: Function `ABS.__init__` initializes ABS, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ABS` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         """
         初始化ABS操作
@@ -171,7 +162,7 @@ class ABS(Ops):
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `ABS.forward` executes the concrete runtime path for ABS, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ABS` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> Tensor:
         """
         Abs函数的C后端实现，使用真实数据进行计算
@@ -181,7 +172,7 @@ class ABS(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `ABS.forward_` performs shape-only inference for ABS, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ABS` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> Tensor_:
         """
         Abs函数的Python实现，不使用真实数据进行计算
@@ -197,7 +188,7 @@ class ABS(Ops):
 class ADD(Ops):
     """加法操作类 (A + B)，支持广播和混合精度"""
 
-    # Egor Izmaylov: Function `ADD.__init__` initializes ADD, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ADD` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         """
         初始化ADD操作
@@ -212,7 +203,7 @@ class ADD(Ops):
         self.dtype = dtype # 这是ONNX图推断的输出类型
         self.version = version
 
-    # Egor Izmaylov: Function `ADD.forward` executes the concrete runtime path for ADD, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ADD` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs) -> Tensor:
         """
         加法函数的C后端实现，在Python层处理广播
@@ -225,7 +216,7 @@ class ADD(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `ADD.forward_` performs shape-only inference for ADD, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ADD` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs) -> Tensor_:
         """
         Add函数的Python实现，不使用真实数据进行计算 (用于图推断)
@@ -271,13 +262,13 @@ class ADD(Ops):
 class SUB(Ops):
     """减法操作类 (A - B)，支持广播和混合精度"""
 
-    # Egor Izmaylov: Function `SUB.__init__` initializes SUB, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SUB` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(SUB, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `SUB.forward` executes the concrete runtime path for SUB, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SUB` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs) -> Tensor:
         """
         减法函数的C后端实现，在Python层处理广播
@@ -290,7 +281,7 @@ class SUB(Ops):
         self.parameters = {"values": values}
         return values
         
-    # Egor Izmaylov: Function `SUB.forward_` performs shape-only inference for SUB, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SUB` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs) -> Tensor_:
         """
         Sub函数的Python实现，不使用真实数据进行计算 (用于图推断)
@@ -336,13 +327,13 @@ class SUB(Ops):
 class MUL(Ops):
     """乘法操作类 (A * B)，支持广播和混合精度"""
 
-    # Egor Izmaylov: Function `MUL.__init__` initializes MUL, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `MUL` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(MUL, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `MUL.forward` executes the concrete runtime path for MUL, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `MUL` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs) -> Tensor:
         """
         乘法函数的C后端实现，在Python层处理广播
@@ -355,7 +346,7 @@ class MUL(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `MUL.forward_` performs shape-only inference for MUL, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `MUL` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs) -> Tensor_:
         """
         Mul函数的Python实现，不使用真实数据进行计算 (用于图推断)
@@ -401,13 +392,13 @@ class MUL(Ops):
 class DIV(Ops):
     """除法操作类 (A / B)，支持广播和混合精度"""
 
-    # Egor Izmaylov: Function `DIV.__init__` initializes DIV, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `DIV` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(DIV, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `DIV.forward` executes the concrete runtime path for DIV, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `DIV` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs) -> Tensor:
         """
         除法函数的C后端实现，在Python层处理广播
@@ -420,7 +411,7 @@ class DIV(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `DIV.forward_` performs shape-only inference for DIV, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `DIV` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs) -> Tensor_:
         """
         Div函数的Python实现，不使用真实数据进行计算 (用于图推断)
@@ -464,18 +455,18 @@ class DIV(Ops):
         return values
     
 class QuantizeLinear(Ops):
-    # Egor Izmaylov: Function `QuantizeLinear.__init__` initializes QuantizeLinear, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `QuantizeLinear` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=1, dtype=None, version="17"):
         super(QuantizeLinear, self).__init__(inputs, outputs)
         self.dtype = dtype or "uint8"
         self.axis = axis # 保存 axis
         self.version = version
 
-    # Egor Izmaylov: Function `QuantizeLinear._default_zero_point` centralizes the default zero point helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_default_zero_point` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _default_zero_point(self):
         return Tensor(1, dtype=self.dtype, data=np.zeros((1,), dtype=nn.DTYPE_TO_NUMPY[self.dtype]))
 
-    # Egor Izmaylov: Function `QuantizeLinear.forward` executes the concrete runtime path for QuantizeLinear, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `QuantizeLinear` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, y_scale, y_zero_point=None) -> Tensor:
         scale_tensor = y_scale
         zp_tensor = y_zero_point if y_zero_point is not None else self._default_zero_point()
@@ -495,19 +486,19 @@ class QuantizeLinear(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `QuantizeLinear.forward_` performs shape-only inference for QuantizeLinear, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `QuantizeLinear` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, y_scale, y_zero_point=None) -> Tensor_:
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None, "graph": None}
 
 class DequantizeLinear(Ops):
-    # Egor Izmaylov: Function `DequantizeLinear.__init__` initializes DequantizeLinear, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `DequantizeLinear` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype=None, axis=1, version="17"):
         super(DequantizeLinear, self).__init__(inputs, outputs)
         self.dtype = dtype or "float32" # 通常为 float32
         self.axis = axis
         self.version = version
 
-    # Egor Izmaylov: Function `DequantizeLinear.forward` executes the concrete runtime path for DequantizeLinear, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `DequantizeLinear` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, x_scale, x_zero_point=None) -> Tensor:
         scale_tensor = x_scale
         zp_tensor = x_zero_point
@@ -535,14 +526,14 @@ class DequantizeLinear(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `DequantizeLinear.forward_` performs shape-only inference for DequantizeLinear, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `DequantizeLinear` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, x_scale, x_zero_point=None) -> Tensor_:
         output_tensor = Tensor_(*x.size, dtype=self.dtype)
         values = {"tensor": output_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values
     
-# Egor Izmaylov: Function `_conv_attr` centralizes the conv attr helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_conv_attr` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _conv_attr(values, spatial_rank, default):
     if values is None:
         return [default] * spatial_rank
@@ -552,12 +543,12 @@ def _conv_attr(values, spatial_rank, default):
     return values
 
 
-# Egor Izmaylov: Function `_conv_effective_kernel` centralizes the conv effective kernel helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_conv_effective_kernel` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _conv_effective_kernel(kernel_shape, dilations):
     return [dilations[i] * (kernel_shape[i] - 1) + 1 for i in range(len(kernel_shape))]
 
 
-# Egor Izmaylov: Function `_conv_resolve_pads` centralizes the conv resolve pads helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_conv_resolve_pads` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _conv_resolve_pads(input_spatial, kernel_shape, pads, strides, dilations, auto_pad="NOTSET"):
     spatial_rank = len(input_spatial)
     auto_pad = auto_pad or "NOTSET"
@@ -585,7 +576,7 @@ def _conv_resolve_pads(input_spatial, kernel_shape, pads, strides, dilations, au
     return pads
 
 
-# Egor Izmaylov: Function `_conv_output_spatial` centralizes the conv output spatial helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_conv_output_spatial` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _conv_output_spatial(input_spatial, kernel_shape, pads, strides, dilations):
     effective = _conv_effective_kernel(kernel_shape, dilations)
     spatial_rank = len(input_spatial)
@@ -595,7 +586,7 @@ def _conv_output_spatial(input_spatial, kernel_shape, pads, strides, dilations):
     )
 
 
-# Egor Izmaylov: Function `_conv_nd_numpy` centralizes the conv nd numpy helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_conv_nd_numpy` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _conv_nd_numpy(x, w, bias=None, pads=None, strides=None, dilations=None, group=1, auto_pad="NOTSET", acc_dtype=np.float64):
     x = np.asarray(x)
     w = np.asarray(w)
@@ -639,7 +630,7 @@ def _conv_nd_numpy(x, w, bias=None, pads=None, strides=None, dilations=None, gro
     return out
 
 
-# Egor Izmaylov: Function `_reshape_channel_param` centralizes the reshape channel param helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_reshape_channel_param` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _reshape_channel_param(param, target, axis, dtype):
     if param is None:
         return np.array(0, dtype=dtype)
@@ -653,7 +644,7 @@ def _reshape_channel_param(param, target, axis, dtype):
     return arr
 
 
-# Egor Izmaylov: Function `_broadcast_conv_zero_point` centralizes the broadcast conv zero point helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_broadcast_conv_zero_point` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _broadcast_conv_zero_point(param, target_shape, dtype, axis=None):
     np_dtype = nn.DTYPE_TO_NUMPY[dtype]
     if param is None:
@@ -670,7 +661,7 @@ def _broadcast_conv_zero_point(param, target_shape, dtype, axis=None):
     return np.broadcast_to(arr, target_shape).copy()
 
 
-# Egor Izmaylov: Function `_broadcast_conv_param` centralizes the broadcast conv param helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_broadcast_conv_param` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _broadcast_conv_param(param, target_shape, dtype, axis=None):
     np_dtype = nn.DTYPE_TO_NUMPY[dtype]
     arr = np.asarray(param.data, dtype=np_dtype)
@@ -685,7 +676,7 @@ def _broadcast_conv_param(param, target_shape, dtype, axis=None):
     return np.broadcast_to(arr, target_shape).copy()
 
 
-# Egor Izmaylov: Function `_reshape_output_channel_param` centralizes the reshape output channel param helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_reshape_output_channel_param` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _reshape_output_channel_param(param, out_channels, spatial_rank, dtype):
     arr = np.asarray(param.data, dtype=dtype)
     if arr.ndim == 0 or arr.size == 1:
@@ -695,7 +686,7 @@ def _reshape_output_channel_param(param, out_channels, spatial_rank, dtype):
     return arr
 
 
-# Egor Izmaylov: Function `_dtype_bounds` centralizes the dtype bounds helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_dtype_bounds` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _dtype_bounds(dtype):
     np_dtype = nn.DTYPE_TO_NUMPY.get(dtype, np.uint8)
     if np.issubdtype(np_dtype, np.integer):
@@ -704,7 +695,7 @@ def _dtype_bounds(dtype):
     return None, None
 
 class Conv(Ops):
-    # Egor Izmaylov: Function `Conv.__init__` initializes Conv, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Conv` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, pads, strides, dilations, group, dtype, kernel_shape=None, auto_pad="NOTSET", version="17"):
         super(Conv, self).__init__(inputs, outputs)
         # 必须完整保存所有参数
@@ -724,7 +715,7 @@ class Conv(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CConvParams)
             ]
 
-    # Egor Izmaylov: Function `Conv._params` centralizes the params helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_params` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _params(self, x_shape, w_shape):
         spatial_rank = len(x_shape) - 2
         kernel_shape = self.kernel_shape if self.kernel_shape is not None else list(w_shape[2:])
@@ -736,7 +727,7 @@ class Conv(Ops):
         out_spatial = _conv_output_spatial(list(x_shape[2:]), kernel_shape, pads, strides, dilations)
         return kernel_shape, strides, dilations, pads, tuple(x_shape[:1]) + tuple(w_shape[:1]) + out_spatial
 
-    # Egor Izmaylov: Function `Conv.forward` executes the concrete runtime path for Conv, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Conv` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x: Tensor, w: Tensor, b: Tensor = None) -> dict:
         _, strides, dilations, pads, out_shape = self._params(x.size, w.size)
 
@@ -793,7 +784,7 @@ class Conv(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `Conv.forward_` performs shape-only inference for Conv, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Conv` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x: Tensor_, w: Tensor_, b: Tensor_ = None) -> dict:
         # 仅做形状推断
         _, _, _, _, out_shape = self._params(x.size, w.size)
@@ -803,7 +794,7 @@ class Conv(Ops):
         return values
 
 class ConvTranspose(Ops):
-    # Egor Izmaylov: Function `ConvTranspose.__init__` initializes ConvTranspose, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ConvTranspose` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -836,7 +827,7 @@ class ConvTranspose(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CConvParams)
             ]
 
-    # Egor Izmaylov: Function `ConvTranspose._params` centralizes the params helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_params` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _params(self, x_shape, w_shape):
         spatial_rank = len(x_shape) - 2
         kernel_shape = self.kernel_shape if self.kernel_shape is not None else list(w_shape[2:])
@@ -893,7 +884,7 @@ class ConvTranspose(Ops):
             )
         return kernel_shape, pads, strides, dilations, output_padding, out_spatial
 
-    # Egor Izmaylov: Function `ConvTranspose.forward` executes the concrete runtime path for ConvTranspose, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ConvTranspose` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, w, b=None):
         x_data = np.asarray(x.data, dtype=np.float64)
         w_data = np.asarray(w.data, dtype=np.float64)
@@ -962,14 +953,14 @@ class ConvTranspose(Ops):
         out_data = out.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, np.float32), copy=False)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `ConvTranspose.forward_` performs shape-only inference for ConvTranspose, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ConvTranspose` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, w, b=None):
         _kernel_shape, _pads, _strides, _dilations, _output_padding, out_spatial = self._params(x.size, w.size)
         out_channels = w.size[1] * self.group
         return {"tensor": Tensor_(x.size[0], out_channels, *out_spatial, dtype=self.dtype), "parameters": None}
 
 class ConvInteger(Ops):
-    # Egor Izmaylov: Function `ConvInteger.__init__` initializes ConvInteger, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ConvInteger` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -998,7 +989,7 @@ class ConvInteger(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CConvParams)
             ]
 
-    # Egor Izmaylov: Function `ConvInteger._shape` centralizes the shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _shape(self, x_shape, w_shape):
         spatial_rank = len(x_shape) - 2
         kernel_shape = self.kernel_shape if self.kernel_shape is not None else list(w_shape[2:])
@@ -1007,7 +998,7 @@ class ConvInteger(Ops):
         pads = _conv_resolve_pads(list(x_shape[2:]), kernel_shape, self.pads, strides, dilations, self.auto_pad)
         return (x_shape[0], w_shape[0]) + _conv_output_spatial(list(x_shape[2:]), kernel_shape, pads, strides, dilations)
 
-    # Egor Izmaylov: Function `ConvInteger.forward` executes the concrete runtime path for ConvInteger, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ConvInteger` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, w, x_zero_point=None, w_zero_point=None):
         spatial_rank = x.data.ndim - 2
         if (
@@ -1065,12 +1056,12 @@ class ConvInteger(Ops):
         ).astype(np.int32)
         return {"tensor": Tensor(*out.shape, dtype="int32", data=out), "parameters": None}
 
-    # Egor Izmaylov: Function `ConvInteger.forward_` performs shape-only inference for ConvInteger, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ConvInteger` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, w, x_zero_point=None, w_zero_point=None):
         return {"tensor": Tensor_(*self._shape(x.size, w.size), dtype="int32"), "parameters": None}
 
 class QLinearConv(Ops):
-    # Egor Izmaylov: Function `QLinearConv.__init__` initializes QLinearConv, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `QLinearConv` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -1101,7 +1092,7 @@ class QLinearConv(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CConvParams)
             ]
 
-    # Egor Izmaylov: Function `QLinearConv._shape` centralizes the shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _shape(self, x_shape, w_shape):
         spatial_rank = len(x_shape) - 2
         kernel_shape = self.kernel_shape if self.kernel_shape is not None else list(w_shape[2:])
@@ -1110,7 +1101,7 @@ class QLinearConv(Ops):
         pads = _conv_resolve_pads(list(x_shape[2:]), kernel_shape, self.pads, strides, dilations, self.auto_pad)
         return (x_shape[0], w_shape[0]) + _conv_output_spatial(list(x_shape[2:]), kernel_shape, pads, strides, dilations)
 
-    # Egor Izmaylov: Function `QLinearConv.forward` executes the concrete runtime path for QLinearConv, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `QLinearConv` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, x_scale, x_zero_point, w, w_scale, w_zero_point, y_scale, y_zero_point, b=None):
         spatial_rank = x.data.ndim - 2
         out_channels = w.data.shape[0]
@@ -1213,11 +1204,11 @@ class QLinearConv(Ops):
         out = quantized.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, np.uint8))
         return {"tensor": Tensor(*out.shape, dtype=self.dtype, data=out), "parameters": None}
 
-    # Egor Izmaylov: Function `QLinearConv.forward_` performs shape-only inference for QLinearConv, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `QLinearConv` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, x_scale, x_zero_point, w, w_scale, w_zero_point, y_scale, y_zero_point, b=None):
         return {"tensor": Tensor_(*self._shape(x.size, w.size), dtype=self.dtype), "parameters": None}
 
-# Egor Izmaylov: Function `_normalize_pool_params` centralizes the normalize pool params helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_normalize_pool_params` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _normalize_pool_params(input_shape, kernel_shape, pads, strides, dilations, auto_pad="NOTSET"):
     spatial_rank = len(input_shape) - 2
     if spatial_rank < 1:
@@ -1237,7 +1228,7 @@ def _normalize_pool_params(input_shape, kernel_shape, pads, strides, dilations, 
     return spatial_rank, pads, strides, dilations
 
 
-# Egor Izmaylov: Function `_pool_output_shape` centralizes the pool output shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_pool_output_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _pool_output_shape(input_shape, kernel_shape, pads, strides, dilations, ceil_mode=0, auto_pad="NOTSET"):
     spatial_rank, pads, strides, dilations = _normalize_pool_params(input_shape, kernel_shape, pads, strides, dilations, auto_pad)
     out_spatial = []
@@ -1255,7 +1246,7 @@ def _pool_output_shape(input_shape, kernel_shape, pads, strides, dilations, ceil
     return tuple(input_shape[:2]) + tuple(out_spatial)
 
 
-# Egor Izmaylov: Function `_pool_window_slices` centralizes the pool window slices helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_pool_window_slices` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _pool_window_slices(out_index, kernel_shape, pads, strides, dilations):
     spatial_rank = len(kernel_shape)
     slices = []
@@ -1266,14 +1257,14 @@ def _pool_window_slices(out_index, kernel_shape, pads, strides, dilations):
     return tuple(slices)
 
 
-# Egor Izmaylov: Function `_pool_flat_index` centralizes the pool flat index helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_pool_flat_index` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _pool_flat_index(input_shape, n, c, spatial_coords, storage_order=0):
     coords = (n, c, *spatial_coords)
     order = "F" if storage_order else "C"
     return int(np.ravel_multi_index(coords, input_shape, order=order))
 
 
-# Egor Izmaylov: Function `_max_pool_nd` centralizes the max pool nd helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_max_pool_nd` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _max_pool_nd(data, kernel_shape, pads, strides, dilations, ceil_mode=0, storage_order=0, auto_pad="NOTSET"):
     spatial_rank, pads, strides, dilations = _normalize_pool_params(data.shape, kernel_shape, pads, strides, dilations, auto_pad)
     out_shape = _pool_output_shape(data.shape, kernel_shape, pads, strides, dilations, ceil_mode)
@@ -1298,7 +1289,7 @@ def _max_pool_nd(data, kernel_shape, pads, strides, dilations, ceil_mode=0, stor
     return out, indices
 
 
-# Egor Izmaylov: Function `_average_pool_nd` centralizes the average pool nd helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_average_pool_nd` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _average_pool_nd(data, kernel_shape, pads, strides, dilations, count_include_pad=0, ceil_mode=0, auto_pad="NOTSET"):
     spatial_rank, pads, strides, dilations = _normalize_pool_params(data.shape, kernel_shape, pads, strides, dilations, auto_pad)
     out_shape = _pool_output_shape(data.shape, kernel_shape, pads, strides, dilations, ceil_mode)
@@ -1320,7 +1311,7 @@ def _average_pool_nd(data, kernel_shape, pads, strides, dilations, count_include
     return out
 
 
-# Egor Izmaylov: Function `_lp_pool_nd` centralizes the lp pool nd helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_lp_pool_nd` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _lp_pool_nd(data, kernel_shape, pads, strides, dilations, p=2, ceil_mode=0, auto_pad="NOTSET"):
     spatial_rank, pads, strides, dilations = _normalize_pool_params(data.shape, kernel_shape, pads, strides, dilations, auto_pad)
     out_shape = _pool_output_shape(data.shape, kernel_shape, pads, strides, dilations, ceil_mode)
@@ -1335,14 +1326,14 @@ def _lp_pool_nd(data, kernel_shape, pads, strides, dilations, p=2, ceil_mode=0, 
     return out
 
 
-# Egor Izmaylov: Function `_grid_denormalize` centralizes the grid denormalize helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_grid_denormalize` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _grid_denormalize(coord, length, align_corners):
     if align_corners:
         return (coord + 1.0) * (length - 1) / 2.0
     return ((coord + 1.0) * length - 1.0) / 2.0
 
 
-# Egor Izmaylov: Function `_reflect_coordinate` centralizes the reflect coordinate helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_reflect_coordinate` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _reflect_coordinate(coord, low, high):
     if high <= low:
         return low
@@ -1353,7 +1344,7 @@ def _reflect_coordinate(coord, low, high):
     return coord + low
 
 
-# Egor Izmaylov: Function `_sample_coordinate` centralizes the sample coordinate helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_sample_coordinate` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _sample_coordinate(coord, length, padding_mode, align_corners):
     if padding_mode == "border":
         return min(max(coord, 0.0), length - 1.0)
@@ -1364,7 +1355,7 @@ def _sample_coordinate(coord, length, padding_mode, align_corners):
     return coord
 
 
-# Egor Izmaylov: Function `_get_pixel_2d` centralizes the get pixel 2d helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_get_pixel_2d` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _get_pixel_2d(data, y, x, padding_mode, align_corners):
     height, width = data.shape
     if padding_mode in {"border", "reflection"}:
@@ -1376,7 +1367,7 @@ def _get_pixel_2d(data, y, x, padding_mode, align_corners):
     return data[yi, xi]
 
 
-# Egor Izmaylov: Function `_bilinear_sample_2d` centralizes the bilinear sample 2d helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_bilinear_sample_2d` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _bilinear_sample_2d(data, y, x, padding_mode="zeros", align_corners=False):
     y0 = int(np.floor(y))
     x0 = int(np.floor(x))
@@ -1394,7 +1385,7 @@ def _bilinear_sample_2d(data, y, x, padding_mode="zeros", align_corners=False):
     )
 
 
-# Egor Izmaylov: Function `_roi_align_weighted_terms` centralizes the roi align weighted terms helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_roi_align_weighted_terms` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _roi_align_weighted_terms(data, y, x):
     height, width = data.shape
     if y < -1.0 or y > height or x < -1.0 or x > width:
@@ -1425,7 +1416,7 @@ def _roi_align_weighted_terms(data, y, x):
     )
 
 
-# Egor Izmaylov: Function `_cubic_coefficients` centralizes the cubic coefficients helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_cubic_coefficients` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _cubic_coefficients(t):
     alpha = -0.75
     x = abs(t)
@@ -1437,7 +1428,7 @@ def _cubic_coefficients(t):
     ])
 
 
-# Egor Izmaylov: Function `_bicubic_sample_2d` centralizes the bicubic sample 2d helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_bicubic_sample_2d` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _bicubic_sample_2d(data, y, x, padding_mode="zeros", align_corners=False):
     y0 = int(np.floor(y))
     x0 = int(np.floor(x))
@@ -1451,7 +1442,7 @@ def _bicubic_sample_2d(data, y, x, padding_mode="zeros", align_corners=False):
 
 
 class GridSample(Ops):
-    # Egor Izmaylov: Function `GridSample.__init__` initializes GridSample, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GridSample` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, mode="bilinear", padding_mode="zeros", align_corners=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.mode = mode
@@ -1469,7 +1460,7 @@ class GridSample(Ops):
                 ctypes.c_int,
             ]
 
-    # Egor Izmaylov: Function `GridSample._mode_code` centralizes the mode code helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_mode_code` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _mode_code(self):
         mode = {"linear": "bilinear", "cubic": "bicubic"}.get(self.mode, self.mode)
         if mode == "bilinear":
@@ -1480,7 +1471,7 @@ class GridSample(Ops):
             return 2
         raise ValueError(f"Unsupported GridSample mode {self.mode!r}")
 
-    # Egor Izmaylov: Function `GridSample._padding_mode_code` centralizes the padding mode code helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_padding_mode_code` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _padding_mode_code(self):
         if self.padding_mode == "zeros":
             return 0
@@ -1490,7 +1481,7 @@ class GridSample(Ops):
             return 2
         raise ValueError(f"Unsupported GridSample padding_mode {self.padding_mode!r}")
 
-    # Egor Izmaylov: Function `GridSample.forward` executes the concrete runtime path for GridSample, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GridSample` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, grid):
         data = np.asarray(x.data)
         grid_data = np.asarray(grid.data)
@@ -1544,13 +1535,13 @@ class GridSample(Ops):
         out_data = out.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype), copy=False)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `GridSample.forward_` performs shape-only inference for GridSample, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `GridSample` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, grid):
         return {"tensor": Tensor_(x.size[0], x.size[1], grid.size[1], grid.size[2], dtype=self.dtype), "parameters": None}
 
 
 class MaxPool(Ops):
-    # Egor Izmaylov: Function `MaxPool.__init__` initializes MaxPool, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `MaxPool` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, dilations=[1, 1], ceil_mode=0, storage_order=0, auto_pad="NOTSET", version="17"):
         super(MaxPool, self).__init__(inputs, outputs)
         self.kernel_shape = kernel_shape
@@ -1568,7 +1559,7 @@ class MaxPool(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CPoolParams)
             ]
 
-    # Egor Izmaylov: Function `MaxPool.forward` executes the concrete runtime path for MaxPool, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `MaxPool` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x: Tensor) -> dict:
         if (
             self.lib is not None
@@ -1624,7 +1615,7 @@ class MaxPool(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `MaxPool.forward_` performs shape-only inference for MaxPool, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `MaxPool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x: Tensor_) -> dict:
         out_shape = _pool_output_shape(x.size, self.kernel_shape, self.pads, self.strides, self.dilations, self.ceil_mode, self.auto_pad)
         output_tensor = Tensor_(*out_shape, dtype=self.dtype)
@@ -1637,7 +1628,7 @@ class MaxPool(Ops):
         return values
 
 class MaxUnpool(Ops):
-    # Egor Izmaylov: Function `MaxUnpool.__init__` initializes MaxUnpool, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `MaxUnpool` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, kernel_shape, pads=None, strides=None, dtype="float32", version="17"):
         super(MaxUnpool, self).__init__(inputs, outputs)
         self.kernel_shape = list(kernel_shape)
@@ -1651,7 +1642,7 @@ class MaxUnpool(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CPoolParams)
             ]
 
-    # Egor Izmaylov: Function `MaxUnpool._inferred_shape` centralizes the inferred shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_inferred_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _inferred_shape(self, x_shape):
         spatial_rank = len(x_shape) - 2
         if spatial_rank != len(self.kernel_shape):
@@ -1670,7 +1661,7 @@ class MaxUnpool(Ops):
             )
         return tuple(out_shape)
 
-    # Egor Izmaylov: Function `MaxUnpool.forward` executes the concrete runtime path for MaxUnpool, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `MaxUnpool` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, indices, output_shape=None):
         inferred_shape = self._inferred_shape(x.data.shape)
         shape = tuple(np.asarray(output_shape.data, dtype=np.int64).tolist()) if output_shape is not None else inferred_shape
@@ -1710,7 +1701,7 @@ class MaxUnpool(Ops):
         out_data = out_data.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype), copy=False)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `MaxUnpool.forward_` performs shape-only inference for MaxUnpool, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `MaxUnpool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, indices, output_shape=None):
         if isinstance(output_shape, Tensor):
             shape = tuple(np.asarray(output_shape.data, dtype=np.int64).tolist())
@@ -1719,7 +1710,7 @@ class MaxUnpool(Ops):
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class MaxRoiPool(Ops):
-    # Egor Izmaylov: Function `MaxRoiPool.__init__` initializes MaxRoiPool, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `MaxRoiPool` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, pooled_shape, spatial_scale=1.0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         if len(pooled_shape) != 2:
@@ -1738,7 +1729,7 @@ class MaxRoiPool(Ops):
                 ctypes.c_float,
             ]
 
-    # Egor Izmaylov: Function `MaxRoiPool.forward` executes the concrete runtime path for MaxRoiPool, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `MaxRoiPool` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, rois):
         data = np.asarray(x.data)
         roi_data = np.asarray(rois.data)
@@ -1793,13 +1784,13 @@ class MaxRoiPool(Ops):
         out = out.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, out.dtype), copy=False)
         return {"tensor": Tensor(*out.shape, dtype=self.dtype, data=out), "parameters": None}
 
-    # Egor Izmaylov: Function `MaxRoiPool.forward_` performs shape-only inference for MaxRoiPool, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `MaxRoiPool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, rois):
         return {"tensor": Tensor_(rois.size[0], x.size[1], self.pooled_shape[0], self.pooled_shape[1], dtype=self.dtype), "parameters": None}
 
 
 class RoiAlign(Ops):
-    # Egor Izmaylov: Function `RoiAlign.__init__` initializes RoiAlign, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `RoiAlign` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -1836,7 +1827,7 @@ class RoiAlign(Ops):
                 ctypes.c_int,
             ]
 
-    # Egor Izmaylov: Function `RoiAlign._mode_code` centralizes the mode code helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_mode_code` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _mode_code(self):
         mode = self.mode.lower()
         if mode == "avg":
@@ -1845,7 +1836,7 @@ class RoiAlign(Ops):
             return 1
         raise ValueError(f"Unsupported RoiAlign mode {self.mode!r}")
 
-    # Egor Izmaylov: Function `RoiAlign._coordinate_transformation_mode_code` centralizes the coordinate transformation mode code helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_coordinate_transformation_mode_code` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _coordinate_transformation_mode_code(self):
         mode = self.coordinate_transformation_mode.lower()
         if mode == "half_pixel":
@@ -1854,7 +1845,7 @@ class RoiAlign(Ops):
             return 1
         raise ValueError(f"Unsupported RoiAlign coordinate_transformation_mode {self.coordinate_transformation_mode!r}")
 
-    # Egor Izmaylov: Function `RoiAlign.forward` executes the concrete runtime path for RoiAlign, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `RoiAlign` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, rois, batch_indices):
         data = np.asarray(x.data)
         roi_data = np.asarray(rois.data)
@@ -1939,11 +1930,11 @@ class RoiAlign(Ops):
         out = out.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype), copy=False)
         return {"tensor": Tensor(*out.shape, dtype=self.dtype, data=out), "parameters": None}
 
-    # Egor Izmaylov: Function `RoiAlign.forward_` performs shape-only inference for RoiAlign, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `RoiAlign` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, rois, batch_indices):
         return {"tensor": Tensor_(rois.size[0], x.size[1], self.output_height, self.output_width, dtype=self.dtype), "parameters": None}
 
-# Egor Izmaylov: Function `_num_directions` centralizes the num directions helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_num_directions` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _num_directions(direction):
     if direction in ("forward", "reverse"):
         return 1
@@ -1952,17 +1943,17 @@ def _num_directions(direction):
     raise ValueError(f"Unsupported recurrent direction {direction!r}")
 
 
-# Egor Izmaylov: Function `_recurrent_time_major` centralizes the recurrent time major helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_recurrent_time_major` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _recurrent_time_major(x, layout):
     return np.swapaxes(x, 0, 1) if layout == 1 else x
 
 
-# Egor Izmaylov: Function `_recurrent_output_layout` centralizes the recurrent output layout helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_recurrent_output_layout` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _recurrent_output_layout(y, layout):
     return np.transpose(y, (2, 0, 1, 3)) if layout == 1 else y
 
 
-# Egor Izmaylov: Function `_activation_function` centralizes the activation function helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_activation_function` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _activation_function(name, alpha=None, beta=None):
     name = name.decode("utf-8") if isinstance(name, bytes) else name
     if name in (None, "Tanh", "tanh"):
@@ -1999,7 +1990,7 @@ def _activation_function(name, alpha=None, beta=None):
     raise ValueError(f"Unsupported recurrent activation {name!r}")
 
 
-# Egor Izmaylov: Function `_activation_at` centralizes the activation at helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_activation_at` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _activation_at(activations, alphas, betas, index, default):
     name = activations[index] if index < len(activations) else default
     alpha = alphas[index] if index < len(alphas) else None
@@ -2022,12 +2013,12 @@ _ACTIVATION_CODES = {
 }
 
 
-# Egor Izmaylov: Function `_clip_if_needed` centralizes the clip if needed helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_clip_if_needed` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _clip_if_needed(x, clip):
     return np.clip(x, -clip, clip) if clip is not None else x
 
 
-# Egor Izmaylov: Function `_sequence_mask` centralizes the sequence mask helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_sequence_mask` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _sequence_mask(sequence_lens, t, batch_size):
     if sequence_lens is None:
         return np.ones((batch_size, 1), dtype=bool)
@@ -2035,7 +2026,7 @@ def _sequence_mask(sequence_lens, t, batch_size):
 
 
 class RNN(Ops):
-    # Egor Izmaylov: Function `RNN.__init__` initializes RNN, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `RNN` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -2081,11 +2072,11 @@ class RNN(Ops):
                 ctypes.c_int,
             ]
 
-    # Egor Izmaylov: Function `RNN._direction_code` centralizes the direction code helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_direction_code` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _direction_code(self):
         return {"forward": 0, "reverse": 1, "bidirectional": 2}[self.direction]
 
-    # Egor Izmaylov: Function `RNN._activation_buffers` centralizes the activation buffers helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_activation_buffers` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _activation_buffers(self):
         codes = []
         for activation in self.activations:
@@ -2109,19 +2100,19 @@ class RNN(Ops):
             len(codes),
         )
 
-    # Egor Izmaylov: Function `RNN._optional_ctensor` centralizes the optional ctensor helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_optional_ctensor` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _optional_ctensor(self, tensor):
         if tensor is None:
             return None
         return self._numpy_to_ctensor(np.ascontiguousarray(tensor.data), tensor.dtype)
 
-    # Egor Izmaylov: Function `RNN._c_supported` centralizes the c supported helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_c_supported` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _c_supported(self, *tensors):
         return self.lib is not None and self.dtype in nn.DTYPE_MAP and all(
             tensor is None or tensor.dtype in nn.DTYPE_MAP for tensor in tensors
         )
 
-    # Egor Izmaylov: Function `RNN.forward` executes the concrete runtime path for RNN, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `RNN` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, w, r, b=None, sequence_lens=None, initial_h=None):
         x_time = _recurrent_time_major(np.asarray(x.data), self.layout)
         seq_len, batch_size = x_time.shape[0], x_time.shape[1]
@@ -2176,7 +2167,7 @@ class RNN(Ops):
         outputs = (Tensor(*y.shape, dtype=self.dtype, data=y), Tensor(*y_h.shape, dtype=self.dtype, data=y_h))
         return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
 
-    # Egor Izmaylov: Function `RNN.forward_` performs shape-only inference for RNN, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `RNN` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, w, r, b=None, sequence_lens=None, initial_h=None):
         num_dirs = _num_directions(self.direction)
         hidden = self.hidden_size or r.size[-1]
@@ -2192,7 +2183,7 @@ class RNN(Ops):
 
 
 class GRU(RNN):
-    # Egor Izmaylov: Function `GRU.__init__` initializes GRU, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GRU` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -2232,7 +2223,7 @@ class GRU(RNN):
                 ctypes.c_int,
             ]
 
-    # Egor Izmaylov: Function `GRU.forward` executes the concrete runtime path for GRU, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GRU` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, w, r, b=None, sequence_lens=None, initial_h=None):
         x_time = _recurrent_time_major(np.asarray(x.data), self.layout)
         seq_len, batch_size = x_time.shape[0], x_time.shape[1]
@@ -2298,7 +2289,7 @@ class GRU(RNN):
 
 
 class LSTM(RNN):
-    # Egor Izmaylov: Function `LSTM.__init__` initializes LSTM, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `LSTM` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -2341,7 +2332,7 @@ class LSTM(RNN):
                 ctypes.c_int,
             ]
 
-    # Egor Izmaylov: Function `LSTM.forward` executes the concrete runtime path for LSTM, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `LSTM` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, w, r, b=None, sequence_lens=None, initial_h=None, initial_c=None, p=None):
         x_time = _recurrent_time_major(np.asarray(x.data), self.layout)
         seq_len, batch_size = x_time.shape[0], x_time.shape[1]
@@ -2425,7 +2416,7 @@ class LSTM(RNN):
         selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
         return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
 
-    # Egor Izmaylov: Function `LSTM.forward_` performs shape-only inference for LSTM, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `LSTM` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, w, r, b=None, sequence_lens=None, initial_h=None, initial_c=None, p=None):
         num_dirs = _num_directions(self.direction)
         hidden = self.hidden_size or r.size[-1]
@@ -2442,7 +2433,7 @@ class LSTM(RNN):
         return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
 
 class Gemm(Ops):
-    # Egor Izmaylov: Function `Gemm.__init__` initializes Gemm, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Gemm` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, alpha, beta, transA, transB, dtype, version="17"):
         super(Gemm, self).__init__(inputs, outputs)
         self.alpha = alpha
@@ -2457,7 +2448,7 @@ class Gemm(Ops):
                 ctypes.c_float, ctypes.c_float, ctypes.c_int, ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `Gemm.forward` executes the concrete runtime path for Gemm, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Gemm` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, A: Tensor, B: Tensor, C: Tensor = None) -> dict:
         # 维度推断 (假设 A, B 至少 2D)
         M = A.size[0] if self.transA == 0 else A.size[1]
@@ -2493,7 +2484,7 @@ class Gemm(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `Gemm.forward_` performs shape-only inference for Gemm, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Gemm` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, A: Tensor_, B: Tensor_, C: Tensor_ = None) -> dict:
         M = A.size[0] if self.transA == 0 else A.size[1]
         N = B.size[1] if self.transB == 0 else B.size[0]
@@ -2503,7 +2494,7 @@ class Gemm(Ops):
         return values
 
 class Softmax(Ops):
-    # Egor Izmaylov: Function `Softmax.__init__` initializes Softmax, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Softmax` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis, dtype, version="17"):
         super(Softmax, self).__init__(inputs, outputs)
         self.axis = axis
@@ -2514,7 +2505,7 @@ class Softmax(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `Softmax.forward` executes the concrete runtime path for Softmax, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Softmax` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_shape = input.size
         
@@ -2533,7 +2524,7 @@ class Softmax(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `Softmax.forward_` performs shape-only inference for Softmax, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Softmax` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         values = {"tensor": output_tensor, "parameters": None, "graph": None}
@@ -2541,99 +2532,99 @@ class Softmax(Ops):
         return values
     
 class EXP(Ops):
-    # Egor Izmaylov: Function `EXP.__init__` initializes EXP, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `EXP` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(EXP, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `EXP.forward` executes the concrete runtime path for EXP, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `EXP` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_tensor = self._execute_unary(input, "exp_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `EXP.forward_` performs shape-only inference for EXP, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `EXP` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class LOG(Ops):
-    # Egor Izmaylov: Function `LOG.__init__` initializes LOG, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `LOG` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(LOG, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `LOG.forward` executes the concrete runtime path for LOG, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `LOG` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_tensor = self._execute_unary(input, "log_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `LOG.forward_` performs shape-only inference for LOG, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `LOG` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class SQRT(Ops):
-    # Egor Izmaylov: Function `SQRT.__init__` initializes SQRT, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SQRT` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(SQRT, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `SQRT.forward` executes the concrete runtime path for SQRT, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SQRT` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_tensor = self._execute_unary(input, "sqrt_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `SQRT.forward_` performs shape-only inference for SQRT, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SQRT` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class SIGMOID(Ops):
-    # Egor Izmaylov: Function `SIGMOID.__init__` initializes SIGMOID, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SIGMOID` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(SIGMOID, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `SIGMOID.forward` executes the concrete runtime path for SIGMOID, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SIGMOID` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_tensor = self._execute_unary(input, "sigmoid_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `SIGMOID.forward_` performs shape-only inference for SIGMOID, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SIGMOID` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class TANH(Ops):
-    # Egor Izmaylov: Function `TANH.__init__` initializes TANH, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `TANH` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(TANH, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `TANH.forward` executes the concrete runtime path for TANH, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `TANH` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_tensor = self._execute_unary(input, "tanh_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `TANH.forward_` performs shape-only inference for TANH, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `TANH` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
     
 class Flatten(Ops):
-    # Egor Izmaylov: Function `Flatten.__init__` initializes Flatten, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Flatten` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=1, dtype="float32", version="17"):
         super(Flatten, self).__init__(inputs, outputs)
         self.axis = axis
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `Flatten._calc_shape` centralizes the calc shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_calc_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _calc_shape(self, input_shape):
         # 处理 axis 负数情况
         axis = self.axis if self.axis >= 0 else len(input_shape) + self.axis
@@ -2645,7 +2636,7 @@ class Flatten(Ops):
             dim_1 *= input_shape[i]
         return (dim_0, dim_1)
 
-    # Egor Izmaylov: Function `Flatten.forward` executes the concrete runtime path for Flatten, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Flatten` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_shape = self._calc_shape(input.size)
 
@@ -2668,7 +2659,7 @@ class Flatten(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `Flatten.forward_` performs shape-only inference for Flatten, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Flatten` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         out_shape = self._calc_shape(input.size)
         output_tensor = Tensor_(*out_shape, dtype=self.dtype)
@@ -2677,14 +2668,14 @@ class Flatten(Ops):
         return values
 
 class Reshape(Ops):
-    # Egor Izmaylov: Function `Reshape.__init__` initializes Reshape, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Reshape` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17", allowzero=0):
         super(Reshape, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
         self.allowzero = allowzero
 
-    # Egor Izmaylov: Function `Reshape._resolve_shape` centralizes the resolve shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_resolve_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _resolve_shape(self, input_shape, target_shape):
         final_shape = []
         infer_idx = -1
@@ -2725,7 +2716,7 @@ class Reshape(Ops):
 
         return tuple(final_shape)
 
-    # Egor Izmaylov: Function `Reshape.forward` executes the concrete runtime path for Reshape, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Reshape` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data: Tensor, shape: Tensor) -> dict:
         target_shape = shape.data.astype(np.int64).flatten().tolist()
         final_shape = self._resolve_shape(data.size, target_shape)
@@ -2749,7 +2740,7 @@ class Reshape(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `Reshape.forward_` performs shape-only inference for Reshape, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Reshape` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data: Tensor_, shape: Tensor_) -> dict:
         target_shape = None
         
@@ -2771,7 +2762,7 @@ class Reshape(Ops):
         return values
 
 class Transpose(Ops):
-    # Egor Izmaylov: Function `Transpose.__init__` initializes Transpose, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Transpose` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, perm=None, dtype="float32", version="17"):
         super(Transpose, self).__init__(inputs, outputs)
         self.perm = None if perm is None else list(perm)
@@ -2783,7 +2774,7 @@ class Transpose(Ops):
                 ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor), ctypes.POINTER(ctypes.c_int)
             ]
 
-    # Egor Izmaylov: Function `Transpose._resolve_perm` centralizes the resolve perm helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_resolve_perm` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _resolve_perm(self, rank):
         if self.perm is None or len(self.perm) == 0:
             return list(reversed(range(rank)))
@@ -2801,7 +2792,7 @@ class Transpose(Ops):
             normalized.append(axis)
         return normalized
 
-    # Egor Izmaylov: Function `Transpose.forward` executes the concrete runtime path for Transpose, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Transpose` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         perm = self._resolve_perm(len(input.size))
         out_shape = [input.size[i] for i in perm]
@@ -2839,7 +2830,7 @@ class Transpose(Ops):
     #     values = {"tensor": output_tensor, "parameters": None, "graph": None}
     #     self.parameters = {"values": values}
     #     return values
-    # Egor Izmaylov: Function `Transpose.forward_` performs shape-only inference for Transpose, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Transpose` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         perm = self._resolve_perm(len(input.size))
         out_shape = [input.size[i] for i in perm]
@@ -2850,18 +2841,18 @@ class Transpose(Ops):
         return values
     
 class Pow(Ops):
-    # Egor Izmaylov: Function `Pow.__init__` initializes Pow, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Pow` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(Pow, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `Pow.forward` executes the concrete runtime path for Pow, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Pow` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
         out_tensor = self._execute_binary(input_a, input_b, "pow_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Pow.forward_` performs shape-only inference for Pow, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Pow` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_a: Tensor_, input_b: Tensor_) -> dict:
         # 简单广播推断
         try:
@@ -2872,13 +2863,13 @@ class Pow(Ops):
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class Max(Ops):
-    # Egor Izmaylov: Function `Max.__init__` initializes Max, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Max` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(Max, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `Max.forward` executes the concrete runtime path for Max, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Max` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs: Tensor) -> dict:
         if not inputs:
             raise ValueError("Max requires at least one input")
@@ -2897,7 +2888,7 @@ class Max(Ops):
             out_tensor = Tensor(*out_data.shape, dtype=self.dtype, data=out_data)
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Max.forward_` performs shape-only inference for Max, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Max` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs: Tensor_) -> dict:
         if not inputs:
             raise ValueError("Max requires at least one input")
@@ -2906,13 +2897,13 @@ class Max(Ops):
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class Min(Ops):
-    # Egor Izmaylov: Function `Min.__init__` initializes Min, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Min` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(Min, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `Min.forward` executes the concrete runtime path for Min, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Min` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs: Tensor) -> dict:
         if not inputs:
             raise ValueError("Min requires at least one input")
@@ -2931,7 +2922,7 @@ class Min(Ops):
             out_tensor = Tensor(*out_data.shape, dtype=self.dtype, data=out_data)
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Min.forward_` performs shape-only inference for Min, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Min` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs: Tensor_) -> dict:
         if not inputs:
             raise ValueError("Min requires at least one input")
@@ -2940,14 +2931,14 @@ class Min(Ops):
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class Squeeze(Ops):
-    # Egor Izmaylov: Function `Squeeze.__init__` initializes Squeeze, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Squeeze` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axes=None, dtype="float32", version="17"):
         super(Squeeze, self).__init__(inputs, outputs)
         self.axes = axes
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `Squeeze._calc_shape` centralizes the calc shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_calc_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _calc_shape(self, in_shape, axes):
         # 如果 axes 为 None，挤压所有为 1 的维度
         ndim = len(in_shape)
@@ -2976,7 +2967,7 @@ class Squeeze(Ops):
                     new_shape.append(dim)
         return tuple(new_shape)
 
-    # Egor Izmaylov: Function `Squeeze.forward` executes the concrete runtime path for Squeeze, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Squeeze` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data: Tensor, axes: Tensor = None) -> dict:
         # axes 是输入 tensor，不是属性
         target_axes = self.axes
@@ -3002,7 +2993,7 @@ class Squeeze(Ops):
         out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Squeeze.forward_` performs shape-only inference for Squeeze, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Squeeze` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data: Tensor_, axes: Tensor_ = None) -> dict:
         # [Fix] 尝试从输入 Tensor 读取 axes
         target_axes = self.axes
@@ -3021,14 +3012,14 @@ class Squeeze(Ops):
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class Unsqueeze(Ops):
-    # Egor Izmaylov: Function `Unsqueeze.__init__` initializes Unsqueeze, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Unsqueeze` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axes=None, dtype="float32", version="17"):
         super(Unsqueeze, self).__init__(inputs, outputs)
         self.axes = axes
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `Unsqueeze._calc_shape` centralizes the calc shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_calc_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _calc_shape(self, in_shape, axes):
         # Unsqueeze: 在指定位置插入维度 1
         output_rank = len(in_shape) + len(axes)
@@ -3048,7 +3039,7 @@ class Unsqueeze(Ops):
             new_shape.insert(ax, 1)
         return tuple(new_shape)
 
-    # Egor Izmaylov: Function `Unsqueeze.forward` executes the concrete runtime path for Unsqueeze, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Unsqueeze` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data: Tensor, axes: Tensor = None) -> dict:
         target_axes = self.axes
         if axes is not None:
@@ -3073,7 +3064,7 @@ class Unsqueeze(Ops):
         out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Unsqueeze.forward_` performs shape-only inference for Unsqueeze, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Unsqueeze` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data: Tensor_, axes: Tensor_ = None) -> dict:
         target_axes = self.axes
         if target_axes is None and axes is not None and hasattr(axes, 'data') and axes.data is not None:
@@ -3089,7 +3080,7 @@ class Unsqueeze(Ops):
         return {"tensor": output_tensor, "parameters": None, "graph": None}
     
 class Concat(Ops):
-    # Egor Izmaylov: Function `Concat.__init__` initializes Concat, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Concat` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=0, dtype="float32", version="17"):
         super(Concat, self).__init__(inputs, outputs)
         self.axis = axis
@@ -3105,7 +3096,7 @@ class Concat(Ops):
                 ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `Concat._calc_shape` centralizes the calc shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_calc_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _calc_shape(self, input_tensors):
         if not input_tensors:
             raise ValueError("Concat requires at least one input")
@@ -3127,7 +3118,7 @@ class Concat(Ops):
         base_shape[axis] = total_dim
         return tuple(base_shape), axis
 
-    # Egor Izmaylov: Function `Concat.forward` executes the concrete runtime path for Concat, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Concat` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs) -> dict:
         input_list = list(inputs)
         out_shape, axis = self._calc_shape(input_list)
@@ -3149,7 +3140,7 @@ class Concat(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `Concat.forward_` performs shape-only inference for Concat, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Concat` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs) -> dict:
         input_list = list(inputs)
         out_shape, _ = self._calc_shape(input_list)
@@ -3159,7 +3150,7 @@ class Concat(Ops):
         return values
 
 class Slice(Ops):
-    # Egor Izmaylov: Function `Slice.__init__` initializes Slice, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Slice` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super(Slice, self).__init__(inputs, outputs)
         self.dtype = dtype
@@ -3171,7 +3162,7 @@ class Slice(Ops):
                 ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)
             ]
 
-    # Egor Izmaylov: Function `Slice.forward` executes the concrete runtime path for Slice, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Slice` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data: Tensor, starts: Tensor, ends: Tensor, axes: Tensor = None, steps: Tensor = None) -> dict:
         _starts = starts.data.flatten().tolist()
         _ends = ends.data.flatten().tolist()
@@ -3242,7 +3233,7 @@ class Slice(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `Slice.forward_` performs shape-only inference for Slice, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Slice` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data: Tensor_, starts: Tensor_, ends: Tensor_, axes: Tensor_ = None, steps: Tensor_ = None) -> dict:
         if (
             hasattr(starts, "data") and starts.data is not None
@@ -3291,67 +3282,67 @@ class Slice(Ops):
         return values
     
 class Neg(Ops):
-    # Egor Izmaylov: Function `Neg.__init__` initializes Neg, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Neg` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(Neg, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Neg.forward` executes the concrete runtime path for Neg, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Neg` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_tensor = self._execute_unary(input, "neg_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
-    # Egor Izmaylov: Function `Neg.forward_` performs shape-only inference for Neg, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Neg` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class Reciprocal(Ops):
-    # Egor Izmaylov: Function `Reciprocal.__init__` initializes Reciprocal, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Reciprocal` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(Reciprocal, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Reciprocal.forward` executes the concrete runtime path for Reciprocal, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Reciprocal` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_tensor = self._execute_unary(input, "reciprocal_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
-    # Egor Izmaylov: Function `Reciprocal.forward_` performs shape-only inference for Reciprocal, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Reciprocal` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class Ceil(Ops):
-    # Egor Izmaylov: Function `Ceil.__init__` initializes Ceil, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Ceil` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(Ceil, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Ceil.forward` executes the concrete runtime path for Ceil, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Ceil` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_tensor = self._execute_unary(input, "ceil_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
-    # Egor Izmaylov: Function `Ceil.forward_` performs shape-only inference for Ceil, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Ceil` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class Floor(Ops):
-    # Egor Izmaylov: Function `Floor.__init__` initializes Floor, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Floor` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(Floor, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Floor.forward` executes the concrete runtime path for Floor, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Floor` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_tensor = self._execute_unary(input, "floor_forward")
         return {"tensor": out_tensor, "parameters": None, "graph": None}
-    # Egor Izmaylov: Function `Floor.forward_` performs shape-only inference for Floor, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Floor` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class Cast(Ops):
-    # Egor Izmaylov: Function `Cast.__init__` initializes Cast, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Cast` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(Cast, self).__init__(inputs, outputs)
         self.dtype = dtype # 这里的 dtype 就是目标类型
@@ -3359,7 +3350,7 @@ class Cast(Ops):
         if self.lib:
             self.lib.cast_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
 
-    # Egor Izmaylov: Function `Cast.forward` executes the concrete runtime path for Cast, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Cast` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         if self.lib is not None and input.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
             input_c = self._numpy_to_ctensor(np.ascontiguousarray(input.data), input.dtype)
@@ -3375,13 +3366,13 @@ class Cast(Ops):
             raise ValueError(f"Cast target dtype {self.dtype!r} is not supported")
         out_data = np.asarray(input.data).astype(np_dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
-    # Egor Izmaylov: Function `Cast.forward_` performs shape-only inference for Cast, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Cast` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         output_tensor = Tensor_(*input.size, dtype=self.dtype)
         return {"tensor": output_tensor, "parameters": None, "graph": None}
 
 class CastLike(Ops):
-    # Egor Izmaylov: Function `CastLike.__init__` initializes CastLike, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `CastLike` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype=None, version="17"):
         super(CastLike, self).__init__(inputs, outputs)
         self.dtype = dtype
@@ -3389,7 +3380,7 @@ class CastLike(Ops):
         if self.lib:
             self.lib.cast_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
 
-    # Egor Izmaylov: Function `CastLike.forward` executes the concrete runtime path for CastLike, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `CastLike` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor, target_type: Tensor) -> dict:
         out_dtype = self.dtype or target_type.dtype
         if self.lib is not None and input.dtype in nn.DTYPE_MAP and out_dtype in nn.DTYPE_MAP:
@@ -3407,13 +3398,13 @@ class CastLike(Ops):
         out_data = input.data.astype(np_dtype)
         return {"tensor": Tensor(*input.size, dtype=out_dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `CastLike.forward_` performs shape-only inference for CastLike, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `CastLike` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_, target_type: Tensor_) -> dict:
         out_dtype = self.dtype or target_type.dtype
         return {"tensor": Tensor_(*input.size, dtype=out_dtype), "parameters": None, "graph": None}
 
 class Sum(Ops):
-    # Egor Izmaylov: Function `Sum.__init__` initializes Sum, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Sum` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super(Sum, self).__init__(inputs, outputs)
         self.dtype = dtype
@@ -3423,7 +3414,7 @@ class Sum(Ops):
                 ctypes.POINTER(ctypes.POINTER(CTensor)), ctypes.c_int, ctypes.POINTER(CTensor)
             ]
 
-    # Egor Izmaylov: Function `Sum.forward` executes the concrete runtime path for Sum, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Sum` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs: Tensor) -> dict:
         if not inputs:
             raise ValueError("Sum requires at least one input")
@@ -3448,7 +3439,7 @@ class Sum(Ops):
             out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Sum.forward_` performs shape-only inference for Sum, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Sum` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs: Tensor_) -> dict:
         if not inputs:
             raise ValueError("Sum requires at least one input")
@@ -3456,7 +3447,7 @@ class Sum(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None, "graph": None}
 
 class PRelu(Ops):
-    # Egor Izmaylov: Function `PRelu.__init__` initializes PRelu, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `PRelu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super(PRelu, self).__init__(inputs, outputs)
         self.dtype = dtype
@@ -3466,7 +3457,7 @@ class PRelu(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)
             ]
 
-    # Egor Izmaylov: Function `PRelu.forward` executes the concrete runtime path for PRelu, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `PRelu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x: Tensor, slope: Tensor) -> dict:
         x_data, slope_data = np.broadcast_arrays(x.data, slope.data)
         if self.lib is not None and self.dtype in nn.DTYPE_MAP and x.dtype in nn.DTYPE_MAP and slope.dtype in nn.DTYPE_MAP:
@@ -3486,13 +3477,13 @@ class PRelu(Ops):
             out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `PRelu.forward_` performs shape-only inference for PRelu, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `PRelu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x: Tensor_, slope: Tensor_) -> dict:
         out_shape = np.broadcast_shapes(x.size, slope.size)
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None, "graph": None}
 
 class Det(Ops):
-    # Egor Izmaylov: Function `Det.__init__` initializes Det, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Det` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super(Det, self).__init__(inputs, outputs)
         self.dtype = dtype
@@ -3500,7 +3491,7 @@ class Det(Ops):
         if self.lib:
             self.lib.det_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
 
-    # Egor Izmaylov: Function `Det.forward` executes the concrete runtime path for Det, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Det` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x: Tensor) -> dict:
         if len(x.size) < 2 or x.size[-1] != x.size[-2]:
             raise ValueError(f"Det expects input shape [..., M, M], got {x.size}")
@@ -3519,13 +3510,13 @@ class Det(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Det.forward_` performs shape-only inference for Det, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Det` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x: Tensor_) -> dict:
         if len(x.size) < 2 or x.size[-1] != x.size[-2]:
             raise ValueError(f"Det expects input shape [..., M, M], got {x.size}")
         return {"tensor": Tensor_(*x.size[:-2], dtype=self.dtype), "parameters": None, "graph": None}
 
-# Egor Izmaylov: Function `_matmul_output_shape` centralizes the matmul output shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_matmul_output_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _matmul_output_shape(shape_a, shape_b):
     shape_a = list(shape_a)
     shape_b = list(shape_b)
@@ -3548,7 +3539,7 @@ def _matmul_output_shape(shape_a, shape_b):
     return tuple(out_shape)
 
 
-# Egor Izmaylov: Function `_prepare_matmul_c_shapes` centralizes the prepare matmul c shapes helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_prepare_matmul_c_shapes` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _prepare_matmul_c_shapes(input_a: Tensor, input_b: Tensor):
     data_a = np.asarray(input_a.data)
     data_b = np.asarray(input_b.data)
@@ -3575,7 +3566,7 @@ def _prepare_matmul_c_shapes(input_a: Tensor, input_b: Tensor):
     return data_a, data_b, out_shape_for_c, tuple(final_shape)
 
 
-# Egor Izmaylov: Function `_broadcast_matmul_param` centralizes the broadcast matmul param helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_broadcast_matmul_param` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _broadcast_matmul_param(param, target_shape, dtype, role):
     np_dtype = nn.DTYPE_TO_NUMPY[dtype]
     if param is None:
@@ -3595,7 +3586,7 @@ def _broadcast_matmul_param(param, target_shape, dtype, role):
     return np.broadcast_to(arr, target_shape).copy()
 
 
-# Egor Izmaylov: Function `_broadcast_output_param` centralizes the broadcast output param helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_broadcast_output_param` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _broadcast_output_param(param, target_shape, dtype):
     arr = np.asarray(param.data, dtype=nn.DTYPE_TO_NUMPY[dtype])
     if arr.shape == target_shape:
@@ -3604,7 +3595,7 @@ def _broadcast_output_param(param, target_shape, dtype):
 
 
 class MatMulInteger(Ops):
-    # Egor Izmaylov: Function `MatMulInteger.__init__` initializes MatMulInteger, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `MatMulInteger` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="int32", version="17"):
         super(MatMulInteger, self).__init__(inputs, outputs)
         self.dtype = "int32"
@@ -3615,14 +3606,14 @@ class MatMulInteger(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)
             ]
 
-    # Egor Izmaylov: Function `MatMulInteger._zero_point_data` centralizes the zero point data helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_zero_point_data` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _zero_point_data(zero_point, dtype):
         if zero_point is None:
             return np.array(0, dtype=nn.DTYPE_TO_NUMPY[dtype])
         return zero_point.data
 
-    # Egor Izmaylov: Function `MatMulInteger.forward` executes the concrete runtime path for MatMulInteger, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `MatMulInteger` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, A: Tensor, B: Tensor, a_zero_point: Tensor = None, b_zero_point: Tensor = None) -> dict:
         if (
             self.lib is not None
@@ -3662,12 +3653,12 @@ class MatMulInteger(Ops):
             out_data = np.matmul(a, b).astype(np.int32)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `MatMulInteger.forward_` performs shape-only inference for MatMulInteger, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `MatMulInteger` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, A: Tensor_, B: Tensor_, a_zero_point: Tensor_ = None, b_zero_point: Tensor_ = None) -> dict:
         return {"tensor": Tensor_(*_matmul_output_shape(A.size, B.size), dtype=self.dtype), "parameters": None, "graph": None}
 
 class QLinearMatMul(Ops):
-    # Egor Izmaylov: Function `QLinearMatMul.__init__` initializes QLinearMatMul, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `QLinearMatMul` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="uint8", version="17"):
         super(QLinearMatMul, self).__init__(inputs, outputs)
         self.dtype = dtype
@@ -3679,7 +3670,7 @@ class QLinearMatMul(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)
             ]
 
-    # Egor Izmaylov: Function `QLinearMatMul.forward` executes the concrete runtime path for QLinearMatMul, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `QLinearMatMul` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, a_scale, a_zero_point, b, b_scale, b_zero_point, y_scale, y_zero_point):
         out_dtype = y_zero_point.dtype if y_zero_point is not None else self.dtype
         if (
@@ -3735,13 +3726,13 @@ class QLinearMatMul(Ops):
             out = out.astype(nn.DTYPE_TO_NUMPY.get(out_dtype, np.uint8))
         return {"tensor": Tensor(*out.shape, dtype=out_dtype, data=out), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `QLinearMatMul.forward_` performs shape-only inference for QLinearMatMul, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `QLinearMatMul` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, a_scale, a_zero_point, b, b_scale, b_zero_point, y_scale, y_zero_point):
         out_dtype = y_zero_point.dtype if y_zero_point is not None else self.dtype
         return {"tensor": Tensor_(*_matmul_output_shape(a.size, b.size), dtype=out_dtype), "parameters": None, "graph": None}
 
 class LRN(Ops):
-    # Egor Izmaylov: Function `LRN.__init__` initializes LRN, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `LRN` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, size, alpha=0.0001, beta=0.75, bias=1.0, dtype="float32", version="17"):
         super(LRN, self).__init__(inputs, outputs)
         self.size = size
@@ -3756,7 +3747,7 @@ class LRN(Ops):
                 ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float
             ]
 
-    # Egor Izmaylov: Function `LRN.forward` executes the concrete runtime path for LRN, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `LRN` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x: Tensor) -> dict:
         if len(x.size) < 3:
             raise ValueError(f"LRN expects input rank >= 3, got {x.size}")
@@ -3787,12 +3778,12 @@ class LRN(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*x.size, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `LRN.forward_` performs shape-only inference for LRN, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `LRN` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x: Tensor_) -> dict:
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None, "graph": None}
 
 class MeanVarianceNormalization(Ops):
-    # Egor Izmaylov: Function `MeanVarianceNormalization.__init__` initializes MeanVarianceNormalization, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `MeanVarianceNormalization` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axes=None, dtype="float32", version="17"):
         super(MeanVarianceNormalization, self).__init__(inputs, outputs)
         self.axes = list(axes) if axes is not None else [0, 2, 3]
@@ -3803,7 +3794,7 @@ class MeanVarianceNormalization(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CReduceParams)
             ]
 
-    # Egor Izmaylov: Function `MeanVarianceNormalization._axes_for_rank` centralizes the axes for rank helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_axes_for_rank` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _axes_for_rank(self, rank):
         axes = []
         for ax in self.axes:
@@ -3813,7 +3804,7 @@ class MeanVarianceNormalization(Ops):
             axes.append(axis)
         return tuple(sorted(set(axes)))
 
-    # Egor Izmaylov: Function `MeanVarianceNormalization.forward` executes the concrete runtime path for MeanVarianceNormalization, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `MeanVarianceNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x: Tensor) -> dict:
         axes = self._axes_for_rank(len(x.size))
         if self.lib is not None and axes and x.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
@@ -3837,13 +3828,13 @@ class MeanVarianceNormalization(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*x.size, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `MeanVarianceNormalization.forward_` performs shape-only inference for MeanVarianceNormalization, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `MeanVarianceNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x: Tensor_) -> dict:
         self._axes_for_rank(len(x.size))
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None, "graph": None}
 
 class EyeLike(Ops):
-    # Egor Izmaylov: Function `EyeLike.__init__` initializes EyeLike, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `EyeLike` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, k=0, dtype=None, version="17"):
         super(EyeLike, self).__init__(inputs, outputs)
         self.k = k
@@ -3852,7 +3843,7 @@ class EyeLike(Ops):
         if self.lib:
             self.lib.eye_like_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.c_int]
 
-    # Egor Izmaylov: Function `EyeLike.forward` executes the concrete runtime path for EyeLike, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `EyeLike` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         if len(input.size) != 2:
             raise ValueError(f"EyeLike expects a 2-D input, got shape {input.size}")
@@ -3870,14 +3861,14 @@ class EyeLike(Ops):
         out_data = np.eye(input.size[0], input.size[1], k=self.k, dtype=np_dtype)
         return {"tensor": Tensor(*input.size, dtype=out_dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `EyeLike.forward_` performs shape-only inference for EyeLike, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `EyeLike` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         if len(input.size) != 2:
             raise ValueError(f"EyeLike expects a 2-D input, got shape {input.size}")
         return {"tensor": Tensor_(*input.size, dtype=self.dtype or input.dtype), "parameters": None, "graph": None}
     
 class Clip(Ops):
-    # Egor Izmaylov: Function `Clip.__init__` initializes Clip, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Clip` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(Clip, self).__init__(inputs, outputs)
         self.dtype = dtype
@@ -3889,7 +3880,7 @@ class Clip(Ops):
                 ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor)
             ]
 
-    # Egor Izmaylov: Function `Clip.forward` executes the concrete runtime path for Clip, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Clip` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor, min_val: Tensor = None, max_val: Tensor = None) -> dict:
         # 1. 准备广播列表
         # 注意：ONNX 中 min/max 是可选的，可能为 None
@@ -3952,7 +3943,7 @@ class Clip(Ops):
         out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Clip.forward_` performs shape-only inference for Clip, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Clip` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_, min_val: Tensor_ = None, max_val: Tensor_ = None) -> dict:
         # 图推断模式：简单假设输出形状与输入一致（实际应考虑广播）
         # 假设 min/max 是标量或可广播，输出 shape 由 input 主导
@@ -3967,13 +3958,13 @@ class Clip(Ops):
         return {"tensor": output_tensor, "parameters": None, "graph": None}
     
 class MatMul(Ops):
-    # Egor Izmaylov: Function `MatMul.__init__` initializes MatMul, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `MatMul` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super(MatMul, self).__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `MatMul.forward` executes the concrete runtime path for MatMul, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `MatMul` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
         if self.lib is None or self.dtype not in nn.DTYPE_MAP:
             out_data = np.matmul(np.asarray(input_a.data), np.asarray(input_b.data))
@@ -4044,7 +4035,7 @@ class MatMul(Ops):
         self.parameters = {"values": values}
         return values
 
-    # Egor Izmaylov: Function `MatMul.forward_` performs shape-only inference for MatMul, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `MatMul` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_a: Tensor_, input_b: Tensor_) -> dict:
         shape_a = list(input_a.size) if isinstance(input_a.size, (list, tuple)) else [input_a.size]
         shape_b = list(input_b.size) if isinstance(input_b.size, (list, tuple)) else [input_b.size]
@@ -4082,7 +4073,7 @@ class MatMul(Ops):
         return values
     
 class Gather(Ops):
-    # Egor Izmaylov: Function `Gather.__init__` initializes Gather, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Gather` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=0, dtype="float32", version="17"):
         super(Gather, self).__init__(inputs, outputs)
         self.axis = axis
@@ -4095,7 +4086,7 @@ class Gather(Ops):
                 ctypes.POINTER(nn.CTensor), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `Gather.forward` executes the concrete runtime path for Gather, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Gather` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data: Tensor, indices: Tensor) -> dict:
         # 计算输出形状: data.shape[:axis] + indices.shape + data.shape[axis+1:]
         axis = self.axis if self.axis >= 0 else self.axis + len(data.size)
@@ -4118,7 +4109,7 @@ class Gather(Ops):
         
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Gather.forward_` performs shape-only inference for Gather, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Gather` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data: Tensor_, indices: Tensor_) -> dict:
         try:
             axis = self.axis if self.axis >= 0 else self.axis + len(data.size)
@@ -4133,7 +4124,7 @@ class Gather(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None, "graph": None}
     
 class Expand(Ops):
-    # Egor Izmaylov: Function `Expand.__init__` initializes Expand, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Expand` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super(Expand, self).__init__(inputs, outputs)
         self.dtype = dtype
@@ -4141,7 +4132,7 @@ class Expand(Ops):
         if self.lib:
             self.lib.expand_forward.argtypes = [ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor)]
 
-    # Egor Izmaylov: Function `Expand.forward` executes the concrete runtime path for Expand, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Expand` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor, shape: Tensor) -> dict:
         # 1. 获取目标形状
         target_shape = shape.data.astype(np.int64).flatten().tolist()
@@ -4187,7 +4178,7 @@ class Expand(Ops):
         
         return {"tensor": Tensor(*final_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Expand.forward_` performs shape-only inference for Expand, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Expand` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_, shape: Tensor_) -> dict:
         if hasattr(shape, "data") and shape.data is not None:
             try:
@@ -4210,7 +4201,7 @@ class Expand(Ops):
         return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None, "graph": None}
     
 class Shape(Ops):
-    # Egor Izmaylov: Function `Shape.__init__` initializes Shape, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Shape` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, start=0, end=None, dtype="int64", version="17"):
         super(Shape, self).__init__(inputs, outputs)
         self.start = start
@@ -4218,7 +4209,7 @@ class Shape(Ops):
         self.dtype = "int64" # Shape 输出永远是 int64
         self.version = version
 
-    # Egor Izmaylov: Function `Shape.forward` executes the concrete runtime path for Shape, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Shape` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         dims = list(input.size)
         # 处理 start/end
@@ -4230,7 +4221,7 @@ class Shape(Ops):
         
         return {"tensor": out_tensor, "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Shape.forward_` performs shape-only inference for Shape, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Shape` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
         # Shape 的输出形状取决于 input 的 rank
         dims = list(input.size)
@@ -4239,14 +4230,14 @@ class Shape(Ops):
         return {"tensor": Tensor_(out_len, dtype="int64"), "parameters": None, "graph": None}
     
 class Constant(Ops):
-    # Egor Izmaylov: Function `Constant.__init__` initializes Constant, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Constant` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, value=None, dtype="float32", version="17"):
         super(Constant, self).__init__(inputs, outputs)
         self.value = value
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `Constant._value_array` centralizes the value array helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_value_array` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _value_array(self):
         if isinstance(self.value, Tensor):
             return np.asarray(self.value.data).copy(), tuple(self.value.size)
@@ -4255,224 +4246,224 @@ class Constant(Ops):
         arr = np.asarray(self.value, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, None))
         return arr.copy(), arr.shape
 
-    # Egor Izmaylov: Function `Constant.forward` executes the concrete runtime path for Constant, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Constant` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self) -> dict:
         out_data, val_shape = self._value_array()
         return {"tensor": Tensor(*val_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-    # Egor Izmaylov: Function `Constant.forward_` performs shape-only inference for Constant, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Constant` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self) -> dict:
         # [Fix] 为了支持 Shape 推断，Constant 需要返回真实数据
         out_data, val_shape = self._value_array()
         return {"tensor": Tensor(*val_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
     
 class Equal(Ops):
-    # Egor Izmaylov: Function `Equal.__init__` initializes Equal, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Equal` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Equal.forward` executes the concrete runtime path for Equal, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Equal` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "equal_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Equal.forward_` performs shape-only inference for Equal, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Equal` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class Greater(Ops):
-    # Egor Izmaylov: Function `Greater.__init__` initializes Greater, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Greater` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Greater.forward` executes the concrete runtime path for Greater, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Greater` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "greater_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Greater.forward_` performs shape-only inference for Greater, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Greater` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class Less(Ops):
-    # Egor Izmaylov: Function `Less.__init__` initializes Less, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Less` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Less.forward` executes the concrete runtime path for Less, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Less` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "less_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Less.forward_` performs shape-only inference for Less, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Less` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class GreaterOrEqual(Ops):
-    # Egor Izmaylov: Function `GreaterOrEqual.__init__` initializes GreaterOrEqual, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GreaterOrEqual` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `GreaterOrEqual.forward` executes the concrete runtime path for GreaterOrEqual, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GreaterOrEqual` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "greater_or_equal_forward"), "parameters": None}
-    # Egor Izmaylov: Function `GreaterOrEqual.forward_` performs shape-only inference for GreaterOrEqual, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `GreaterOrEqual` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class LessOrEqual(Ops):
-    # Egor Izmaylov: Function `LessOrEqual.__init__` initializes LessOrEqual, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `LessOrEqual` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `LessOrEqual.forward` executes the concrete runtime path for LessOrEqual, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `LessOrEqual` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "less_or_equal_forward"), "parameters": None}
-    # Egor Izmaylov: Function `LessOrEqual.forward_` performs shape-only inference for LessOrEqual, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `LessOrEqual` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class Not(Ops):
-    # Egor Izmaylov: Function `Not.__init__` initializes Not, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Not` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Not.forward` executes the concrete runtime path for Not, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Not` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         return {"tensor": self._execute_unary(x, "not_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Not.forward_` performs shape-only inference for Not, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Not` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class And(Ops):
-    # Egor Izmaylov: Function `And.__init__` initializes And, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `And` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `And.forward` executes the concrete runtime path for And, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `And` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "and_forward"), "parameters": None}
-    # Egor Izmaylov: Function `And.forward_` performs shape-only inference for And, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `And` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class Or(Ops):
-    # Egor Izmaylov: Function `Or.__init__` initializes Or, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Or` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Or.forward` executes the concrete runtime path for Or, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Or` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "or_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Or.forward_` performs shape-only inference for Or, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Or` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class Xor(Ops):
-    # Egor Izmaylov: Function `Xor.__init__` initializes Xor, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Xor` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Xor.forward` executes the concrete runtime path for Xor, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Xor` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "xor_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Xor.forward_` performs shape-only inference for Xor, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Xor` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class IsNaN(Ops):
-    # Egor Izmaylov: Function `IsNaN.__init__` initializes IsNaN, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `IsNaN` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `IsNaN.forward` executes the concrete runtime path for IsNaN, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `IsNaN` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         return {"tensor": self._execute_unary(x, "isnan_forward"), "parameters": None}
-    # Egor Izmaylov: Function `IsNaN.forward_` performs shape-only inference for IsNaN, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `IsNaN` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Sin(Ops):
-    # Egor Izmaylov: Function `Sin.__init__` initializes Sin, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Sin` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Sin.forward` executes the concrete runtime path for Sin, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Sin` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         return {"tensor": self._execute_unary(x, "sin_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Sin.forward_` performs shape-only inference for Sin, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Sin` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Tan(Ops):
-    # Egor Izmaylov: Function `Tan.__init__` initializes Tan, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Tan` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Tan.forward` executes the concrete runtime path for Tan, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Tan` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         return {"tensor": self._execute_unary(x, "tan_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Tan.forward_` performs shape-only inference for Tan, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Tan` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Atan(Ops):
-    # Egor Izmaylov: Function `Atan.__init__` initializes Atan, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Atan` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Atan.forward` executes the concrete runtime path for Atan, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Atan` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         return {"tensor": self._execute_unary(x, "atan_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Atan.forward_` performs shape-only inference for Atan, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Atan` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Sign(Ops):
-    # Egor Izmaylov: Function `Sign.__init__` initializes Sign, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Sign` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Sign.forward` executes the concrete runtime path for Sign, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Sign` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         return {"tensor": self._execute_unary(x, "sign_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Sign.forward_` performs shape-only inference for Sign, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Sign` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
         
 class Identity(Ops):
-    # Egor Izmaylov: Function `Identity.__init__` initializes Identity, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Identity` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
         if self.lib:
             self.lib.identity_forward.argtypes = [ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor)]
-    # Egor Izmaylov: Function `Identity.forward` executes the concrete runtime path for Identity, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Identity` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         if isinstance(x, Tensor):
             out_dtype = self.dtype or x.dtype
@@ -4489,14 +4480,14 @@ class Identity(Ops):
                 out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(out_dtype, out_data.dtype))
             return {"tensor": Tensor(*x.size, dtype=out_dtype, data=out_data), "parameters": None}
         return {"tensor": x, "parameters": None}
-    # Egor Izmaylov: Function `Identity.forward_` performs shape-only inference for Identity, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Identity` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         if isinstance(x, Tensor_):
             return {"tensor": Tensor_(*x.size, dtype=self.dtype or x.dtype), "parameters": None}
         return {"tensor": x, "parameters": None}
 
 class Mod(Ops):
-    # Egor Izmaylov: Function `Mod.__init__` initializes Mod, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Mod` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, fmod=0, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
@@ -4509,7 +4500,7 @@ class Mod(Ops):
                 ctypes.POINTER(nn.CTensor), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `Mod.forward` executes the concrete runtime path for Mod, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Mod` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         try:
             a_bc, b_bc = np.broadcast_arrays(a.data, b.data)
@@ -4555,13 +4546,13 @@ class Mod(Ops):
         
         return {"tensor": Tensor(*out_shape, dtype=out_dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `Mod.forward_` performs shape-only inference for Mod, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Mod` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         shape = np.broadcast_shapes(a.size, b.size)
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class Where(Ops):
-    # Egor Izmaylov: Function `Where.__init__` initializes Where, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Where` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
@@ -4571,7 +4562,7 @@ class Where(Ops):
                 ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor),
                 ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor)
             ]
-    # Egor Izmaylov: Function `Where.forward` executes the concrete runtime path for Where, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Where` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, cond, x, y):
         cond_data, x_data, y_data = np.broadcast_arrays(
             np.asarray(cond.data, dtype=np.bool_),
@@ -4601,14 +4592,14 @@ class Where(Ops):
             out_data = np.where(cond_data, x_data, y_data)
             out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
-    # Egor Izmaylov: Function `Where.forward_` performs shape-only inference for Where, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Where` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, cond, x, y):
         try: shape = np.broadcast_shapes(cond.size, x.size, y.size)
         except: shape = x.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
     
 class ConstantOfShape(Ops):
-    # Egor Izmaylov: Function `ConstantOfShape.__init__` initializes ConstantOfShape, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ConstantOfShape` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, value=None, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.value_tensor = None
@@ -4624,7 +4615,7 @@ class ConstantOfShape(Ops):
         if self.lib:
             self.lib.constant_of_shape_forward.argtypes = [ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor)]
 
-    # Egor Izmaylov: Function `ConstantOfShape.forward` executes the concrete runtime path for ConstantOfShape, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ConstantOfShape` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, shape_tensor):
         target_shape = tuple(shape_tensor.data.astype(np.int64).flatten().tolist())
         value_data = np.asarray(self.value_tensor.data)
@@ -4644,7 +4635,7 @@ class ConstantOfShape(Ops):
             out_data = np.full(target_shape, fill_value, dtype=out_dtype)
         return {"tensor": Tensor(*target_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `ConstantOfShape.forward_` performs shape-only inference for ConstantOfShape, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ConstantOfShape` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, shape_tensor):
         if hasattr(shape_tensor, "data") and shape_tensor.data is not None:
             target_shape = tuple(shape_tensor.data.astype(np.int64).flatten().tolist())
@@ -4652,13 +4643,13 @@ class ConstantOfShape(Ops):
         return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
 
 class Range(Ops):
-    # Egor Izmaylov: Function `Range.__init__` initializes Range, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Range` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `Range.forward` executes the concrete runtime path for Range, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Range` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, start, limit, delta):
         # max(ceil((limit - start) / delta), 0)
         s = start.data.item()
@@ -4677,7 +4668,7 @@ class Range(Ops):
         self.lib.free_tensor(start_c); self.lib.free_tensor(limit_c); self.lib.free_tensor(delta_c); self.lib.free_tensor(output_c)
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `Range.forward_` performs shape-only inference for Range, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Range` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, start, limit, delta):
         if all(hasattr(t, "data") and t.data is not None for t in (start, limit, delta)):
             s = start.data.item()
@@ -4688,7 +4679,7 @@ class Range(Ops):
         return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}
 
 class Tile(Ops):
-    # Egor Izmaylov: Function `Tile.__init__` initializes Tile, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Tile` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
@@ -4696,7 +4687,7 @@ class Tile(Ops):
         if self.lib:
             self.lib.tile_forward.argtypes = [ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor)]
 
-    # Egor Izmaylov: Function `Tile.forward` executes the concrete runtime path for Tile, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Tile` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input, repeats):
         rep = repeats.data.astype(np.int64).flatten()
         in_shape = np.array(input.size)
@@ -4717,7 +4708,7 @@ class Tile(Ops):
             out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `Tile.forward_` performs shape-only inference for Tile, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Tile` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input, repeats):
         if hasattr(repeats, "data") and repeats.data is not None:
             rep = repeats.data.astype(np.int64).flatten()
@@ -4728,7 +4719,7 @@ class Tile(Ops):
         return {"tensor": Tensor_(*input.size, dtype=self.dtype), "parameters": None}
 
 class Pad(Ops):
-    # Egor Izmaylov: Function `Pad.__init__` initializes Pad, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Pad` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, mode="constant", dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.mode = mode # constant, reflect, edge; wrap is kept as a non-ONNX extension
@@ -4744,7 +4735,7 @@ class Pad(Ops):
                 ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `Pad._calc_shape` centralizes the calc shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_calc_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _calc_shape(self, data_shape, pads):
         p = np.asarray(pads, dtype=np.int64).flatten()
         ndim = len(data_shape)
@@ -4759,7 +4750,7 @@ class Pad(Ops):
             out_shape.append(dim)
         return tuple(out_shape)
 
-    # Egor Izmaylov: Function `Pad.forward` executes the concrete runtime path for Pad, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Pad` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data, pads, constant_value=None):
         # pads: [x1_begin, x2_begin, ..., x1_end, x2_end, ...]
         p = pads.data.astype(np.int64).flatten()
@@ -4824,7 +4815,7 @@ class Pad(Ops):
             out_data = out_data.reshape(out_shape)
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
     
-    # Egor Izmaylov: Function `Pad.forward_` performs shape-only inference for Pad, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Pad` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data, pads, constant_value=None):
         if hasattr(pads, "data") and pads.data is not None:
             out_shape = self._calc_shape(data.size, pads.data)
@@ -4833,7 +4824,7 @@ class Pad(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class Split(Ops):
-    # Egor Izmaylov: Function `Split.__init__` initializes Split, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Split` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -4846,7 +4837,7 @@ class Split(Ops):
                 ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)
             ]
 
-    # Egor Izmaylov: Function `Split.forward` executes the concrete runtime path for Split, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Split` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input, split=None):
         axis = self.axis if self.axis >= 0 else self.axis + len(input.size)
         dim_len = input.size[axis]
@@ -4893,7 +4884,7 @@ class Split(Ops):
             ]
         return {"tensor": result_tensors, "parameters": None}
 
-    # Egor Izmaylov: Function `Split.forward_` performs shape-only inference for Split, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Split` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input, split=None):
         num_outputs = len(self.outputs)
         axis = self.axis if self.axis >= 0 else self.axis + len(input.size)
@@ -4920,7 +4911,7 @@ class Split(Ops):
 
         return {"tensor": [Tensor_(*shape, dtype=self.dtype) for shape in out_shapes], "parameters": None}
     
-# Egor Izmaylov: Function `_sequence_position` centralizes the sequence position helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_sequence_position` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _sequence_position(position, length, default=None, allow_end=False):
     if position is None:
         if default is None:
@@ -4937,103 +4928,103 @@ def _sequence_position(position, length, default=None, allow_end=False):
 
 
 class SequenceEmpty(Ops):
-    # Egor Izmaylov: Function `SequenceEmpty.__init__` initializes SequenceEmpty, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SequenceEmpty` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `SequenceEmpty.forward` executes the concrete runtime path for SequenceEmpty, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SequenceEmpty` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self):
         return {"tensor": [], "parameters": None}
 
-    # Egor Izmaylov: Function `SequenceEmpty.forward_` performs shape-only inference for SequenceEmpty, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SequenceEmpty` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self):
         return {"tensor": [], "parameters": None}
 
 
 class SequenceConstruct(Ops):
-    # Egor Izmaylov: Function `SequenceConstruct.__init__` initializes SequenceConstruct, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SequenceConstruct` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `SequenceConstruct.forward` executes the concrete runtime path for SequenceConstruct, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SequenceConstruct` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs):
         return {"tensor": list(inputs), "parameters": None}
 
-    # Egor Izmaylov: Function `SequenceConstruct.forward_` performs shape-only inference for SequenceConstruct, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SequenceConstruct` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs):
         return {"tensor": list(inputs), "parameters": None}
 
 
 class SequenceAt(Ops):
-    # Egor Izmaylov: Function `SequenceAt.__init__` initializes SequenceAt, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SequenceAt` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `SequenceAt.forward` executes the concrete runtime path for SequenceAt, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SequenceAt` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_sequence, position):
         return {"tensor": input_sequence[_sequence_position(position, len(input_sequence))], "parameters": None}
 
-    # Egor Izmaylov: Function `SequenceAt.forward_` performs shape-only inference for SequenceAt, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SequenceAt` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, position):
         return self.forward(input_sequence, position)
 
 
 class SequenceInsert(Ops):
-    # Egor Izmaylov: Function `SequenceInsert.__init__` initializes SequenceInsert, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SequenceInsert` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `SequenceInsert.forward` executes the concrete runtime path for SequenceInsert, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SequenceInsert` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_sequence, tensor, position=None):
         output = list(input_sequence)
         pos = _sequence_position(position, len(output), default=len(output), allow_end=True)
         output.insert(pos, tensor)
         return {"tensor": output, "parameters": None}
 
-    # Egor Izmaylov: Function `SequenceInsert.forward_` performs shape-only inference for SequenceInsert, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SequenceInsert` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, tensor, position=None):
         return self.forward(input_sequence, tensor, position)
 
 
 class SequenceErase(Ops):
-    # Egor Izmaylov: Function `SequenceErase.__init__` initializes SequenceErase, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SequenceErase` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `SequenceErase.forward` executes the concrete runtime path for SequenceErase, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SequenceErase` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_sequence, position=None):
         output = list(input_sequence)
         pos = _sequence_position(position, len(output), default=len(output) - 1)
         del output[pos]
         return {"tensor": output, "parameters": None}
 
-    # Egor Izmaylov: Function `SequenceErase.forward_` performs shape-only inference for SequenceErase, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SequenceErase` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, position=None):
         return self.forward(input_sequence, position)
 
 
 class SequenceLength(Ops):
-    # Egor Izmaylov: Function `SequenceLength.__init__` initializes SequenceLength, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SequenceLength` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="int64", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = "int64"
         self.version = version
 
-    # Egor Izmaylov: Function `SequenceLength.forward` executes the concrete runtime path for SequenceLength, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SequenceLength` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_sequence):
         return {"tensor": Tensor(dtype=self.dtype, data=np.array(len(input_sequence), dtype=np.int64)), "parameters": None}
 
-    # Egor Izmaylov: Function `SequenceLength.forward_` performs shape-only inference for SequenceLength, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SequenceLength` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence):
         if isinstance(input_sequence, list):
             return self.forward(input_sequence)
@@ -5041,7 +5032,7 @@ class SequenceLength(Ops):
 
 
 class ConcatFromSequence(Ops):
-    # Egor Izmaylov: Function `ConcatFromSequence.__init__` initializes ConcatFromSequence, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ConcatFromSequence` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=0, new_axis=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -5049,7 +5040,7 @@ class ConcatFromSequence(Ops):
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `ConcatFromSequence.forward` executes the concrete runtime path for ConcatFromSequence, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ConcatFromSequence` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_sequence):
         if not input_sequence:
             raise ValueError("ConcatFromSequence requires a non-empty sequence")
@@ -5061,7 +5052,7 @@ class ConcatFromSequence(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `ConcatFromSequence.forward_` performs shape-only inference for ConcatFromSequence, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ConcatFromSequence` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence):
         if not input_sequence:
             return {"tensor": Tensor_(0, dtype=self.dtype), "parameters": None}
@@ -5078,7 +5069,7 @@ class ConcatFromSequence(Ops):
 
 
 class SplitToSequence(Ops):
-    # Egor Izmaylov: Function `SplitToSequence.__init__` initializes SplitToSequence, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SplitToSequence` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=0, keepdims=1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -5086,7 +5077,7 @@ class SplitToSequence(Ops):
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `SplitToSequence._split_sizes` centralizes the split sizes helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_split_sizes` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _split_sizes(self, axis_dim, split=None):
         if split is None:
             step = 1
@@ -5102,7 +5093,7 @@ class SplitToSequence(Ops):
             raise ValueError("SplitToSequence 1-D split must contain positive sizes that sum to the axis dimension")
         return sizes
 
-    # Egor Izmaylov: Function `SplitToSequence.forward` executes the concrete runtime path for SplitToSequence, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SplitToSequence` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input, split=None):
         axis = self.axis if self.axis >= 0 else self.axis + len(input.size)
         sizes = self._split_sizes(input.size[axis], split)
@@ -5118,7 +5109,7 @@ class SplitToSequence(Ops):
             start += size
         return {"tensor": result, "parameters": None}
 
-    # Egor Izmaylov: Function `SplitToSequence.forward_` performs shape-only inference for SplitToSequence, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SplitToSequence` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input, split=None):
         axis = self.axis if self.axis >= 0 else self.axis + len(input.size)
         sizes = self._split_sizes(input.size[axis], split) if split is not None and hasattr(split, "data") and split.data is not None else [1] * input.size[axis]
@@ -5132,51 +5123,51 @@ class SplitToSequence(Ops):
         return {"tensor": result, "parameters": None}
 
 class Optional(Ops):
-    # Egor Izmaylov: Function `Optional.__init__` initializes Optional, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Optional` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `Optional.forward` executes the concrete runtime path for Optional, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Optional` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input=None):
         return {"tensor": input, "parameters": None}
 
-    # Egor Izmaylov: Function `Optional.forward_` performs shape-only inference for Optional, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Optional` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input=None):
         return {"tensor": input, "parameters": None}
 
 
 class OptionalGetElement(Ops):
-    # Egor Izmaylov: Function `OptionalGetElement.__init__` initializes OptionalGetElement, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `OptionalGetElement` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `OptionalGetElement.forward` executes the concrete runtime path for OptionalGetElement, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `OptionalGetElement` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         if input is None:
             raise ValueError("OptionalGetElement cannot read an empty optional")
         return {"tensor": input, "parameters": None}
 
-    # Egor Izmaylov: Function `OptionalGetElement.forward_` performs shape-only inference for OptionalGetElement, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `OptionalGetElement` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         return self.forward(input)
 
 
 class OptionalHasElement(Ops):
-    # Egor Izmaylov: Function `OptionalHasElement.__init__` initializes OptionalHasElement, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `OptionalHasElement` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = "bool"
         self.version = version
 
-    # Egor Izmaylov: Function `OptionalHasElement.forward` executes the concrete runtime path for OptionalHasElement, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `OptionalHasElement` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         return {"tensor": Tensor(dtype=self.dtype, data=np.array(input is not None, dtype=np.bool_)), "parameters": None}
 
-    # Egor Izmaylov: Function `OptionalHasElement.forward_` performs shape-only inference for OptionalHasElement, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `OptionalHasElement` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         if input is None:
             return self.forward(input)
@@ -5184,7 +5175,7 @@ class OptionalHasElement(Ops):
 
 # Reduce 基类，复用 Shape 计算逻辑
 class ReduceBase(Ops):
-    # Egor Izmaylov: Function `ReduceBase.__init__` initializes ReduceBase, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ReduceBase` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axes=None, keepdims=1, dtype="float32", version="17", noop_with_empty_axes=0):
         super().__init__(inputs, outputs)
         self.axes = axes # 初始 axes，可能为 None
@@ -5201,11 +5192,11 @@ class ReduceBase(Ops):
                     ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CReduceParams)
                 ]
 
-    # Egor Izmaylov: Function `ReduceBase._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self):
         raise NotImplementedError
 
-    # Egor Izmaylov: Function `ReduceBase._prepare_axes` centralizes the prepare axes helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_prepare_axes` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _prepare_axes(self, input_shape, runtime_axes=None):
         ndim = len(input_shape)
         # 优先级: 运行时输入 > 属性 > 默认(全归约)
@@ -5231,7 +5222,7 @@ class ReduceBase(Ops):
         # 去重并排序
         return sorted(list(set(normalized_axes)))
 
-    # Egor Izmaylov: Function `ReduceBase._numpy_reduce` centralizes the numpy reduce helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_numpy_reduce` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _numpy_reduce(self, data, axes):
         arr = np.asarray(data.data)
         if not axes:
@@ -5266,7 +5257,7 @@ class ReduceBase(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return Tensor(*out_data.shape, dtype=self.dtype, data=out_data)
 
-    # Egor Izmaylov: Function `ReduceBase._calc_out_shape` centralizes the calc out shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_calc_out_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _calc_out_shape(self, input_shape, axes):
         out_shape = []
         for i in range(len(input_shape)):
@@ -5282,7 +5273,7 @@ class ReduceBase(Ops):
             
         return tuple(out_shape)
 
-    # Egor Izmaylov: Function `ReduceBase.forward` executes the concrete runtime path for ReduceBase, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ReduceBase` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data, axes_tensor=None):
         real_axes = self._prepare_axes(data.size, axes_tensor)
         out_shape = self._calc_out_shape(data.size, real_axes)
@@ -5309,7 +5300,7 @@ class ReduceBase(Ops):
         
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `ReduceBase.forward_` performs shape-only inference for ReduceBase, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ReduceBase` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data, axes_tensor=None):
         runtime_axes = axes_tensor if (
             axes_tensor is not None
@@ -5321,27 +5312,27 @@ class ReduceBase(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class ReduceMean(ReduceBase):
-    # Egor Izmaylov: Function `ReduceMean._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_mean_forward"
 
 class ReduceSum(ReduceBase):
-    # Egor Izmaylov: Function `ReduceSum._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_sum_forward"
 
 class ReduceMax(ReduceBase):
-    # Egor Izmaylov: Function `ReduceMax._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_max_forward"
 
 class ReduceMin(ReduceBase):
-    # Egor Izmaylov: Function `ReduceMin._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_min_forward"
 
 class ReduceProd(ReduceBase):
-    # Egor Izmaylov: Function `ReduceProd._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_prod_forward"
     
 class ArgBase(Ops):
-    # Egor Izmaylov: Function `ArgBase.__init__` initializes ArgBase, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ArgBase` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=0, keepdims=1, select_last_index=0, dtype="int64", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -5359,10 +5350,10 @@ class ArgBase(Ops):
                     ctypes.c_int,
                 ]
 
-    # Egor Izmaylov: Function `ArgBase._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): raise NotImplementedError
 
-    # Egor Izmaylov: Function `ArgBase._arg_numpy` centralizes the arg numpy helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_arg_numpy` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _arg_numpy(self, values, axis):
         if isinstance(self, ArgMax):
             if self.select_last_index:
@@ -5374,7 +5365,7 @@ class ArgBase(Ops):
             return values.shape[axis] - 1 - reversed_idx
         return np.argmin(values, axis=axis)
 
-    # Egor Izmaylov: Function `ArgBase.forward` executes the concrete runtime path for ArgBase, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ArgBase` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data):
         ndim = len(data.size)
         axis = self.axis if self.axis >= 0 else self.axis + ndim
@@ -5408,7 +5399,7 @@ class ArgBase(Ops):
             out_data = np.expand_dims(out_data, axis=axis)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `ArgBase.forward_` performs shape-only inference for ArgBase, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ArgBase` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data):
         ndim = len(data.size)
         axis = self.axis if self.axis >= 0 else self.axis + ndim
@@ -5418,22 +5409,22 @@ class ArgBase(Ops):
         return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
 
 class ArgMax(ArgBase):
-    # Egor Izmaylov: Function `ArgMax._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "argmax_forward"
 
 class ArgMin(ArgBase):
-    # Egor Izmaylov: Function `ArgMin._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "argmin_forward"
     
 class ScatterND(Ops):
-    # Egor Izmaylov: Function `ScatterND.__init__` initializes ScatterND, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ScatterND` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, reduction="none", dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.reduction = {"none": 0, "add": 1, "mul": 2}.get(reduction, 0)
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `ScatterND.forward` executes the concrete runtime path for ScatterND, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ScatterND` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data, indices, updates):
         out_tensor = Tensor(*data.size, dtype=self.dtype, data=data.data.copy())
         
@@ -5449,19 +5440,19 @@ class ScatterND(Ops):
         self.lib.free_tensor(d_c); self.lib.free_tensor(i_c); self.lib.free_tensor(u_c)
         return {"tensor": out_tensor, "parameters": None}
     
-    # Egor Izmaylov: Function `ScatterND.forward_` performs shape-only inference for ScatterND, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ScatterND` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data, indices, updates):
         return {"tensor": Tensor_(*data.size, dtype=self.dtype), "parameters": None}
 
 class GatherND(Ops):
-    # Egor Izmaylov: Function `GatherND.__init__` initializes GatherND, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GatherND` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, batch_dims=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.batch_dims = batch_dims
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `GatherND.forward` executes the concrete runtime path for GatherND, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GatherND` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data, indices):
         # 计算形状
         # Output shape = indices.shape[:-1] + data.shape[indices.shape[-1] + batch_dims:]
@@ -5494,7 +5485,7 @@ class GatherND(Ops):
         
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `GatherND.forward_` performs shape-only inference for GatherND, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `GatherND` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data, indices):
         idx_shape = list(indices.size)
         data_shape = list(data.size)
@@ -5503,14 +5494,14 @@ class GatherND(Ops):
         return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
 
 class GatherElements(Ops):
-    # Egor Izmaylov: Function `GatherElements.__init__` initializes GatherElements, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GatherElements` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `GatherElements.forward` executes the concrete runtime path for GatherElements, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GatherElements` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data, indices):
         # GatherElements 输出形状与 Indices 相同
         out_shape = indices.size
@@ -5531,18 +5522,18 @@ class GatherElements(Ops):
             out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `GatherElements.forward_` performs shape-only inference for GatherElements, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `GatherElements` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data, indices):
         return {"tensor": Tensor_(*indices.size, dtype=self.dtype), "parameters": None}
 
 class NonZero(Ops):
-    # Egor Izmaylov: Function `NonZero.__init__` initializes NonZero, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `NonZero` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="int64", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = "int64" # NonZero 必须返回 int64
         self.version = version
 
-    # Egor Izmaylov: Function `NonZero.forward` executes the concrete runtime path for NonZero, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `NonZero` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         count = np.count_nonzero(input.data)
         ndim = len(input.size)
@@ -5561,13 +5552,13 @@ class NonZero(Ops):
         output_tensor.data = out_data
         return {"tensor": output_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `NonZero.forward_` performs shape-only inference for NonZero, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `NonZero` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         count = int(np.count_nonzero(input.data)) if hasattr(input, "data") and input.data is not None else 1
         return {"tensor": Tensor_(len(input.size), count, dtype=self.dtype), "parameters": None}
 
 class Resize(Ops):
-    # Egor Izmaylov: Function `Resize.__init__` initializes Resize, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Resize` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -5603,7 +5594,7 @@ class Resize(Ops):
                 ctypes.c_int, ctypes.c_int, ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `Resize._should_use_reference` centralizes the should use reference helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_should_use_reference` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _should_use_reference(self):
         return (
             self.lib is None
@@ -5615,7 +5606,7 @@ class Resize(Ops):
             or self.extrapolation_value != 0.0
         )
 
-    # Egor Izmaylov: Function `Resize._run_reference_resize` centralizes the run reference resize helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_run_reference_resize` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _run_reference_resize(self, x, roi, scales, sizes, out_shape, scales_data):
         from onnx import helper
         from onnx.reference import ReferenceEvaluator
@@ -5666,7 +5657,7 @@ class Resize(Ops):
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
         return ReferenceEvaluator(model).run(None, feeds)[0]
 
-    # Egor Izmaylov: Function `Resize.forward` executes the concrete runtime path for Resize, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Resize` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, roi=None, scales=None, sizes=None):
         in_shape = np.array(x.size)
         
@@ -5706,7 +5697,7 @@ class Resize(Ops):
         
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `Resize.forward_` performs shape-only inference for Resize, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Resize` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, roi=None, scales=None, sizes=None):
         in_shape = np.array(x.size, dtype=np.int64)
         if sizes is not None and hasattr(sizes, "data") and sizes.data is not None and sizes.data.size > 0:
@@ -5718,7 +5709,7 @@ class Resize(Ops):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
     
 class TopK(Ops):
-    # Egor Izmaylov: Function `TopK.__init__` initializes TopK, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `TopK` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=-1, largest=1, sorted=1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -5733,7 +5724,7 @@ class TopK(Ops):
                 ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `TopK.forward` executes the concrete runtime path for TopK, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `TopK` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, k_tensor):
         K = int(k_tensor.data.item())
         axis = self.axis if self.axis >= 0 else self.axis + len(x.size)
@@ -5762,7 +5753,7 @@ class TopK(Ops):
         # 返回列表
         return {"tensor": [values_tensor, indices_tensor], "parameters": None}
 
-    # Egor Izmaylov: Function `TopK.forward_` performs shape-only inference for TopK, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `TopK` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, k_tensor):
         axis = self.axis if self.axis >= 0 else self.axis + len(x.size)
         out_shape = list(x.size)
@@ -5774,7 +5765,7 @@ class TopK(Ops):
         return {"tensor": [Tensor_(*out_shape, dtype=self.dtype), Tensor_(*out_shape, dtype="int64")], "parameters": None}
 
 class CumSum(Ops):
-    # Egor Izmaylov: Function `CumSum.__init__` initializes CumSum, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `CumSum` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, exclusive=0, reverse=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.exclusive = exclusive
@@ -5782,7 +5773,7 @@ class CumSum(Ops):
         self.dtype = dtype
         self.version = version
 
-    # Egor Izmaylov: Function `CumSum.forward` executes the concrete runtime path for CumSum, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `CumSum` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, axis_tensor):
         axis = int(axis_tensor.data.item())
         out_tensor = Tensor(*x.size, dtype=self.dtype)
@@ -5798,12 +5789,12 @@ class CumSum(Ops):
         
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `CumSum.forward_` performs shape-only inference for CumSum, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `CumSum` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, axis_tensor):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class RandomUniformLike(Ops):
-    # Egor Izmaylov: Function `RandomUniformLike.__init__` initializes RandomUniformLike, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `RandomUniformLike` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, high=1.0, low=0.0, seed=0.0, dtype=None, version="17"):
         super().__init__(inputs, outputs)
         self.high = high
@@ -5812,7 +5803,7 @@ class RandomUniformLike(Ops):
         self.dtype = dtype # None means infer from input, matching ONNX Like-op semantics.
         self.version = version
 
-    # Egor Izmaylov: Function `RandomUniformLike.forward` executes the concrete runtime path for RandomUniformLike, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `RandomUniformLike` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         target_dtype = self.dtype if self.dtype else input.dtype
         out_tensor = Tensor(*input.size, dtype=target_dtype)
@@ -5829,13 +5820,13 @@ class RandomUniformLike(Ops):
         
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `RandomUniformLike.forward_` performs shape-only inference for RandomUniformLike, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `RandomUniformLike` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         target_dtype = self.dtype if self.dtype else input.dtype
         return {"tensor": Tensor_(*input.size, dtype=target_dtype), "parameters": None}
 
 class RandomUniform(Ops):
-    # Egor Izmaylov: Function `RandomUniform.__init__` initializes RandomUniform, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `RandomUniform` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, high=1.0, low=0.0, seed=0.0, dtype=1, shape=None, version="17"):
         super().__init__(inputs, outputs)
         self.high = high
@@ -5845,7 +5836,7 @@ class RandomUniform(Ops):
         self.shape_val = shape
         self.version = version
 
-    # Egor Izmaylov: Function `RandomUniform.forward` executes the concrete runtime path for RandomUniform, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `RandomUniform` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self):
         if self.shape_val is None:
             raise ValueError("RandomUniform requires 'shape' attribute")
@@ -5857,13 +5848,13 @@ class RandomUniform(Ops):
         self.lib.free_tensor(output_c)
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `RandomUniform.forward_` performs shape-only inference for RandomUniform, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `RandomUniform` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self):
         out_shape = tuple(self.shape_val) if self.shape_val is not None else (1,)
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class Multinomial(Ops):
-    # Egor Izmaylov: Function `Multinomial.__init__` initializes Multinomial, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Multinomial` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype=6, sample_size=1, seed=None, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = nn.onnx_dtype_mapping.get(dtype, "int32") if isinstance(dtype, int) else dtype
@@ -5875,7 +5866,7 @@ class Multinomial(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_uint32
             ]
 
-    # Egor Izmaylov: Function `Multinomial.forward` executes the concrete runtime path for Multinomial, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Multinomial` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         probs = np.asarray(input.data, dtype=np.float64)
         if probs.ndim != 2:
@@ -5907,14 +5898,14 @@ class Multinomial(Ops):
             out[row_idx] = rng.choice(class_count, size=self.sample_size, replace=True, p=row / total)
         return {"tensor": Tensor(*out.shape, dtype=self.dtype, data=out), "parameters": None}
 
-    # Egor Izmaylov: Function `Multinomial.forward_` performs shape-only inference for Multinomial, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Multinomial` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         if len(input.size) != 2:
             raise ValueError(f"Multinomial expects rank-2 input, got shape {input.size}")
         return {"tensor": Tensor_(input.size[0], self.sample_size, dtype=self.dtype), "parameters": None}
 
 class NegativeLogLikelihoodLoss(Ops):
-    # Egor Izmaylov: Function `NegativeLogLikelihoodLoss.__init__` initializes NegativeLogLikelihoodLoss, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `NegativeLogLikelihoodLoss` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, reduction="mean", ignore_index=None, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.reduction = reduction
@@ -5932,7 +5923,7 @@ class NegativeLogLikelihoodLoss(Ops):
                 ctypes.c_int64,
             ]
 
-    # Egor Izmaylov: Function `NegativeLogLikelihoodLoss._reduction_code` centralizes the reduction code helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_reduction_code` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _reduction_code(self):
         if self.reduction == "none":
             return 0
@@ -5942,14 +5933,14 @@ class NegativeLogLikelihoodLoss(Ops):
             return 2
         raise ValueError(f"Unsupported loss reduction {self.reduction!r}")
 
-    # Egor Izmaylov: Function `NegativeLogLikelihoodLoss._target_shape` centralizes the target shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_target_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _target_shape(input_shape):
         if len(input_shape) < 2:
             raise ValueError(f"Loss input expects rank >= 2, got shape {input_shape}")
         return (input_shape[0],) + tuple(input_shape[2:])
 
-    # Egor Izmaylov: Function `NegativeLogLikelihoodLoss._gather_negative_scores` centralizes the gather negative scores helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_gather_negative_scores` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _gather_negative_scores(log_probs, target, ignore_index):
         input_shape = log_probs.shape
@@ -5968,7 +5959,7 @@ class NegativeLogLikelihoodLoss(Ops):
                 loss_2d[i, j] = -reshaped[i, cls, j]
         return loss_2d.reshape(target_shape)
 
-    # Egor Izmaylov: Function `NegativeLogLikelihoodLoss._reduce` centralizes the reduce helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_reduce` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _reduce(self, loss, target, weight=None):
         gather_weight = None
         if weight is not None:
@@ -5994,7 +5985,7 @@ class NegativeLogLikelihoodLoss(Ops):
             return loss.mean()
         raise ValueError(f"Unsupported loss reduction {self.reduction!r}")
 
-    # Egor Izmaylov: Function `NegativeLogLikelihoodLoss.forward` executes the concrete runtime path for NegativeLogLikelihoodLoss, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `NegativeLogLikelihoodLoss` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input, target, weight=None):
         data = np.asarray(input.data)
         labels = np.asarray(target.data)
@@ -6042,13 +6033,13 @@ class NegativeLogLikelihoodLoss(Ops):
         out_data = np.asarray(reduced, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `NegativeLogLikelihoodLoss.forward_` performs shape-only inference for NegativeLogLikelihoodLoss, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `NegativeLogLikelihoodLoss` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input, target, weight=None):
         out_shape = target.size if self.reduction == "none" else ()
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class SoftmaxCrossEntropyLoss(NegativeLogLikelihoodLoss):
-    # Egor Izmaylov: Function `SoftmaxCrossEntropyLoss.__init__` initializes SoftmaxCrossEntropyLoss, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SoftmaxCrossEntropyLoss` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, reduction="mean", ignore_index=None, dtype="float32", version="17"):
         super().__init__(inputs, outputs, reduction=reduction, ignore_index=ignore_index, dtype=dtype, version=version)
         if self.lib:
@@ -6063,13 +6054,13 @@ class SoftmaxCrossEntropyLoss(NegativeLogLikelihoodLoss):
                 ctypes.c_int64,
             ]
 
-    # Egor Izmaylov: Function `SoftmaxCrossEntropyLoss._log_softmax` centralizes the log softmax helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_log_softmax` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _log_softmax(scores):
         shifted = scores - np.max(scores, axis=1, keepdims=True)
         return shifted - np.log(np.sum(np.exp(shifted), axis=1, keepdims=True))
 
-    # Egor Izmaylov: Function `SoftmaxCrossEntropyLoss.forward` executes the concrete runtime path for SoftmaxCrossEntropyLoss, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SoftmaxCrossEntropyLoss` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, scores, labels, weights=None):
         data = np.asarray(scores.data)
         target = np.asarray(labels.data)
@@ -6136,7 +6127,7 @@ class SoftmaxCrossEntropyLoss(NegativeLogLikelihoodLoss):
             return {"tensor": (loss_tensor, log_tensor), "parameters": None}
         return {"tensor": loss_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `SoftmaxCrossEntropyLoss.forward_` performs shape-only inference for SoftmaxCrossEntropyLoss, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SoftmaxCrossEntropyLoss` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, scores, labels, weights=None):
         loss_shape = labels.size if self.reduction == "none" else ()
         loss_tensor = Tensor_(*loss_shape, dtype=self.dtype)
@@ -6145,7 +6136,7 @@ class SoftmaxCrossEntropyLoss(NegativeLogLikelihoodLoss):
         return {"tensor": loss_tensor, "parameters": None}
 
 class MelWeightMatrix(Ops):
-    # Egor Izmaylov: Function `MelWeightMatrix.__init__` initializes MelWeightMatrix, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `MelWeightMatrix` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, output_datatype=1, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = nn.onnx_dtype_mapping.get(output_datatype, "float32") if isinstance(output_datatype, int) else output_datatype
@@ -6160,22 +6151,22 @@ class MelWeightMatrix(Ops):
                 ctypes.POINTER(CTensor),
             ]
 
-    # Egor Izmaylov: Function `MelWeightMatrix._scalar` centralizes the scalar helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_scalar` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _scalar(value):
         return np.asarray(value.data).item()
 
-    # Egor Izmaylov: Function `MelWeightMatrix._mel` centralizes the mel helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_mel` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _mel(frequency):
         return 2595.0 * np.log10(1.0 + frequency / 700.0)
 
-    # Egor Izmaylov: Function `MelWeightMatrix._hz` centralizes the hz helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_hz` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _hz(mel):
         return 700.0 * (np.power(10.0, mel / 2595.0) - 1.0)
 
-    # Egor Izmaylov: Function `MelWeightMatrix.forward` executes the concrete runtime path for MelWeightMatrix, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `MelWeightMatrix` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, num_mel_bins, dft_length, sample_rate, lower_edge_hertz, upper_edge_hertz):
         bins = int(self._scalar(num_mel_bins))
         dft_len = int(self._scalar(dft_length))
@@ -6223,7 +6214,7 @@ class MelWeightMatrix(Ops):
         out_data = output.astype(out_dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `MelWeightMatrix.forward_` performs shape-only inference for MelWeightMatrix, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `MelWeightMatrix` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, num_mel_bins, dft_length, sample_rate, lower_edge_hertz, upper_edge_hertz):
         if isinstance(num_mel_bins, Tensor) and isinstance(dft_length, Tensor):
             out_shape = (int(num_mel_bins.data.item()) // 1, int(dft_length.data.item()) // 2 + 1)
@@ -6233,7 +6224,7 @@ class MelWeightMatrix(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class DFT(Ops):
-    # Egor Izmaylov: Function `DFT.__init__` initializes DFT, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `DFT` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=1, inverse=0, onesided=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -6251,14 +6242,14 @@ class DFT(Ops):
                 ctypes.c_int,
             ]
 
-    # Egor Izmaylov: Function `DFT._optional_length` centralizes the optional length helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_optional_length` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _optional_length(dft_length, default):
         if dft_length is None:
             return int(default)
         return int(np.asarray(dft_length.data).item())
 
-    # Egor Izmaylov: Function `DFT._as_complex` centralizes the as complex helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_as_complex` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _as_complex(data):
         if data.shape[-1] == 1:
@@ -6267,7 +6258,7 @@ class DFT(Ops):
             return data[..., 0].astype(np.complex128) + 1j * data[..., 1].astype(np.complex128)
         raise ValueError(f"DFT expects the last dimension to be 1 or 2, got {data.shape[-1]}")
 
-    # Egor Izmaylov: Function `DFT._from_complex` centralizes the from complex helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_from_complex` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _from_complex(data, dtype, real_only=False):
         if real_only:
@@ -6276,7 +6267,7 @@ class DFT(Ops):
             out = np.stack([np.real(data), np.imag(data)], axis=-1)
         return out.astype(nn.DTYPE_TO_NUMPY.get(dtype, np.float32), copy=False)
 
-    # Egor Izmaylov: Function `DFT._output_shape` centralizes the output shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_output_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _output_shape(self, input_shape, dft_length=None):
         if len(input_shape) < 1:
             raise ValueError("DFT expects rank >= 1")
@@ -6296,7 +6287,7 @@ class DFT(Ops):
             out_shape[-1] = 2
         return tuple(out_shape)
 
-    # Egor Izmaylov: Function `DFT.forward` executes the concrete runtime path for DFT, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `DFT` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input, dft_length=None):
         data = np.asarray(input.data)
         axis = self.axis % data.ndim
@@ -6339,7 +6330,7 @@ class DFT(Ops):
                 out_data = out_data[tuple(slices)]
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `DFT.forward_` performs shape-only inference for DFT, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `DFT` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input, dft_length=None):
         length = None
         if isinstance(dft_length, Tensor):
@@ -6347,7 +6338,7 @@ class DFT(Ops):
         return {"tensor": Tensor_(*self._output_shape(input.size, length), dtype=self.dtype), "parameters": None}
 
 class STFT(Ops):
-    # Egor Izmaylov: Function `STFT.__init__` initializes STFT, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `STFT` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, onesided=1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.onesided = bool(onesided)
@@ -6363,12 +6354,12 @@ class STFT(Ops):
                 ctypes.c_int,
             ]
 
-    # Egor Izmaylov: Function `STFT._scalar` centralizes the scalar helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_scalar` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _scalar(value):
         return int(np.asarray(value.data).item())
 
-    # Egor Izmaylov: Function `STFT._frame_length` centralizes the frame length helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_frame_length` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _frame_length(signal, window=None, frame_length=None):
         if frame_length is not None:
@@ -6377,7 +6368,7 @@ class STFT(Ops):
             return int(window.data.shape[0])
         return int(signal.data.shape[-2])
 
-    # Egor Izmaylov: Function `STFT.forward` executes the concrete runtime path for STFT, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `STFT` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, signal, frame_step, window=None, frame_length=None):
         data = np.asarray(signal.data)
         if data.ndim < 2 or data.shape[-1] not in (1, 2):
@@ -6441,7 +6432,7 @@ class STFT(Ops):
         )["tensor"].data
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `STFT.forward_` performs shape-only inference for STFT, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `STFT` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, signal, frame_step, window=None, frame_length=None):
         step = int(frame_step.data.item()) if isinstance(frame_step, Tensor) else 1
         if isinstance(frame_length, Tensor):
@@ -6458,7 +6449,7 @@ class STFT(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class Unique(Ops):
-    # Egor Izmaylov: Function `Unique.__init__` initializes Unique, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Unique` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=None, sorted=1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -6476,7 +6467,7 @@ class Unique(Ops):
             ]
             self.lib.unique_forward.restype = ctypes.c_int
 
-    # Egor Izmaylov: Function `Unique._reorder_unique` centralizes the reorder unique helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_reorder_unique` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _reorder_unique(self, values, indices, inverse, counts, axis=None):
         if self.sorted:
             return values, indices, inverse, counts
@@ -6489,7 +6480,7 @@ class Unique(Ops):
             values = np.take(values, order, axis=axis)
         return values, indices[order], remap[inverse], counts[order]
 
-    # Egor Izmaylov: Function `Unique._compute` centralizes the compute helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_compute` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _compute(self, x):
         data = x.data
         if self.axis is None:
@@ -6510,7 +6501,7 @@ class Unique(Ops):
             counts.astype(np.int64, copy=False),
         )
 
-    # Egor Izmaylov: Function `Unique.forward` executes the concrete runtime path for Unique, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Unique` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         if self.axis is None and self.lib is not None and x.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
             flat = np.ascontiguousarray(np.asarray(x.data).reshape(-1))
@@ -6549,7 +6540,7 @@ class Unique(Ops):
         selected = [tensor for name, tensor in zip(self.outputs, tensors) if name]
         return {"tensor": selected[0] if len(selected) == 1 else tuple(selected), "parameters": None}
 
-    # Egor Izmaylov: Function `Unique.forward_` performs shape-only inference for Unique, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Unique` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         if hasattr(x, "data") and x.data is not None:
             return self.forward(x)
@@ -6571,7 +6562,7 @@ class Unique(Ops):
         selected = [tensor for name, tensor in zip(self.outputs, tensors) if name]
         return {"tensor": selected[0] if len(selected) == 1 else tuple(selected), "parameters": None}
 
-# Egor Izmaylov: Function `_nms_box_to_corners` centralizes the nms box to corners helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_nms_box_to_corners` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _nms_box_to_corners(box, center_point_box):
     if center_point_box:
         x_center, y_center, width, height = box
@@ -6586,7 +6577,7 @@ def _nms_box_to_corners(box, center_point_box):
     return ymin, xmin, ymax, xmax
 
 
-# Egor Izmaylov: Function `_nms_iou` centralizes the nms iou helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_nms_iou` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _nms_iou(box_a, box_b, center_point_box):
     ay1, ax1, ay2, ax2 = _nms_box_to_corners(box_a, center_point_box)
     by1, bx1, by2, bx2 = _nms_box_to_corners(box_b, center_point_box)
@@ -6600,7 +6591,7 @@ def _nms_iou(box_a, box_b, center_point_box):
 
 
 class NonMaxSuppression(Ops):
-    # Egor Izmaylov: Function `NonMaxSuppression.__init__` initializes NonMaxSuppression, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `NonMaxSuppression` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, center_point_box=0, dtype="int64", version="17"):
         super().__init__(inputs, outputs)
         self.center_point_box = center_point_box
@@ -6618,7 +6609,7 @@ class NonMaxSuppression(Ops):
             ]
             self.lib.non_max_suppression_forward.restype = ctypes.c_int
 
-    # Egor Izmaylov: Function `NonMaxSuppression.forward` executes the concrete runtime path for NonMaxSuppression, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `NonMaxSuppression` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(
         self,
         boxes,
@@ -6682,7 +6673,7 @@ class NonMaxSuppression(Ops):
         selected_arr = np.asarray(selected, dtype=np.int64).reshape(-1, 3)
         return {"tensor": Tensor(*selected_arr.shape, dtype=self.dtype, data=selected_arr), "parameters": None}
 
-    # Egor Izmaylov: Function `NonMaxSuppression.forward_` performs shape-only inference for NonMaxSuppression, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `NonMaxSuppression` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, boxes, scores, max_output_boxes_per_class=None, iou_threshold=None, score_threshold=None):
         if hasattr(boxes, "data") and boxes.data is not None and hasattr(scores, "data") and scores.data is not None:
             return self.forward(boxes, scores, max_output_boxes_per_class, iou_threshold, score_threshold)
@@ -6694,7 +6685,7 @@ class NonMaxSuppression(Ops):
         return {"tensor": Tensor_(first_dim, 3, dtype=self.dtype), "parameters": None}
 
 class Einsum(Ops):
-    # Egor Izmaylov: Function `Einsum.__init__` initializes Einsum, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Einsum` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, equation, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.equation = equation
@@ -6708,7 +6699,7 @@ class Einsum(Ops):
                 ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)
             ]
 
-    # Egor Izmaylov: Function `Einsum._parse_equation` centralizes the parse equation helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_parse_equation` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _parse_equation(self, shapes):
         equation = self.equation.replace(" ", "")
         if "->" in self.equation:
@@ -6755,7 +6746,7 @@ class Einsum(Ops):
         # 这是一个映射：Label -> Stride (在 Input X 中)
         # 如果 Label 不在 Input X 中，Stride = 0 (广播语义)
         
-        # Egor Izmaylov: Function `Einsum._parse_equation.get_tensor_strides` implements the get tensor strides step for the ONNX operator runtime and shape-inference layer, normalizing inputs and returning the exact data or metadata contract expected downstream.
+        # 实现 `get_tensor_strides` 步骤，规范化输入并返回下游期望的数据或元信息。
         def get_tensor_strides(shape):
             # 计算 contigous strides
             strides = []
@@ -6795,7 +6786,7 @@ class Einsum(Ops):
         
         return unique_labels, loop_limits, input_strides_flat, output_strides_flat, out_shape
 
-    # Egor Izmaylov: Function `Einsum._forward_ij_jk_to_ik` centralizes the forward ij jk to ik helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_forward_ij_jk_to_ik` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _forward_ij_jk_to_ik(self, left, right):
         if len(left.size) != 2 or len(right.size) != 2:
             return None
@@ -6815,7 +6806,7 @@ class Einsum(Ops):
                 out[i, j] = acc
         return out
 
-    # Egor Izmaylov: Function `Einsum.forward` executes the concrete runtime path for Einsum, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Einsum` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs):
         equation = self.equation.replace(" ", "")
         out_data = None
@@ -6851,7 +6842,7 @@ class Einsum(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `Einsum.forward_` performs shape-only inference for Einsum, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Einsum` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs):
         if not inputs:
             raise ValueError("Einsum requires at least one input")
@@ -6860,7 +6851,7 @@ class Einsum(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
     
 class Elu(Ops):
-    # Egor Izmaylov: Function `Elu.__init__` initializes Elu, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Elu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, alpha=1.0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.alpha = alpha
@@ -6868,7 +6859,7 @@ class Elu(Ops):
         self.version = version
         if self.lib: self.lib.elu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
 
-    # Egor Izmaylov: Function `Elu.forward` executes the concrete runtime path for Elu, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Elu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -6878,11 +6869,11 @@ class Elu(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
     
-    # Egor Izmaylov: Function `Elu.forward_` performs shape-only inference for Elu, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Elu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Selu(Ops):
-    # Egor Izmaylov: Function `Selu.__init__` initializes Selu, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Selu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, alpha=1.67326, gamma=1.0507, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.alpha = alpha
@@ -6891,7 +6882,7 @@ class Selu(Ops):
         self.version = version
         if self.lib: self.lib.selu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_float]
 
-    # Egor Izmaylov: Function `Selu.forward` executes the concrete runtime path for Selu, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Selu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -6901,11 +6892,11 @@ class Selu(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
     
-    # Egor Izmaylov: Function `Selu.forward_` performs shape-only inference for Selu, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Selu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class LeakyRelu(Ops):
-    # Egor Izmaylov: Function `LeakyRelu.__init__` initializes LeakyRelu, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `LeakyRelu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, alpha=0.01, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.alpha = alpha
@@ -6913,7 +6904,7 @@ class LeakyRelu(Ops):
         self.version = version
         if self.lib: self.lib.leaky_relu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
 
-    # Egor Izmaylov: Function `LeakyRelu.forward` executes the concrete runtime path for LeakyRelu, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `LeakyRelu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -6923,11 +6914,11 @@ class LeakyRelu(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
     
-    # Egor Izmaylov: Function `LeakyRelu.forward_` performs shape-only inference for LeakyRelu, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `LeakyRelu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class ThresholdedRelu(Ops):
-    # Egor Izmaylov: Function `ThresholdedRelu.__init__` initializes ThresholdedRelu, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ThresholdedRelu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, alpha=1.0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.alpha = alpha
@@ -6935,7 +6926,7 @@ class ThresholdedRelu(Ops):
         self.version = version
         if self.lib: self.lib.thresholded_relu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
 
-    # Egor Izmaylov: Function `ThresholdedRelu.forward` executes the concrete runtime path for ThresholdedRelu, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ThresholdedRelu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -6945,11 +6936,11 @@ class ThresholdedRelu(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
     
-    # Egor Izmaylov: Function `ThresholdedRelu.forward_` performs shape-only inference for ThresholdedRelu, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ThresholdedRelu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class HardSigmoid(Ops):
-    # Egor Izmaylov: Function `HardSigmoid.__init__` initializes HardSigmoid, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `HardSigmoid` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, alpha=0.2, beta=0.5, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.alpha = alpha
@@ -6958,7 +6949,7 @@ class HardSigmoid(Ops):
         self.version = version
         if self.lib: self.lib.hard_sigmoid_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_float]
 
-    # Egor Izmaylov: Function `HardSigmoid.forward` executes the concrete runtime path for HardSigmoid, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `HardSigmoid` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -6968,11 +6959,11 @@ class HardSigmoid(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
     
-    # Egor Izmaylov: Function `HardSigmoid.forward_` performs shape-only inference for HardSigmoid, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `HardSigmoid` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Celu(Ops):
-    # Egor Izmaylov: Function `Celu.__init__` initializes Celu, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Celu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, alpha=1.0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.alpha = alpha
@@ -6980,7 +6971,7 @@ class Celu(Ops):
         self.version = version
         if self.lib: self.lib.celu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
 
-    # Egor Izmaylov: Function `Celu.forward` executes the concrete runtime path for Celu, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Celu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -6990,11 +6981,11 @@ class Celu(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
     
-    # Egor Izmaylov: Function `Celu.forward_` performs shape-only inference for Celu, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Celu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Shrink(Ops):
-    # Egor Izmaylov: Function `Shrink.__init__` initializes Shrink, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Shrink` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, bias=0.0, lambd=0.5, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.bias = bias
@@ -7003,7 +6994,7 @@ class Shrink(Ops):
         self.version = version
         if self.lib: self.lib.shrink_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_float]
 
-    # Egor Izmaylov: Function `Shrink.forward` executes the concrete runtime path for Shrink, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Shrink` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -7013,179 +7004,179 @@ class Shrink(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
     
-    # Egor Izmaylov: Function `Shrink.forward_` performs shape-only inference for Shrink, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Shrink` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Softplus(Ops):
-    # Egor Izmaylov: Function `Softplus.__init__` initializes Softplus, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Softplus` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Softplus.forward` executes the concrete runtime path for Softplus, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Softplus` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "softplus_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Softplus.forward_` performs shape-only inference for Softplus, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Softplus` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Softsign(Ops):
-    # Egor Izmaylov: Function `Softsign.__init__` initializes Softsign, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Softsign` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Softsign.forward` executes the concrete runtime path for Softsign, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Softsign` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "softsign_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Softsign.forward_` performs shape-only inference for Softsign, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Softsign` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class HardSwish(Ops):
-    # Egor Izmaylov: Function `HardSwish.__init__` initializes HardSwish, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `HardSwish` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `HardSwish.forward` executes the concrete runtime path for HardSwish, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `HardSwish` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "hard_swish_forward"), "parameters": None}
-    # Egor Izmaylov: Function `HardSwish.forward_` performs shape-only inference for HardSwish, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `HardSwish` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Acos(Ops):
-    # Egor Izmaylov: Function `Acos.__init__` initializes Acos, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Acos` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Acos.forward` executes the concrete runtime path for Acos, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Acos` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "acos_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Acos.forward_` performs shape-only inference for Acos, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Acos` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Asin(Ops):
-    # Egor Izmaylov: Function `Asin.__init__` initializes Asin, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Asin` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Asin.forward` executes the concrete runtime path for Asin, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Asin` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "asin_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Asin.forward_` performs shape-only inference for Asin, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Asin` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Cosh(Ops):
-    # Egor Izmaylov: Function `Cosh.__init__` initializes Cosh, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Cosh` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Cosh.forward` executes the concrete runtime path for Cosh, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Cosh` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "cosh_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Cosh.forward_` performs shape-only inference for Cosh, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Cosh` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Sinh(Ops):
-    # Egor Izmaylov: Function `Sinh.__init__` initializes Sinh, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Sinh` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Sinh.forward` executes the concrete runtime path for Sinh, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Sinh` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "sinh_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Sinh.forward_` performs shape-only inference for Sinh, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Sinh` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Asinh(Ops):
-    # Egor Izmaylov: Function `Asinh.__init__` initializes Asinh, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Asinh` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Asinh.forward` executes the concrete runtime path for Asinh, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Asinh` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "asinh_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Asinh.forward_` performs shape-only inference for Asinh, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Asinh` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Acosh(Ops):
-    # Egor Izmaylov: Function `Acosh.__init__` initializes Acosh, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Acosh` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Acosh.forward` executes the concrete runtime path for Acosh, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Acosh` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "acosh_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Acosh.forward_` performs shape-only inference for Acosh, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Acosh` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Atanh(Ops):
-    # Egor Izmaylov: Function `Atanh.__init__` initializes Atanh, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Atanh` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Atanh.forward` executes the concrete runtime path for Atanh, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Atanh` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "atanh_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Atanh.forward_` performs shape-only inference for Atanh, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Atanh` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class BitwiseAnd(Ops):
-    # Egor Izmaylov: Function `BitwiseAnd.__init__` initializes BitwiseAnd, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `BitwiseAnd` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="int32", version="18"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `BitwiseAnd.forward` executes the concrete runtime path for BitwiseAnd, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `BitwiseAnd` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "bitwise_and_forward"), "parameters": None}
-    # Egor Izmaylov: Function `BitwiseAnd.forward_` performs shape-only inference for BitwiseAnd, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `BitwiseAnd` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class BitwiseOr(Ops):
-    # Egor Izmaylov: Function `BitwiseOr.__init__` initializes BitwiseOr, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `BitwiseOr` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="int32", version="18"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `BitwiseOr.forward` executes the concrete runtime path for BitwiseOr, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `BitwiseOr` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "bitwise_or_forward"), "parameters": None}
-    # Egor Izmaylov: Function `BitwiseOr.forward_` performs shape-only inference for BitwiseOr, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `BitwiseOr` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class BitwiseXor(Ops):
-    # Egor Izmaylov: Function `BitwiseXor.__init__` initializes BitwiseXor, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `BitwiseXor` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="int32", version="18"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `BitwiseXor.forward` executes the concrete runtime path for BitwiseXor, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `BitwiseXor` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         return {"tensor": self._execute_binary(a, b, "bitwise_xor_forward"), "parameters": None}
-    # Egor Izmaylov: Function `BitwiseXor.forward_` performs shape-only inference for BitwiseXor, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `BitwiseXor` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
 
 class BitwiseNot(Ops):
-    # Egor Izmaylov: Function `BitwiseNot.__init__` initializes BitwiseNot, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `BitwiseNot` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="int32", version="18"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `BitwiseNot.forward` executes the concrete runtime path for BitwiseNot, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `BitwiseNot` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         return {"tensor": self._execute_unary(x, "bitwise_not_forward"), "parameters": None}
-    # Egor Izmaylov: Function `BitwiseNot.forward_` performs shape-only inference for BitwiseNot, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `BitwiseNot` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class BitShift(Ops):
-    # Egor Izmaylov: Function `BitShift.__init__` initializes BitShift, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `BitShift` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, direction="LEFT", dtype="int32", version="11"):
         super().__init__(inputs, outputs)
         self.direction = direction.upper() # "LEFT" or "RIGHT"
@@ -7199,12 +7190,12 @@ class BitShift(Ops):
                 ctypes.POINTER(CTensor), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `BitShift.forward` executes the concrete runtime path for BitShift, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `BitShift` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, a, b):
         out_tensor = self._execute_binary_custom(a, b)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `BitShift._execute_binary_custom` centralizes the execute binary custom helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_execute_binary_custom` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _execute_binary_custom(self, input_a, input_b):
         try:
             a_bc, b_bc = np.broadcast_arrays(input_a.data, input_b.data)
@@ -7227,34 +7218,34 @@ class BitShift(Ops):
         
         return Tensor(*out_shape, dtype=out_dtype, data=out_data)
 
-    # Egor Izmaylov: Function `BitShift.forward_` performs shape-only inference for BitShift, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `BitShift` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, a, b):
         try: shape = np.broadcast_shapes(a.size, b.size)
         except: shape = a.size
         return {"tensor": Tensor_(*shape, dtype=self.dtype), "parameters": None}
     
 class ReduceL1(ReduceBase):
-    # Egor Izmaylov: Function `ReduceL1._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_l1_forward"
 
 class ReduceL2(ReduceBase):
-    # Egor Izmaylov: Function `ReduceL2._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_l2_forward"
 
 class ReduceLogSum(ReduceBase):
-    # Egor Izmaylov: Function `ReduceLogSum._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_log_sum_forward"
 
 class ReduceLogSumExp(ReduceBase):
-    # Egor Izmaylov: Function `ReduceLogSumExp._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_log_sum_exp_forward"
 
 class ReduceSumSquare(ReduceBase):
-    # Egor Izmaylov: Function `ReduceSumSquare._get_c_func_name` centralizes the get c func name helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_get_c_func_name` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _get_c_func_name(self): return "reduce_sum_square_forward"
 
 class AveragePool(Ops):
-    # Egor Izmaylov: Function `AveragePool.__init__` initializes AveragePool, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `AveragePool` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, dilations=[1, 1], count_include_pad=0, ceil_mode=0, auto_pad="NOTSET", version="17"):
         super().__init__(inputs, outputs)
         self.kernel_shape = kernel_shape
@@ -7272,7 +7263,7 @@ class AveragePool(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CPoolParams), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `AveragePool.forward` executes the concrete runtime path for AveragePool, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `AveragePool` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         if (
             self.lib is not None
@@ -7314,13 +7305,13 @@ class AveragePool(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `AveragePool.forward_` performs shape-only inference for AveragePool, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `AveragePool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         out_shape = _pool_output_shape(x.size, self.kernel_shape, self.pads, self.strides, self.dilations, self.ceil_mode, self.auto_pad)
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class LpPool(Ops):
-    # Egor Izmaylov: Function `LpPool.__init__` initializes LpPool, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `LpPool` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, kernel_shape, pads, strides, dtype, p=2, dilations=[1, 1], ceil_mode=0, auto_pad="NOTSET", version="17"):
         super().__init__(inputs, outputs)
         self.kernel_shape = kernel_shape
@@ -7338,7 +7329,7 @@ class LpPool(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CPoolParams), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `LpPool.forward` executes the concrete runtime path for LpPool, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `LpPool` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         if (
             self.lib is not None
@@ -7378,13 +7369,13 @@ class LpPool(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `LpPool.forward_` performs shape-only inference for LpPool, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `LpPool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         out_shape = _pool_output_shape(x.size, self.kernel_shape, self.pads, self.strides, self.dilations, self.ceil_mode, self.auto_pad)
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class GlobalAveragePool(Ops):
-    # Egor Izmaylov: Function `GlobalAveragePool.__init__` initializes GlobalAveragePool, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GlobalAveragePool` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
@@ -7394,7 +7385,7 @@ class GlobalAveragePool(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)
             ]
     
-    # Egor Izmaylov: Function `GlobalAveragePool.forward` executes the concrete runtime path for GlobalAveragePool, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GlobalAveragePool` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         if len(x.size) < 2:
             raise ValueError("GlobalAveragePool expects input rank >= 2")
@@ -7413,7 +7404,7 @@ class GlobalAveragePool(Ops):
             out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `GlobalAveragePool.forward_` performs shape-only inference for GlobalAveragePool, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `GlobalAveragePool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         out_shape = list(x.size)
         for axis in range(2, len(out_shape)):
@@ -7421,7 +7412,7 @@ class GlobalAveragePool(Ops):
         return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
 
 class GlobalMaxPool(Ops):
-    # Egor Izmaylov: Function `GlobalMaxPool.__init__` initializes GlobalMaxPool, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GlobalMaxPool` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
@@ -7431,7 +7422,7 @@ class GlobalMaxPool(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)
             ]
     
-    # Egor Izmaylov: Function `GlobalMaxPool.forward` executes the concrete runtime path for GlobalMaxPool, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GlobalMaxPool` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         if len(x.size) < 2:
             raise ValueError("GlobalMaxPool expects input rank >= 2")
@@ -7450,7 +7441,7 @@ class GlobalMaxPool(Ops):
             out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `GlobalMaxPool.forward_` performs shape-only inference for GlobalMaxPool, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `GlobalMaxPool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         out_shape = list(x.size)
         for axis in range(2, len(out_shape)):
@@ -7458,7 +7449,7 @@ class GlobalMaxPool(Ops):
         return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
     
 class GlobalLpPool(Ops):
-    # Egor Izmaylov: Function `GlobalLpPool.__init__` initializes GlobalLpPool, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GlobalLpPool` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, p=2, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.p = p
@@ -7469,7 +7460,7 @@ class GlobalLpPool(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `GlobalLpPool.forward` executes the concrete runtime path for GlobalLpPool, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GlobalLpPool` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         if len(x.size) < 2:
             raise ValueError("GlobalLpPool expects input rank >= 2")
@@ -7491,7 +7482,7 @@ class GlobalLpPool(Ops):
             out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `GlobalLpPool.forward_` performs shape-only inference for GlobalLpPool, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `GlobalLpPool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         out_shape = list(x.size)
         for axis in range(2, len(out_shape)):
@@ -7499,7 +7490,7 @@ class GlobalLpPool(Ops):
         return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
 
 class Mean(Ops):
-    # Egor Izmaylov: Function `Mean.__init__` initializes Mean, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Mean` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
@@ -7510,7 +7501,7 @@ class Mean(Ops):
                 ctypes.POINTER(ctypes.POINTER(CTensor)), ctypes.c_int, ctypes.POINTER(CTensor)
             ]
 
-    # Egor Izmaylov: Function `Mean.forward` executes the concrete runtime path for Mean, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Mean` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs):
         if not inputs:
             raise ValueError("Mean requires at least one input")
@@ -7533,7 +7524,7 @@ class Mean(Ops):
             out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `Mean.forward_` performs shape-only inference for Mean, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Mean` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs):
         if not inputs:
             raise ValueError("Mean requires at least one input")
@@ -7541,7 +7532,7 @@ class Mean(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class Size(Ops):
-    # Egor Izmaylov: Function `Size.__init__` initializes Size, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Size` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="int64", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = "int64" # Size always returns int64
@@ -7552,7 +7543,7 @@ class Size(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)
             ]
 
-    # Egor Izmaylov: Function `Size.forward` executes the concrete runtime path for Size, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Size` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         if self.lib is not None and x.dtype in nn.DTYPE_MAP:
             input_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
@@ -7568,12 +7559,12 @@ class Size(Ops):
             "parameters": None,
         }
 
-    # Egor Izmaylov: Function `Size.forward_` performs shape-only inference for Size, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Size` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(dtype="int64"), "parameters": None}
     
 class IsInf(Ops):
-    # Egor Izmaylov: Function `IsInf.__init__` initializes IsInf, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `IsInf` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, detect_negative=1, detect_positive=1, dtype="bool", version="17"):
         super().__init__(inputs, outputs)
         self.detect_neg = detect_negative
@@ -7586,7 +7577,7 @@ class IsInf(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `IsInf.forward` executes the concrete runtime path for IsInf, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `IsInf` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -7596,11 +7587,11 @@ class IsInf(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `IsInf.forward_` performs shape-only inference for IsInf, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `IsInf` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class OneHot(Ops):
-    # Egor Izmaylov: Function `OneHot.__init__` initializes OneHot, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `OneHot` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=-1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -7612,7 +7603,7 @@ class OneHot(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `OneHot.forward` executes the concrete runtime path for OneHot, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `OneHot` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, indices, depth_tensor, values):
         depth = int(depth_tensor.data.item())
         if depth < 0:
@@ -7662,7 +7653,7 @@ class OneHot(Ops):
         
         return {"tensor": Tensor(*out_shape, dtype=out_dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `OneHot.forward_` performs shape-only inference for OneHot, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `OneHot` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, indices, depth_tensor, values):
         out_shape = list(indices.size)
         axis = self.axis if self.axis >= 0 else self.axis + len(out_shape) + 1
@@ -7678,7 +7669,7 @@ class OneHot(Ops):
         return {"tensor": Tensor_(*tuple(out_shape), dtype=out_dtype), "parameters": None}
 
 class Tril(Ops):
-    # Egor Izmaylov: Function `Tril.__init__` initializes Tril, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Tril` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, k=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.k = k 
@@ -7686,7 +7677,7 @@ class Tril(Ops):
         self.version = version
         if self.lib: self.lib.triangular_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int]
 
-    # Egor Izmaylov: Function `Tril.forward` executes the concrete runtime path for Tril, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Tril` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, k_tensor=None):
         k_val = self.k
         if k_tensor is not None:
@@ -7702,11 +7693,11 @@ class Tril(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `Tril.forward_` performs shape-only inference for Tril, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Tril` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, k_tensor=None): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Triu(Ops):
-    # Egor Izmaylov: Function `Triu.__init__` initializes Triu, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Triu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, k=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.k = k
@@ -7714,7 +7705,7 @@ class Triu(Ops):
         self.version = version
         if self.lib: self.lib.triangular_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int]
 
-    # Egor Izmaylov: Function `Triu.forward` executes the concrete runtime path for Triu, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Triu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, k_tensor=None):
         k_val = self.k
         if k_tensor is not None:
@@ -7730,11 +7721,11 @@ class Triu(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `Triu.forward_` performs shape-only inference for Triu, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Triu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, k_tensor=None): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Trilu(Ops):
-    # Egor Izmaylov: Function `Trilu.__init__` initializes Trilu, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Trilu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, upper=1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.upper = upper
@@ -7745,7 +7736,7 @@ class Trilu(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `Trilu.forward` executes the concrete runtime path for Trilu, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Trilu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, k_tensor=None):
         k_val = int(k_tensor.data.item()) if k_tensor is not None else 0
         if self.lib is not None and x.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
@@ -7763,34 +7754,34 @@ class Trilu(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*x.size, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `Trilu.forward_` performs shape-only inference for Trilu, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Trilu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, k_tensor=None):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Round(Ops):
-    # Egor Izmaylov: Function `Round.__init__` initializes Round, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Round` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Round.forward` executes the concrete runtime path for Round, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Round` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "round_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Round.forward_` performs shape-only inference for Round, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Round` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Erf(Ops):
-    # Egor Izmaylov: Function `Erf.__init__` initializes Erf, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Erf` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Erf.forward` executes the concrete runtime path for Erf, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Erf` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "erf_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Erf.forward_` performs shape-only inference for Erf, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Erf` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class BatchNormalization(Ops):
-    # Egor Izmaylov: Function `BatchNormalization.__init__` initializes BatchNormalization, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `BatchNormalization` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, epsilon=1e-5, momentum=0.9, training_mode=0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.epsilon = epsilon
@@ -7806,17 +7797,17 @@ class BatchNormalization(Ops):
                 ctypes.c_float
             ]
 
-    # Egor Izmaylov: Function `BatchNormalization._reshape_param` centralizes the reshape param helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_reshape_param` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _reshape_param(param, rank):
         return np.asarray(param.data).reshape((-1,) + (1,) * (rank - 2))
 
-    # Egor Izmaylov: Function `BatchNormalization._normalize` centralizes the normalize helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_normalize` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _normalize(self, x_data, scale_data, bias_data, mean_data, var_data):
         y = scale_data * (x_data - mean_data) / np.sqrt(var_data + self.epsilon) + bias_data
         return np.asarray(y, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, x_data.dtype))
 
-    # Egor Izmaylov: Function `BatchNormalization.forward` executes the concrete runtime path for BatchNormalization, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `BatchNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, scale, B, mean, var):
         x_data = np.asarray(x.data)
         rank = x_data.ndim
@@ -7875,7 +7866,7 @@ class BatchNormalization(Ops):
         selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
         return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
 
-    # Egor Izmaylov: Function `BatchNormalization.forward_` performs shape-only inference for BatchNormalization, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `BatchNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, scale, B, mean, var):
         outputs = [Tensor_(*x.size, dtype=self.dtype)]
         if self.training_mode:
@@ -7884,7 +7875,7 @@ class BatchNormalization(Ops):
         return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
 
 class InstanceNormalization(Ops):
-    # Egor Izmaylov: Function `InstanceNormalization.__init__` initializes InstanceNormalization, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `InstanceNormalization` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, epsilon=1e-5, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.epsilon = epsilon
@@ -7897,7 +7888,7 @@ class InstanceNormalization(Ops):
                 ctypes.POINTER(CTensor), ctypes.c_float
             ]
 
-    # Egor Izmaylov: Function `InstanceNormalization.forward` executes the concrete runtime path for InstanceNormalization, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `InstanceNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, scale, B):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         
@@ -7913,11 +7904,11 @@ class InstanceNormalization(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(s_c); self.lib.free_tensor(b_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `InstanceNormalization.forward_` performs shape-only inference for InstanceNormalization, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `InstanceNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, scale, B): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class LayerNormalization(Ops):
-    # Egor Izmaylov: Function `LayerNormalization.__init__` initializes LayerNormalization, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `LayerNormalization` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=-1, epsilon=1e-5, stash_type=1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -7933,7 +7924,7 @@ class LayerNormalization(Ops):
                 ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_float
             ]
 
-    # Egor Izmaylov: Function `LayerNormalization.forward` executes the concrete runtime path for LayerNormalization, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `LayerNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, scale=None, B=None):
         x_data = np.asarray(x.data)
         rank = x_data.ndim
@@ -7990,7 +7981,7 @@ class LayerNormalization(Ops):
         selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
         return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
 
-    # Egor Izmaylov: Function `LayerNormalization.forward_` performs shape-only inference for LayerNormalization, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `LayerNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, scale=None, B=None):
         rank = len(x.size)
         axis = self.axis if self.axis >= 0 else self.axis + rank
@@ -8005,14 +7996,14 @@ class LayerNormalization(Ops):
         selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
         return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
 
-# Egor Izmaylov: Function `_window_output_shape` centralizes the window output shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_window_output_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _window_output_shape(size):
     if hasattr(size, "data") and size.data is not None:
         return (int(np.asarray(size.data).item()),)
     return (1,)
 
 
-# Egor Izmaylov: Function `_float32_to_bfloat16_bits` centralizes the float32 to bfloat16 bits helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_float32_to_bfloat16_bits` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _float32_to_bfloat16_bits(values):
     data = np.asarray(values, dtype=np.float32)
     bits = data.view(np.uint32)
@@ -8024,14 +8015,14 @@ def _float32_to_bfloat16_bits(values):
     return (rounded >> 16).astype(np.uint16)
 
 
-# Egor Izmaylov: Function `_cast_window_output` centralizes the cast window output helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_cast_window_output` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _cast_window_output(values, dtype):
     if dtype == "bfloat16":
         return _float32_to_bfloat16_bits(values)
     return np.asarray(values, dtype=nn.DTYPE_TO_NUMPY.get(dtype, np.float32))
 
 
-# Egor Izmaylov: Function `_window_values` centralizes the window values helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_window_values` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _window_values(size, periodic, dtype, kind):
     length = int(np.asarray(size.data).item())
     if length < 0:
@@ -8055,7 +8046,7 @@ def _window_values(size, periodic, dtype, kind):
     return _cast_window_output(values, dtype)
 
 
-# Egor Izmaylov: Function `_window_values_c_first` centralizes the window values c first helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_window_values_c_first` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _window_values_c_first(op, size, c_func_name, kind):
     length = int(np.asarray(size.data).item())
     if length < 0:
@@ -8074,7 +8065,7 @@ def _window_values_c_first(op, size, c_func_name, kind):
 
 
 class HannWindow(Ops):
-    # Egor Izmaylov: Function `HannWindow.__init__` initializes HannWindow, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `HannWindow` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, periodic=1, output_datatype=1, version="17"):
         super().__init__(inputs, outputs)
         self.periodic = periodic
@@ -8083,18 +8074,18 @@ class HannWindow(Ops):
         if self.lib:
             self.lib.hann_window_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int]
 
-    # Egor Izmaylov: Function `HannWindow.forward` executes the concrete runtime path for HannWindow, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `HannWindow` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, size):
         out_data = _window_values_c_first(self, size, "hann_window_forward", "hann")
         out_shape = out_data.shape
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `HannWindow.forward_` performs shape-only inference for HannWindow, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `HannWindow` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, size):
         return {"tensor": Tensor_(*_window_output_shape(size), dtype=self.dtype), "parameters": None}
 
 class HammingWindow(Ops):
-    # Egor Izmaylov: Function `HammingWindow.__init__` initializes HammingWindow, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `HammingWindow` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, periodic=1, output_datatype=1, version="17"):
         super().__init__(inputs, outputs)
         self.periodic = periodic
@@ -8103,18 +8094,18 @@ class HammingWindow(Ops):
         if self.lib:
             self.lib.hamming_window_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int]
 
-    # Egor Izmaylov: Function `HammingWindow.forward` executes the concrete runtime path for HammingWindow, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `HammingWindow` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, size):
         out_data = _window_values_c_first(self, size, "hamming_window_forward", "hamming")
         out_shape = out_data.shape
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `HammingWindow.forward_` performs shape-only inference for HammingWindow, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `HammingWindow` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, size):
         return {"tensor": Tensor_(*_window_output_shape(size), dtype=self.dtype), "parameters": None}
 
 class BlackmanWindow(Ops):
-    # Egor Izmaylov: Function `BlackmanWindow.__init__` initializes BlackmanWindow, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `BlackmanWindow` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, periodic=1, output_datatype=1, version="17"):
         super().__init__(inputs, outputs)
         self.periodic = periodic
@@ -8123,18 +8114,18 @@ class BlackmanWindow(Ops):
         if self.lib:
             self.lib.blackman_window_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int]
 
-    # Egor Izmaylov: Function `BlackmanWindow.forward` executes the concrete runtime path for BlackmanWindow, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `BlackmanWindow` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, size):
         out_data = _window_values_c_first(self, size, "blackman_window_forward", "blackman")
         out_shape = out_data.shape
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `BlackmanWindow.forward_` performs shape-only inference for BlackmanWindow, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `BlackmanWindow` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, size):
         return {"tensor": Tensor_(*_window_output_shape(size), dtype=self.dtype), "parameters": None}
 
 class RandomNormal(Ops):
-    # Egor Izmaylov: Function `RandomNormal.__init__` initializes RandomNormal, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `RandomNormal` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, mean=0.0, scale=1.0, seed=0.0, dtype=1, shape=None, version="17"):
         super().__init__(inputs, outputs)
         self.mean = mean
@@ -8146,7 +8137,7 @@ class RandomNormal(Ops):
         if self.lib:
             self.lib.random_normal_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_float, ctypes.c_float]
 
-    # Egor Izmaylov: Function `RandomNormal.forward` executes the concrete runtime path for RandomNormal, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `RandomNormal` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self):
         # Shape 必须是初始化属性
         if self.shape_val is None:
@@ -8162,13 +8153,13 @@ class RandomNormal(Ops):
         self.lib.free_tensor(output_c)
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `RandomNormal.forward_` performs shape-only inference for RandomNormal, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `RandomNormal` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self):
         out_shape = tuple(self.shape_val) if self.shape_val is not None else (1,)
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class RandomNormalLike(Ops):
-    # Egor Izmaylov: Function `RandomNormalLike.__init__` initializes RandomNormalLike, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `RandomNormalLike` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, mean=0.0, scale=1.0, seed=0.0, dtype=None, version="17"):
         super().__init__(inputs, outputs)
         self.mean = mean
@@ -8179,7 +8170,7 @@ class RandomNormalLike(Ops):
         if self.lib:
             self.lib.random_normal_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_float, ctypes.c_float]
 
-    # Egor Izmaylov: Function `RandomNormalLike.forward` executes the concrete runtime path for RandomNormalLike, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `RandomNormalLike` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         target_dtype = self.dtype if self.dtype else input.dtype
         out_shape = input.size
@@ -8193,13 +8184,13 @@ class RandomNormalLike(Ops):
         self.lib.free_tensor(output_c)
         return {"tensor": Tensor(*out_shape, dtype=target_dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `RandomNormalLike.forward_` performs shape-only inference for RandomNormalLike, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `RandomNormalLike` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         target_dtype = self.dtype if self.dtype else input.dtype
         return {"tensor": Tensor_(*input.size, dtype=target_dtype), "parameters": None}
 
 class Bernoulli(Ops):
-    # Egor Izmaylov: Function `Bernoulli.__init__` initializes Bernoulli, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Bernoulli` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, seed=0.0, dtype=None, version="17"):
         super().__init__(inputs, outputs)
         self.seed = seed
@@ -8208,7 +8199,7 @@ class Bernoulli(Ops):
         if self.lib:
             self.lib.bernoulli_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
 
-    # Egor Izmaylov: Function `Bernoulli.forward` executes the concrete runtime path for Bernoulli, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Bernoulli` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         target_dtype = self.dtype if self.dtype else input.dtype
         out_shape = input.size
@@ -8230,13 +8221,13 @@ class Bernoulli(Ops):
         self.lib.free_tensor(input_c); self.lib.free_tensor(output_c)
         return {"tensor": Tensor(*out_shape, dtype=target_dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `Bernoulli.forward_` performs shape-only inference for Bernoulli, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Bernoulli` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         target_dtype = self.dtype if self.dtype else input.dtype
         return {"tensor": Tensor_(*input.size, dtype=target_dtype), "parameters": None}
 
 class Dropout(Ops):
-    # Egor Izmaylov: Function `Dropout.__init__` initializes Dropout, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Dropout` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, seed=None, ratio=0.5, training_mode=0, version="17"):
         super().__init__(inputs, outputs)
         self.seed = seed
@@ -8246,7 +8237,7 @@ class Dropout(Ops):
         if self.lib:
             self.lib.dropout_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_int]
 
-    # Egor Izmaylov: Function `Dropout.forward` executes the concrete runtime path for Dropout, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Dropout` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data, ratio=None, training_mode=None):
         r = float(self.default_ratio)
         if ratio is not None:
@@ -8285,7 +8276,7 @@ class Dropout(Ops):
             return {"tensor": (output_tensor, mask_tensor), "parameters": None}
         return {"tensor": output_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `Dropout.forward_` performs shape-only inference for Dropout, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Dropout` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data, ratio=None, training_mode=None):
         output_tensor = Tensor_(*data.size, dtype=data.dtype)
         if len(self.outputs) > 1 and self.outputs[1]:
@@ -8293,29 +8284,29 @@ class Dropout(Ops):
         return {"tensor": output_tensor, "parameters": None}
 
 class Gelu(Ops):
-    # Egor Izmaylov: Function `Gelu.__init__` initializes Gelu, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Gelu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Gelu.forward` executes the concrete runtime path for Gelu, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Gelu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "gelu_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Gelu.forward_` performs shape-only inference for Gelu, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Gelu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Mish(Ops):
-    # Egor Izmaylov: Function `Mish.__init__` initializes Mish, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Mish` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
         self.version = version
-    # Egor Izmaylov: Function `Mish.forward` executes the concrete runtime path for Mish, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Mish` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x): return {"tensor": self._execute_unary(x, "mish_forward"), "parameters": None}
-    # Egor Izmaylov: Function `Mish.forward_` performs shape-only inference for Mish, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Mish` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class Hardmax(Ops):
-    # Egor Izmaylov: Function `Hardmax.__init__` initializes Hardmax, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Hardmax` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=-1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -8324,7 +8315,7 @@ class Hardmax(Ops):
         if self.lib:
             self.lib.hardmax_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int]
 
-    # Egor Izmaylov: Function `Hardmax.forward` executes the concrete runtime path for Hardmax, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Hardmax` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         out_tensor = Tensor(*input.size, dtype=self.dtype)
         input_c = self._numpy_to_ctensor(input.data, input.dtype)
@@ -8336,12 +8327,12 @@ class Hardmax(Ops):
         self.lib.free_tensor(input_c); self.lib.free_tensor(output_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `Hardmax.forward_` performs shape-only inference for Hardmax, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Hardmax` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         return {"tensor": Tensor_(*input.size, dtype=self.dtype), "parameters": None}
 
 class LogSoftmax(Ops):
-    # Egor Izmaylov: Function `LogSoftmax.__init__` initializes LogSoftmax, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `LogSoftmax` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=-1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -8350,7 +8341,7 @@ class LogSoftmax(Ops):
         if self.lib:
             self.lib.log_softmax_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int]
 
-    # Egor Izmaylov: Function `LogSoftmax.forward` executes the concrete runtime path for LogSoftmax, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `LogSoftmax` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         out_tensor = Tensor(*input.size, dtype=self.dtype)
         input_c = self._numpy_to_ctensor(input.data, input.dtype)
@@ -8362,12 +8353,12 @@ class LogSoftmax(Ops):
         self.lib.free_tensor(input_c); self.lib.free_tensor(output_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `LogSoftmax.forward_` performs shape-only inference for LogSoftmax, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `LogSoftmax` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         return {"tensor": Tensor_(*input.size, dtype=self.dtype), "parameters": None}
 
 class LpNormalization(Ops):
-    # Egor Izmaylov: Function `LpNormalization.__init__` initializes LpNormalization, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `LpNormalization` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=-1, p=2, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -8377,7 +8368,7 @@ class LpNormalization(Ops):
         if self.lib:
             self.lib.lp_normalization_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int]
 
-    # Egor Izmaylov: Function `LpNormalization.forward` executes the concrete runtime path for LpNormalization, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `LpNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         axis = self.axis if self.axis >= 0 else self.axis + len(input.size)
         if axis < 0 or axis >= len(input.size):
@@ -8399,12 +8390,12 @@ class LpNormalization(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `LpNormalization.forward_` performs shape-only inference for LpNormalization, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `LpNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         return {"tensor": Tensor_(*input.size, dtype=self.dtype), "parameters": None}
 
 class DepthToSpace(Ops):
-    # Egor Izmaylov: Function `DepthToSpace.__init__` initializes DepthToSpace, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `DepthToSpace` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, blocksize, mode="DCR", dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.blocksize = blocksize
@@ -8417,7 +8408,7 @@ class DepthToSpace(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `DepthToSpace.forward` executes the concrete runtime path for DepthToSpace, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `DepthToSpace` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         N, C, H, W = input.size
         bs = self.blocksize
@@ -8440,7 +8431,7 @@ class DepthToSpace(Ops):
         self.lib.free_tensor(in_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `DepthToSpace.forward_` performs shape-only inference for DepthToSpace, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `DepthToSpace` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         N, C, H, W = input.size
         bs = self.blocksize
@@ -8449,7 +8440,7 @@ class DepthToSpace(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class SpaceToDepth(Ops):
-    # Egor Izmaylov: Function `SpaceToDepth.__init__` initializes SpaceToDepth, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SpaceToDepth` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, blocksize, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.blocksize = blocksize
@@ -8460,7 +8451,7 @@ class SpaceToDepth(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `SpaceToDepth.forward` executes the concrete runtime path for SpaceToDepth, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SpaceToDepth` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
         N, C, H, W = input.size
         bs = self.blocksize
@@ -8483,7 +8474,7 @@ class SpaceToDepth(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype))
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `SpaceToDepth.forward_` performs shape-only inference for SpaceToDepth, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SpaceToDepth` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
         N, C, H, W = input.size
         bs = self.blocksize
@@ -8491,7 +8482,7 @@ class SpaceToDepth(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 class ReverseSequence(Ops):
-    # Egor Izmaylov: Function `ReverseSequence.__init__` initializes ReverseSequence, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ReverseSequence` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, time_axis=0, batch_axis=1, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.time_axis = time_axis
@@ -8504,7 +8495,7 @@ class ReverseSequence(Ops):
                 ctypes.c_int, ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `ReverseSequence.forward` executes the concrete runtime path for ReverseSequence, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ReverseSequence` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input, sequence_lens):
         out_tensor = Tensor(*input.size, dtype=self.dtype)
         
@@ -8518,12 +8509,12 @@ class ReverseSequence(Ops):
         self.lib.free_tensor(in_c); self.lib.free_tensor(seq_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `ReverseSequence.forward_` performs shape-only inference for ReverseSequence, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ReverseSequence` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input, sequence_lens):
         return {"tensor": Tensor_(*input.size, dtype=self.dtype), "parameters": None}
 
 class Compress(Ops):
-    # Egor Izmaylov: Function `Compress.__init__` initializes Compress, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Compress` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=None, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -8534,7 +8525,7 @@ class Compress(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `Compress.forward` executes the concrete runtime path for Compress, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Compress` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input, condition):
         cond = np.asarray(condition.data).astype(bool).reshape(-1)
         if self.axis is None:
@@ -8569,7 +8560,7 @@ class Compress(Ops):
         out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `Compress.forward_` performs shape-only inference for Compress, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Compress` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input, condition):
         if condition is not None and hasattr(condition, "data") and condition.data is not None:
             num_kept = int(np.count_nonzero(condition.data))
@@ -8583,7 +8574,7 @@ class Compress(Ops):
         return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
 
 class ScatterElements(Ops):
-    # Egor Izmaylov: Function `ScatterElements.__init__` initializes ScatterElements, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `ScatterElements` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=0, reduction="none", dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
@@ -8596,7 +8587,7 @@ class ScatterElements(Ops):
                 ctypes.c_int, ctypes.c_int
             ]
 
-    # Egor Izmaylov: Function `ScatterElements.forward` executes the concrete runtime path for ScatterElements, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `ScatterElements` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data, indices, updates):
         out_tensor = Tensor(*data.size, dtype=self.dtype, data=data.data.copy())
         
@@ -8610,12 +8601,12 @@ class ScatterElements(Ops):
         self.lib.free_tensor(d_c); self.lib.free_tensor(i_c); self.lib.free_tensor(u_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `ScatterElements.forward_` performs shape-only inference for ScatterElements, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `ScatterElements` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, data, indices, updates):
         return {"tensor": Tensor_(*data.size, dtype=self.dtype), "parameters": None}
 
 class GroupNormalization(Ops):
-    # Egor Izmaylov: Function `GroupNormalization.__init__` initializes GroupNormalization, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `GroupNormalization` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, num_groups, epsilon=1e-5, dtype="float32", version="18"):
         super().__init__(inputs, outputs)
         self.num_groups = num_groups
@@ -8628,7 +8619,7 @@ class GroupNormalization(Ops):
                 ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_float
             ]
 
-    # Egor Izmaylov: Function `GroupNormalization.forward` executes the concrete runtime path for GroupNormalization, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `GroupNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, scale, bias):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         
@@ -8643,12 +8634,12 @@ class GroupNormalization(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(s_c); self.lib.free_tensor(b_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `GroupNormalization.forward_` performs shape-only inference for GroupNormalization, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `GroupNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, scale, bias):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class StringNormalizer(Ops):
-    # Egor Izmaylov: Function `StringNormalizer.__init__` initializes StringNormalizer, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `StringNormalizer` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -8667,7 +8658,7 @@ class StringNormalizer(Ops):
         self.dtype = "string"
         self.version = version
 
-    # Egor Izmaylov: Function `StringNormalizer._strip_accents` centralizes the strip accents helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_strip_accents` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _strip_accents(text):
         try:
@@ -8677,12 +8668,12 @@ class StringNormalizer(Ops):
             normalized = unicodedata.normalize("NFKD", text)
             return "".join(ch for ch in normalized if not unicodedata.combining(ch))
 
-    # Egor Izmaylov: Function `StringNormalizer._remove_stopwords` centralizes the remove stopwords helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_remove_stopwords` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _remove_stopwords(text, stops):
         return " ".join(token for token in text.split(" ") if token not in stops)
 
-    # Egor Izmaylov: Function `StringNormalizer._normalize_text` centralizes the normalize text helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_normalize_text` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _normalize_text(self, value):
         if isinstance(value, float) and np.isnan(value):
             return ""
@@ -8707,7 +8698,7 @@ class StringNormalizer(Ops):
             text = self._remove_stopwords(text, stops)
         return text
 
-    # Egor Izmaylov: Function `StringNormalizer.forward` executes the concrete runtime path for StringNormalizer, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `StringNormalizer` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         data = np.asarray(x.data, dtype=np.str_)
         if data.ndim == 1:
@@ -8726,14 +8717,14 @@ class StringNormalizer(Ops):
             raise ValueError(f"StringNormalizer expects shape [C] or [1, C], got {x.size}")
         return {"tensor": Tensor(*out_data.shape, dtype="string", data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `StringNormalizer.forward_` performs shape-only inference for StringNormalizer, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `StringNormalizer` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         if isinstance(x, Tensor):
             return {"tensor": Tensor_(*self.forward(x)["tensor"].size, dtype="string"), "parameters": None}
         return {"tensor": Tensor_(*x.size, dtype="string"), "parameters": None}
 
 class TfIdfVectorizer(Ops):
-    # Egor Izmaylov: Function `TfIdfVectorizer.__init__` initializes TfIdfVectorizer, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `TfIdfVectorizer` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -8764,7 +8755,7 @@ class TfIdfVectorizer(Ops):
         self._ngram_map = self._build_ngram_map()
         self.output_size = max(self.ngram_indexes) + 1 if self.ngram_indexes else 0
 
-    # Egor Izmaylov: Function `TfIdfVectorizer._build_ngram_map` centralizes the build ngram map helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_build_ngram_map` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _build_ngram_map(self):
         pool = self.pool_strings if self.pool_strings else self.pool_int64s
         ngram_map = {}
@@ -8782,7 +8773,7 @@ class TfIdfVectorizer(Ops):
                 ngram_id += 1
         return ngram_map
 
-    # Egor Izmaylov: Function `TfIdfVectorizer._rows` centralizes the rows helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_rows` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _rows(self, data):
         if data.ndim == 0:
             return [data.reshape(1)], False
@@ -8794,7 +8785,7 @@ class TfIdfVectorizer(Ops):
             return [data[i] for i in range(data.shape[0])], True
         raise ValueError(f"TfIdfVectorizer expects scalar, 1-D, or 2-D input, got shape {data.shape}")
 
-    # Egor Izmaylov: Function `TfIdfVectorizer._count_row` centralizes the count row helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_count_row` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _count_row(self, row):
         counts = np.zeros((self.output_size,), dtype=np.float32)
         if self.output_size == 0:
@@ -8816,7 +8807,7 @@ class TfIdfVectorizer(Ops):
                         counts[out_idx] += 1.0
         return counts
 
-    # Egor Izmaylov: Function `TfIdfVectorizer._apply_mode` centralizes the apply mode helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_apply_mode` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _apply_mode(self, counts):
         mode = self.mode.upper()
         if mode == "TF":
@@ -8833,7 +8824,7 @@ class TfIdfVectorizer(Ops):
             return counts
         raise ValueError(f"Unsupported TfIdfVectorizer mode {self.mode!r}")
 
-    # Egor Izmaylov: Function `TfIdfVectorizer.forward` executes the concrete runtime path for TfIdfVectorizer, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `TfIdfVectorizer` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         data = np.asarray(x.data)
         rows, batched = self._rows(data)
@@ -8843,7 +8834,7 @@ class TfIdfVectorizer(Ops):
             out_data = out_data.reshape((self.output_size,))
         return {"tensor": Tensor(*out_data.shape, dtype="float32", data=out_data), "parameters": None}
 
-    # Egor Izmaylov: Function `TfIdfVectorizer.forward_` performs shape-only inference for TfIdfVectorizer, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `TfIdfVectorizer` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         if len(x.size) == 2:
             out_shape = (x.size[0], self.output_size)
@@ -8851,19 +8842,19 @@ class TfIdfVectorizer(Ops):
             out_shape = (self.output_size,)
         return {"tensor": Tensor_(*out_shape, dtype="float32"), "parameters": None}
 
-# Egor Izmaylov: Function `_numpy_dtype_to_tensor_dtype` centralizes the numpy dtype to tensor dtype helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_numpy_dtype_to_tensor_dtype` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _numpy_dtype_to_tensor_dtype(array):
     return nn.NUMPY_TO_DTYPE.get(array.dtype.type, "float32")
 
 
-# Egor Izmaylov: Function `_tensor_from_numpy` centralizes the tensor from numpy helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_tensor_from_numpy` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _tensor_from_numpy(array):
     array = np.asarray(array)
     dtype = _numpy_dtype_to_tensor_dtype(array)
     return Tensor(*array.shape, dtype=dtype, data=array)
 
 
-# Egor Izmaylov: Function `_tensor_to_numpy` centralizes the tensor to numpy helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_tensor_to_numpy` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _tensor_to_numpy(value):
     if isinstance(value, Tensor):
         return value.data
@@ -8872,14 +8863,14 @@ def _tensor_to_numpy(value):
     return np.asarray(value)
 
 
-# Egor Izmaylov: Function `_reference_feed_value` centralizes the reference feed value helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_reference_feed_value` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _reference_feed_value(value):
     if isinstance(value, (list, tuple)):
         return [_reference_feed_value(item) for item in value]
     return _tensor_to_numpy(value)
 
 
-# Egor Izmaylov: Function `_graph_local_value_names` centralizes the graph local value names helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_graph_local_value_names` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _graph_local_value_names(graph_proto):
     names = {value.name for value in graph_proto.input if value.name}
     names.update(value.name for value in graph_proto.initializer if value.name)
@@ -8887,7 +8878,7 @@ def _graph_local_value_names(graph_proto):
     return names
 
 
-# Egor Izmaylov: Function `_graph_external_names` centralizes the graph external names helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_graph_external_names` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _graph_external_names(graph_proto):
     local_names = _graph_local_value_names(graph_proto)
     used_names = {value for node in graph_proto.node for value in node.input if value}
@@ -8905,7 +8896,7 @@ def _graph_external_names(graph_proto):
     return {name for name in used_names if name not in local_names}
 
 
-# Egor Izmaylov: Function `_graph_value_shape` centralizes the graph value shape helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_graph_value_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _graph_value_shape(value_info):
     tensor_type = value_info.type.tensor_type
     dtype = nn.onnx_dtype_mapping.get(tensor_type.elem_type, "float32")
@@ -8915,7 +8906,7 @@ def _graph_value_shape(value_info):
     return Tensor_(*dims, dtype=dtype)
 
 
-# Egor Izmaylov: Function `_run_graph_proto` centralizes the run graph proto helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+# 封装 `_run_graph_proto` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _run_graph_proto(graph_proto, feeds, outer_scope=None):
     from onnx import helper
     from onnx.reference import ReferenceEvaluator
@@ -8944,7 +8935,7 @@ def _run_graph_proto(graph_proto, feeds, outer_scope=None):
 
 
 class If(Ops):
-    # Egor Izmaylov: Function `If.__init__` initializes If, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `If` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, then_branch, else_branch, version="17"):
         super().__init__(inputs, outputs)
         self.then_branch = then_branch
@@ -8954,18 +8945,18 @@ class If(Ops):
             _graph_external_names(then_branch) | _graph_external_names(else_branch)
         )
 
-    # Egor Izmaylov: Function `If.forward` executes the concrete runtime path for If, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `If` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, cond):
         return self.forward_with_context(None, cond)
 
-    # Egor Izmaylov: Function `If.forward_with_context` runs control-flow graph bodies for If with an outer-scope feed dictionary so subgraphs can resolve captured values.
+    # 在外层作用域上下文中执行 `If` 的子图逻辑，用于控制流算子解析捕获值。
     def forward_with_context(self, outer_scope, cond):
         condition = bool(np.asarray(cond.data).item())
         graph = self.then_branch if condition else self.else_branch
         outputs = tuple(_tensor_from_numpy(value) for value in _run_graph_proto(graph, {}, outer_scope))
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
-    # Egor Izmaylov: Function `If.forward_` performs shape-only inference for If, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `If` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, cond):
         graph = self.then_branch
         outputs = tuple(_graph_value_shape(value_info) for value_info in graph.output)
@@ -8973,32 +8964,32 @@ class If(Ops):
 
 
 class Loop(Ops):
-    # Egor Izmaylov: Function `Loop.__init__` initializes Loop, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Loop` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, body, version="17"):
         super().__init__(inputs, outputs)
         self.body = body
         self.version = version
         self.outer_scope_names = sorted(_graph_external_names(body))
 
-    # Egor Izmaylov: Function `Loop._trip_count` centralizes the trip count helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_trip_count` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _trip_count(m):
         if m is None:
             return None
         return int(np.asarray(m.data).item())
 
-    # Egor Izmaylov: Function `Loop._condition` centralizes the condition helper logic for the ONNX operator runtime and shape-inference layer, so edge-case normalization stays in one implementation boundary.
+    # 封装 `_condition` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _condition(cond):
         if cond is None:
             return True
         return bool(np.asarray(cond.data).item())
 
-    # Egor Izmaylov: Function `Loop.forward` executes the concrete runtime path for Loop, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Loop` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, m=None, cond=None, *loop_vars):
         return self.forward_with_context(None, m, cond, *loop_vars)
 
-    # Egor Izmaylov: Function `Loop.forward_with_context` runs control-flow graph bodies for Loop with an outer-scope feed dictionary so subgraphs can resolve captured values.
+    # 在外层作用域上下文中执行 `Loop` 的子图逻辑，用于控制流算子解析捕获值。
     def forward_with_context(self, outer_scope, m=None, cond=None, *loop_vars):
         trip_count = self._trip_count(m)
         condition = self._condition(cond)
@@ -9042,7 +9033,7 @@ class Loop(Ops):
         outputs = tuple(_tensor_from_numpy(value) for value in final_values + stacked_scan)
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
-    # Egor Izmaylov: Function `Loop.forward_` performs shape-only inference for Loop, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Loop` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, m=None, cond=None, *loop_vars):
         outputs = []
         state_count = max(0, len(self.body.input) - 2)
@@ -9055,7 +9046,7 @@ class Loop(Ops):
 
 
 class Scan(Ops):
-    # Egor Izmaylov: Function `Scan.__init__` initializes Scan, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Scan` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
         self,
         inputs,
@@ -9078,11 +9069,11 @@ class Scan(Ops):
         self.version = version
         self.outer_scope_names = sorted(_graph_external_names(body))
 
-    # Egor Izmaylov: Function `Scan.forward` executes the concrete runtime path for Scan, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Scan` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs):
         return self.forward_with_context(None, *inputs)
 
-    # Egor Izmaylov: Function `Scan.forward_with_context` runs control-flow graph bodies for Scan with an outer-scope feed dictionary so subgraphs can resolve captured values.
+    # 在外层作用域上下文中执行 `Scan` 的子图逻辑，用于控制流算子解析捕获值。
     def forward_with_context(self, outer_scope, *inputs):
         num_states = len(inputs) - self.num_scan_inputs
         states = [_tensor_to_numpy(value) for value in inputs[:num_states]]
@@ -9113,7 +9104,7 @@ class Scan(Ops):
         outputs = tuple(_tensor_from_numpy(value) for value in states + scan_outputs)
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
-    # Egor Izmaylov: Function `Scan.forward_` performs shape-only inference for Scan, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Scan` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs):
         num_states = len(inputs) - self.num_scan_inputs
         outputs = []
@@ -9132,18 +9123,18 @@ class Scan(Ops):
 
 
 class SequenceMap(Ops):
-    # Egor Izmaylov: Function `SequenceMap.__init__` initializes SequenceMap, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SequenceMap` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, body, version="17"):
         super().__init__(inputs, outputs)
         self.body = body
         self.version = version
         self.outer_scope_names = sorted(_graph_external_names(body))
 
-    # Egor Izmaylov: Function `SequenceMap.forward` executes the concrete runtime path for SequenceMap, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SequenceMap` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_sequence, *additional_inputs):
         return self.forward_with_context(None, input_sequence, *additional_inputs)
 
-    # Egor Izmaylov: Function `SequenceMap.forward_with_context` runs control-flow graph bodies for SequenceMap with an outer-scope feed dictionary so subgraphs can resolve captured values.
+    # 在外层作用域上下文中执行 `SequenceMap` 的子图逻辑，用于控制流算子解析捕获值。
     def forward_with_context(self, outer_scope, input_sequence, *additional_inputs):
         body_inputs = [value.name for value in self.body.input]
         collected = None
@@ -9159,13 +9150,13 @@ class SequenceMap(Ops):
         outputs = tuple(collected or [])
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
-    # Egor Izmaylov: Function `SequenceMap.forward_` performs shape-only inference for SequenceMap, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SequenceMap` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, *additional_inputs):
         outputs = tuple([] for _ in self.body.output)
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
 class Binarizer(Ops):
-    # Egor Izmaylov: Function `Binarizer.__init__` initializes Binarizer, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `Binarizer` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, threshold=0.0, dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.threshold = threshold
@@ -9174,7 +9165,7 @@ class Binarizer(Ops):
         if self.lib:
             self.lib.binarizer_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]
 
-    # Egor Izmaylov: Function `Binarizer.forward` executes the concrete runtime path for Binarizer, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `Binarizer` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         out_tensor = Tensor(*x.size, dtype=self.dtype)
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
@@ -9186,12 +9177,12 @@ class Binarizer(Ops):
         self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
         return {"tensor": out_tensor, "parameters": None}
 
-    # Egor Izmaylov: Function `Binarizer.forward_` performs shape-only inference for Binarizer, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `Binarizer` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 class DynamicQuantizeLinear(Ops):
-    # Egor Izmaylov: Function `DynamicQuantizeLinear.__init__` initializes DynamicQuantizeLinear, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `DynamicQuantizeLinear` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="uint8", version="17"):
         super().__init__(inputs, outputs)
         self.dtype = "uint8"
@@ -9202,7 +9193,7 @@ class DynamicQuantizeLinear(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)
             ]
 
-    # Egor Izmaylov: Function `DynamicQuantizeLinear.forward` executes the concrete runtime path for DynamicQuantizeLinear, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `DynamicQuantizeLinear` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         # Outputs: y (uint8), y_scale (float), y_zp (uint8)
         y = Tensor(*x.size, dtype="uint8")
@@ -9224,7 +9215,7 @@ class DynamicQuantizeLinear(Ops):
         
         return {"tensor": [y, y_scale, y_zp], "parameters": None}
 
-    # Egor Izmaylov: Function `DynamicQuantizeLinear.forward_` performs shape-only inference for DynamicQuantizeLinear, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `DynamicQuantizeLinear` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {
             "tensor": [Tensor_(*x.size, dtype="uint8"), Tensor_(1, dtype="float32"), Tensor_(1, dtype="uint8")],

@@ -1,24 +1,30 @@
+/*
+ * 文件功能：提供 quantize linear 算子的 CUDA 参考验证程序，供数值正确性脚本与 C 后端结果对比。
+ * 作者：Egor Izmaylov
+ * 时间：2026-06-02
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
 #include <math.h>
 
 // 升级: 所有指针和计算改为 double
-// Egor Izmaylov: Function `saturate_cast_int8` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
+// 实现 `saturate_cast_int8` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
 __device__ double saturate_cast_int8(double val) {
     if (val > 127.0) return 127.0;
     if (val < -128.0) return -128.0;
     return val;
 }
 
-// Egor Izmaylov: Function `saturate_cast_uint8` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
+// 实现 `saturate_cast_uint8` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
 __device__ double saturate_cast_uint8(double val) {
     if (val > 255.0) return 255.0;
     if (val < 0.0) return 0.0;
     return val;
 }
 
-// Egor Izmaylov: Function `quantize_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
+// 实现 `quantize_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void quantize_kernel(const double* x, const double* scale, const double* zp, double* out, size_t n, int is_signed) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
@@ -34,7 +40,7 @@ __global__ void quantize_kernel(const double* x, const double* scale, const doub
     }
 }
 
-// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
+// 作为 CUDA 验证程序入口，从二进制文件读取输入、执行参考计算并写回结果。
 int main(int argc, char** argv) {
     if (argc < 7) return 1; 
     size_t n = atol(argv[1]);

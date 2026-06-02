@@ -1,3 +1,8 @@
+"""文件功能：审计 ONNX 算子覆盖情况，汇总导入支持、运行路径、C 后端和 CUDA 验证状态。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -138,12 +143,12 @@ DEFERRED_DEEP_SEMANTIC_AUDIT = {
 }
 
 
-# Egor Izmaylov: Function `normalize_name` implements the normalize name step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `normalize_name` 步骤，规范化输入并返回下游期望的数据或元信息。
 def normalize_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", name).upper()
 
 
-# Egor Izmaylov: Function `to_snake` implements the to snake step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `to_snake` 步骤，规范化输入并返回下游期望的数据或元信息。
 def to_snake(name: str) -> str:
     if name.isupper():
         return name.lower()
@@ -152,7 +157,7 @@ def to_snake(name: str) -> str:
     return s2.lower()
 
 
-# Egor Izmaylov: Function `aliases_for` implements the aliases for step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `aliases_for` 步骤，规范化输入并返回下游期望的数据或元信息。
 def aliases_for(class_name: str) -> set[str]:
     snake = to_snake(class_name)
     aliases = {snake, snake.replace("_", ""), class_name.lower()}
@@ -160,7 +165,7 @@ def aliases_for(class_name: str) -> set[str]:
     return aliases
 
 
-# Egor Izmaylov: Function `base_names` implements the base names step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `base_names` 步骤，规范化输入并返回下游期望的数据或元信息。
 def base_names(node: ast.ClassDef) -> tuple[str, ...]:
     names = []
     for base in node.bases:
@@ -171,7 +176,7 @@ def base_names(node: ast.ClassDef) -> tuple[str, ...]:
     return tuple(names)
 
 
-# Egor Izmaylov: Function `parse_operator_classes` implements the parse operator classes step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `parse_operator_classes` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_operator_classes() -> dict[str, dict]:
     source = (ROOT / "nn" / "Operators.py").read_text(encoding="utf-8")
     module = ast.parse(source)
@@ -184,7 +189,7 @@ def parse_operator_classes() -> dict[str, dict]:
         class_nodes[node.name] = node
         method_map[node.name] = {item.name: item for item in node.body if isinstance(item, ast.FunctionDef)}
 
-    # Egor Izmaylov: Function `parse_operator_classes.has_method` implements the has method step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+    # 实现 `has_method` 步骤，规范化输入并返回下游期望的数据或元信息。
     def has_method(class_name: str, method_name: str) -> bool:
         if method_name in method_map.get(class_name, {}):
             return True
@@ -193,7 +198,7 @@ def parse_operator_classes() -> dict[str, dict]:
                 return True
         return False
 
-    # Egor Izmaylov: Function `parse_operator_classes.resolve_method_node` implements the resolve method node step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+    # 实现 `resolve_method_node` 步骤，规范化输入并返回下游期望的数据或元信息。
     def resolve_method_node(class_name: str, method_name: str) -> ast.FunctionDef | None:
         if method_name in method_map.get(class_name, {}):
             return method_map[class_name][method_name]
@@ -204,12 +209,12 @@ def parse_operator_classes() -> dict[str, dict]:
                     return node
         return None
 
-    # Egor Izmaylov: Function `parse_operator_classes.collect_runtime_method_nodes` implements the collect runtime method nodes step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+    # 实现 `collect_runtime_method_nodes` 步骤，规范化输入并返回下游期望的数据或元信息。
     def collect_runtime_method_nodes(class_name: str, method_name: str) -> list[ast.FunctionDef]:
         nodes = []
         visited = set()
 
-        # Egor Izmaylov: Function `parse_operator_classes.collect_runtime_method_nodes.visit` implements the visit step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+        # 实现 `visit` 步骤，规范化输入并返回下游期望的数据或元信息。
         def visit(name: str) -> None:
             if name in visited:
                 return
@@ -228,7 +233,7 @@ def parse_operator_classes() -> dict[str, dict]:
         visit(method_name)
         return nodes
 
-    # Egor Izmaylov: Function `parse_operator_classes.collect_c_function_refs` implements the collect c function refs step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+    # 实现 `collect_c_function_refs` 步骤，规范化输入并返回下游期望的数据或元信息。
     def collect_c_function_refs(nodes: list[ast.AST]) -> set[str]:
         c_functions = set()
         for node in nodes:
@@ -239,7 +244,7 @@ def parse_operator_classes() -> dict[str, dict]:
                     c_functions.add(child.attr)
         return c_functions
 
-    # Egor Izmaylov: Function `parse_operator_classes.runtime_uses_numpy` implements the runtime uses numpy step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+    # 实现 `runtime_uses_numpy` 步骤，规范化输入并返回下游期望的数据或元信息。
     def runtime_uses_numpy(nodes: list[ast.AST]) -> bool:
         for node in nodes:
             for child in ast.walk(node):
@@ -247,7 +252,7 @@ def parse_operator_classes() -> dict[str, dict]:
                     return True
         return False
 
-    # Egor Izmaylov: Function `parse_operator_classes.is_operator_class` implements the is operator class step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+    # 实现 `is_operator_class` 步骤，规范化输入并返回下游期望的数据或元信息。
     def is_operator_class(class_name: str) -> bool:
         if class_name in {"ReduceBase", "ArgBase"}:
             return False
@@ -282,7 +287,7 @@ def parse_operator_classes() -> dict[str, dict]:
     return operators
 
 
-# Egor Izmaylov: Function `parse_import_supported_raw_ops` implements the parse import supported raw ops step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `parse_import_supported_raw_ops` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_import_supported_raw_ops() -> set[str]:
     source = (ROOT / "nn" / "ONNXImport.py").read_text(encoding="utf-8")
     ops = set(re.findall(r'node\.op_type\s*==\s*"([^"]+)"', source))
@@ -292,12 +297,12 @@ def parse_import_supported_raw_ops() -> set[str]:
     return ops
 
 
-# Egor Izmaylov: Function `parse_import_supported_ops` implements the parse import supported ops step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `parse_import_supported_ops` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_import_supported_ops() -> set[str]:
     return {normalize_name(op) for op in parse_import_supported_raw_ops() if op != "Upsample"}
 
 
-# Egor Izmaylov: Function `parse_onnx17_official_ops` implements the parse onnx17 official ops step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `parse_onnx17_official_ops` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_onnx17_official_ops() -> tuple[dict[str, str], str | None]:
     try:
         from onnx import defs
@@ -313,7 +318,7 @@ def parse_onnx17_official_ops() -> tuple[dict[str, str], str | None]:
     return {normalize_name(name): name for name in latest}, None
 
 
-# Egor Izmaylov: Function `parse_c_functions` implements the parse c functions step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `parse_c_functions` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_c_functions() -> tuple[set[str], set[str]]:
     header = (ROOT / "tensor_ops" / "tensor_ops.h").read_text(encoding="utf-8")
     source = (ROOT / "tensor_ops" / "tensor_ops.c").read_text(encoding="utf-8")
@@ -322,19 +327,19 @@ def parse_c_functions() -> tuple[set[str], set[str]]:
     return declared, implemented
 
 
-# Egor Izmaylov: Function `parse_cuda_verifiers` implements the parse cuda verifiers step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `parse_cuda_verifiers` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_cuda_verifiers() -> set[str]:
     return {path.stem.replace("verify_", "") for path in (ROOT / "cuda").glob("verify_*.cu")}
 
 
-# Egor Izmaylov: Function `parse_numerical_plans` implements the parse numerical plans step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `parse_numerical_plans` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_numerical_plans() -> set[str]:
     source = (ROOT / "numerical_correctness.py").read_text(encoding="utf-8")
     module = ast.parse(source)
     plans: list[str] = []
 
     class Visitor(ast.NodeVisitor):
-        # Egor Izmaylov: Function `parse_numerical_plans.Visitor.visit_Assign` handles AST visitor logic for visit Assign, collecting metadata that later audit steps use to classify operator support.
+        # 处理 AST 访问节点 `visit_Assign`，收集后续审计分类所需的结构信息。
         def visit_Assign(self, node: ast.Assign) -> None:
             nonlocal plans
             if not any(isinstance(target, ast.Name) and target.id == "plans" for target in node.targets):
@@ -360,7 +365,7 @@ def parse_numerical_plans() -> set[str]:
     return set(plans)
 
 
-# Egor Izmaylov: Function `classify` implements the classify step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `classify` 步骤，规范化输入并返回下游期望的数据或元信息。
 def classify(
     class_name: str,
     data: dict,
@@ -422,7 +427,7 @@ def classify(
     return "已实现未数值验证", tuple(notes)
 
 
-# Egor Izmaylov: Function `audit` implements the audit step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `audit` 步骤，规范化输入并返回下游期望的数据或元信息。
 def audit() -> tuple[list[OperatorInfo], dict[str, object]]:
     operators = parse_operator_classes()
     import_supported = parse_import_supported_ops()
@@ -513,12 +518,12 @@ def audit() -> tuple[list[OperatorInfo], dict[str, object]]:
     return infos, metadata
 
 
-# Egor Izmaylov: Function `yes_no` implements the yes no step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `yes_no` 步骤，规范化输入并返回下游期望的数据或元信息。
 def yes_no(value: bool) -> str:
     return "yes" if value else "no"
 
 
-# Egor Izmaylov: Function `render_markdown` implements the render markdown step for the operator coverage audit tool, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `render_markdown` 步骤，规范化输入并返回下游期望的数据或元信息。
 def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> str:
     status_counts = Counter(info.status for info in infos)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -709,7 +714,7 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
     return "\n".join(lines)
 
 
-# Egor Izmaylov: Function `main` is the command-line entry point for the operator coverage audit tool; it parses runtime options, runs the selected checks, and returns a process status.
+# 作为 `tools/audit_ops.py` 的命令行入口，解析参数、调度检查流程并返回进程退出码。
 def main() -> int:
     parser = argparse.ArgumentParser(description="Audit operator implementation and verification coverage.")
     parser.add_argument(

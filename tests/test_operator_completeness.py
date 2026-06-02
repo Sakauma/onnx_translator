@@ -1,3 +1,8 @@
+"""文件功能：覆盖 ONNX 算子导入、形状推断、C 后端路径和 Python fallback 的回归测试。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 import os
 
 import numpy as np
@@ -115,12 +120,12 @@ from nn.Operators import (
 )
 
 
-# Egor Izmaylov: Function `_disable_c_backend` centralizes the disable c backend helper logic for the pytest verification suite, so edge-case normalization stays in one implementation boundary.
+# 封装 `_disable_c_backend` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
 def _disable_c_backend(monkeypatch):
     monkeypatch.setattr(Ops, "_get_lib", classmethod(lambda cls: None))
 
 
-# Egor Izmaylov: Function `test_quantize_linear_forward_shape_and_optional_zero_point_import` locks down the test quantize linear forward shape and optional zero point import behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_quantize_linear_forward_shape_and_optional_zero_point_import` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_quantize_linear_forward_shape_and_optional_zero_point_import(tmp_path, monkeypatch):
     _disable_c_backend(monkeypatch)
     x = Tensor_(2, 3, dtype="float32")
@@ -177,7 +182,7 @@ def test_quantize_linear_forward_shape_and_optional_zero_point_import(tmp_path, 
     assert imported_dequant[0].axis == 1
 
 
-# Egor Izmaylov: Function `test_constant_import_supports_onnx17_scalar_and_string_attrs` locks down the test constant import supports onnx17 scalar and string attrs behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_constant_import_supports_onnx17_scalar_and_string_attrs` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_constant_import_supports_onnx17_scalar_and_string_attrs(tmp_path, monkeypatch):
     _disable_c_backend(monkeypatch)
 
@@ -208,7 +213,7 @@ def test_constant_import_supports_onnx17_scalar_and_string_attrs(tmp_path, monke
     np.testing.assert_array_equal(constants[2].forward()["tensor"].data, np.array(["alpha", "beta"], dtype=np.str_))
 
 
-# Egor Izmaylov: Function `test_shape_forward_does_not_mutate_end` locks down the test shape forward does not mutate end behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_shape_forward_does_not_mutate_end` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_shape_forward_does_not_mutate_end(monkeypatch):
     _disable_c_backend(monkeypatch)
     op = Shape(["x"], ["shape"])
@@ -220,7 +225,7 @@ def test_shape_forward_does_not_mutate_end(monkeypatch):
     assert second.size == (2,)
 
 
-# Egor Izmaylov: Function `test_static_shape_inference_uses_constant_inputs` locks down the test static shape inference uses constant inputs behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_static_shape_inference_uses_constant_inputs` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_static_shape_inference_uses_constant_inputs(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -390,7 +395,7 @@ def test_static_shape_inference_uses_constant_inputs(monkeypatch, tmp_path):
     assert imported_cos[0].dtype == "uint32"
 
 
-# Egor Izmaylov: Function `test_conv_supports_onnx17_auto_pad_and_kernel_shape` locks down the test conv supports onnx17 auto pad and kernel shape behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_conv_supports_onnx17_auto_pad_and_kernel_shape` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_conv_supports_onnx17_auto_pad_and_kernel_shape(tmp_path, monkeypatch):
     _disable_c_backend(monkeypatch)
 
@@ -429,7 +434,7 @@ def test_conv_supports_onnx17_auto_pad_and_kernel_shape(tmp_path, monkeypatch):
     assert imported[0].kernel_shape == [3, 3]
 
 
-# Egor Izmaylov: Function `test_conv_transpose_auto_pad_matches_onnx_reference` locks down the test conv transpose auto pad matches onnx reference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_conv_transpose_auto_pad_matches_onnx_reference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_conv_transpose_auto_pad_matches_onnx_reference(monkeypatch):
     _disable_c_backend(monkeypatch)
     from onnx.reference import ReferenceEvaluator
@@ -478,7 +483,7 @@ def test_conv_transpose_auto_pad_matches_onnx_reference(monkeypatch):
         np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
 
 
-# Egor Izmaylov: Function `test_reshape_and_pad_shape_inference_cover_onnx_edge_cases` locks down the test reshape and pad shape inference cover onnx edge cases behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_reshape_and_pad_shape_inference_cover_onnx_edge_cases` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_reshape_and_pad_shape_inference_cover_onnx_edge_cases(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -563,7 +568,7 @@ def test_reshape_and_pad_shape_inference_cover_onnx_edge_cases(monkeypatch, tmp_
     assert ops[0].allowzero == 1
 
 
-# Egor Izmaylov: Function `test_squeeze_and_slice_shape_inference` locks down the test squeeze and slice shape inference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_squeeze_and_slice_shape_inference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_squeeze_and_slice_shape_inference(monkeypatch):
     _disable_c_backend(monkeypatch)
 
@@ -588,7 +593,7 @@ def test_squeeze_and_slice_shape_inference(monkeypatch):
     assert sliced.size == (2, 2)
 
 
-# Egor Izmaylov: Function `test_shape_copy_ops_support_default_transpose_and_string_payloads` locks down the test shape copy ops support default transpose and string payloads behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_shape_copy_ops_support_default_transpose_and_string_payloads` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_shape_copy_ops_support_default_transpose_and_string_payloads(tmp_path):
     text = np.array([["a", "b", "c"], ["d", "e", "f"]], dtype=np.str_)
     text_tensor = Tensor(*text.shape, dtype="string", data=text)
@@ -631,7 +636,7 @@ def test_shape_copy_ops_support_default_transpose_and_string_payloads(tmp_path):
     assert imported[0].forward_(Tensor_(2, 3, 4, dtype="float32"))["tensor"].size == (4, 3, 2)
 
 
-# Egor Izmaylov: Function `test_indexing_ops_support_string_payloads` locks down the test indexing ops support string payloads behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_indexing_ops_support_string_payloads` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_indexing_ops_support_string_payloads():
     text = np.array([["a", "b", "c"], ["d", "e", "f"]], dtype=np.str_)
     text_tensor = Tensor(*text.shape, dtype="string", data=text)
@@ -666,7 +671,7 @@ def test_indexing_ops_support_string_payloads():
     np.testing.assert_array_equal(gathered_nd.data, np.array(["b", "d"], dtype=np.str_))
 
 
-# Egor Izmaylov: Function `test_multi_output_shape_inference_preserves_rank` locks down the test multi output shape inference preserves rank behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_multi_output_shape_inference_preserves_rank` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_multi_output_shape_inference_preserves_rank(monkeypatch):
     _disable_c_backend(monkeypatch)
 
@@ -680,7 +685,7 @@ def test_multi_output_shape_inference_preserves_rank(monkeypatch):
     assert topk_out[1].dtype == "int64"
 
 
-# Egor Izmaylov: Function `test_variadic_elementwise_ops_and_einsum_cover_full_onnx_forms` locks down the test variadic elementwise ops and einsum cover full onnx forms behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_variadic_elementwise_ops_and_einsum_cover_full_onnx_forms` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_variadic_elementwise_ops_and_einsum_cover_full_onnx_forms(monkeypatch):
     _disable_c_backend(monkeypatch)
 
@@ -737,7 +742,7 @@ def test_variadic_elementwise_ops_and_einsum_cover_full_onnx_forms(monkeypatch):
         Einsum(["left", "right"], ["out"], equation="ij,kj->ik", dtype="float32")._parse_equation([(2, 3), (4, 5)])
 
 
-# Egor Izmaylov: Function `test_global_pooling_and_dropout_optional_mask` locks down the test global pooling and dropout optional mask behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_global_pooling_and_dropout_optional_mask` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_global_pooling_and_dropout_optional_mask(monkeypatch):
     _disable_c_backend(monkeypatch)
 
@@ -777,7 +782,7 @@ def test_global_pooling_and_dropout_optional_mask(monkeypatch):
     assert inferred_mask.dtype == "bool"
 
 
-# Egor Izmaylov: Function `test_c_backend_pool_mean_and_norm_numeric_paths` locks down the test c backend pool mean and norm numeric paths behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_pool_mean_and_norm_numeric_paths` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_pool_mean_and_norm_numeric_paths():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -877,7 +882,7 @@ def test_c_backend_pool_mean_and_norm_numeric_paths():
     np.testing.assert_allclose(ln_y.data, expected_ln, rtol=1e-6, atol=1e-6)
 
 
-# Egor Izmaylov: Function `test_c_backend_quantized_matmul_paths` locks down the test c backend quantized matmul paths behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_quantized_matmul_paths` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_quantized_matmul_paths():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -923,7 +928,7 @@ def test_c_backend_quantized_matmul_paths():
     np.testing.assert_array_equal(qlinear.data, expected_q)
 
 
-# Egor Izmaylov: Function `test_c_backend_conv_integer_path` locks down the test c backend conv integer path behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_conv_integer_path` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_conv_integer_path():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -968,7 +973,7 @@ def test_c_backend_conv_integer_path():
     np.testing.assert_array_equal(grouped.data, expected_grouped)
 
 
-# Egor Izmaylov: Function `test_c_backend_conv_transpose_path` locks down the test c backend conv transpose path behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_conv_transpose_path` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_conv_transpose_path():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1013,7 +1018,7 @@ def test_c_backend_conv_transpose_path():
     np.testing.assert_allclose(out.data, expected, rtol=1e-6, atol=1e-6)
 
 
-# Egor Izmaylov: Function `test_c_backend_qlinear_conv_path` locks down the test c backend qlinear conv path behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_qlinear_conv_path` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_qlinear_conv_path():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1059,7 +1064,7 @@ def test_c_backend_qlinear_conv_path():
     np.testing.assert_array_equal(qconv.data, expected)
 
 
-# Egor Izmaylov: Function `test_c_backend_max_unpool_path` locks down the test c backend max unpool path behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_max_unpool_path` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_max_unpool_path():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1077,7 +1082,7 @@ def test_c_backend_max_unpool_path():
     np.testing.assert_array_equal(unpooled.data, expected)
 
 
-# Egor Izmaylov: Function `test_c_backend_unique_and_mel_weight_matrix_paths` locks down the test c backend unique and mel weight matrix paths behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_unique_and_mel_weight_matrix_paths` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_unique_and_mel_weight_matrix_paths():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1105,7 +1110,7 @@ def test_c_backend_unique_and_mel_weight_matrix_paths():
     np.testing.assert_allclose(mel.data, expected_mel, rtol=1e-6, atol=1e-6)
 
 
-# Egor Izmaylov: Function `test_c_backend_dft_and_stft_paths_against_reference` locks down the test c backend dft and stft paths against reference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_dft_and_stft_paths_against_reference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_dft_and_stft_paths_against_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1175,7 +1180,7 @@ def test_c_backend_dft_and_stft_paths_against_reference():
     np.testing.assert_allclose(stft.data, stft_expected, rtol=1e-6, atol=1e-6)
 
 
-# Egor Izmaylov: Function `test_c_backend_recurrent_paths_match_python_semantics` locks down the test c backend recurrent paths match python semantics behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_recurrent_paths_match_python_semantics` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_recurrent_paths_match_python_semantics():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1244,7 +1249,7 @@ def test_c_backend_recurrent_paths_match_python_semantics():
     np.testing.assert_allclose(c_c.data, py_c.data, rtol=1e-6, atol=1e-6)
 
 
-# Egor Izmaylov: Function `test_c_backend_probability_and_loss_paths` locks down the test c backend probability and loss paths behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_probability_and_loss_paths` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_probability_and_loss_paths():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1284,7 +1289,7 @@ def test_c_backend_probability_and_loss_paths():
     np.testing.assert_allclose(sce_loss.data, -expected_log_prob[np.arange(2), labels_1d.data], rtol=1e-6)
 
 
-# Egor Izmaylov: Function `test_c_backend_non_max_suppression_path` locks down the test c backend non max suppression path behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_non_max_suppression_path` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_non_max_suppression_path():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1317,7 +1322,7 @@ def test_c_backend_non_max_suppression_path():
     np.testing.assert_array_equal(center_selected.data, np.array([[0, 0, 0], [0, 0, 2]], dtype=np.int64))
 
 
-# Egor Izmaylov: Function `test_c_backend_grid_sample_matches_onnx_reference` locks down the test c backend grid sample matches onnx reference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_c_backend_grid_sample_matches_onnx_reference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_c_backend_grid_sample_matches_onnx_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1364,7 +1369,7 @@ def test_c_backend_grid_sample_matches_onnx_reference():
     np.testing.assert_allclose(alias, linear, rtol=1e-6, atol=1e-6)
 
 
-# Egor Izmaylov: Function `test_pooling_supports_nd_shapes_and_optional_indices` locks down the test pooling supports nd shapes and optional indices behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_pooling_supports_nd_shapes_and_optional_indices` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_pooling_supports_nd_shapes_and_optional_indices(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -1429,7 +1434,7 @@ def test_pooling_supports_nd_shapes_and_optional_indices(monkeypatch, tmp_path):
     assert ops[0].auto_pad == "SAME_UPPER"
 
 
-# Egor Izmaylov: Function `test_arg_ops_keepdims_and_select_last_match_onnx_reference` locks down the test arg ops keepdims and select last match onnx reference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_arg_ops_keepdims_and_select_last_match_onnx_reference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_arg_ops_keepdims_and_select_last_match_onnx_reference(monkeypatch):
     _disable_c_backend(monkeypatch)
     from onnx.reference import ReferenceEvaluator
@@ -1475,7 +1480,7 @@ def test_arg_ops_keepdims_and_select_last_match_onnx_reference(monkeypatch):
             np.testing.assert_array_equal(actual, expected)
 
 
-# Egor Izmaylov: Function `test_space_to_depth_and_lp_normalization_match_onnx_reference` locks down the test space to depth and lp normalization match onnx reference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_space_to_depth_and_lp_normalization_match_onnx_reference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_space_to_depth_and_lp_normalization_match_onnx_reference(monkeypatch):
     _disable_c_backend(monkeypatch)
     from onnx.reference import ReferenceEvaluator
@@ -1509,7 +1514,7 @@ def test_space_to_depth_and_lp_normalization_match_onnx_reference(monkeypatch):
     np.testing.assert_array_equal(actual_lp, expected_lp)
 
 
-# Egor Izmaylov: Function `test_lp_normalization_l1_preserves_input_sign_in_c_and_python` locks down the test lp normalization l1 preserves input sign in c and python behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_lp_normalization_l1_preserves_input_sign_in_c_and_python` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_lp_normalization_l1_preserves_input_sign_in_c_and_python():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
@@ -1528,7 +1533,7 @@ def test_lp_normalization_l1_preserves_input_sign_in_c_and_python():
     np.testing.assert_allclose(py_result, expected, rtol=1e-6, atol=1e-6)
 
 
-# Egor Izmaylov: Function `test_onehot_python_fallback_keeps_out_of_range_negative_indices_off` locks down the test onehot python fallback keeps out of range negative indices off behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onehot_python_fallback_keeps_out_of_range_negative_indices_off` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onehot_python_fallback_keeps_out_of_range_negative_indices_off():
     indices = Tensor(3, dtype="int64", data=np.array([-3, -4, 1], dtype=np.int64))
     depth = Tensor(dtype="int64", data=np.array(3, dtype=np.int64))
@@ -1551,7 +1556,7 @@ def test_onehot_python_fallback_keeps_out_of_range_negative_indices_off():
     )
 
 
-# Egor Izmaylov: Function `test_compress_short_condition_matches_onnx_reference` locks down the test compress short condition matches onnx reference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_compress_short_condition_matches_onnx_reference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_compress_short_condition_matches_onnx_reference(monkeypatch):
     _disable_c_backend(monkeypatch)
     from onnx.reference import ReferenceEvaluator
@@ -1576,7 +1581,7 @@ def test_compress_short_condition_matches_onnx_reference(monkeypatch):
     np.testing.assert_array_equal(actual, expected)
 
 
-# Egor Izmaylov: Function `test_split_uneven_without_split_input_matches_onnx_reference` locks down the test split uneven without split input matches onnx reference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_split_uneven_without_split_input_matches_onnx_reference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_split_uneven_without_split_input_matches_onnx_reference(monkeypatch):
     _disable_c_backend(monkeypatch)
     from onnx.reference import ReferenceEvaluator
@@ -1607,7 +1612,7 @@ def test_split_uneven_without_split_input_matches_onnx_reference(monkeypatch):
     assert [item.size for item in inferred] == [(3,), (2,)]
 
 
-# Egor Izmaylov: Function `test_cast_supports_string_conversions_like_onnx_reference` locks down the test cast supports string conversions like onnx reference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_cast_supports_string_conversions_like_onnx_reference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_cast_supports_string_conversions_like_onnx_reference(monkeypatch):
     _disable_c_backend(monkeypatch)
     from onnx.reference import ReferenceEvaluator
@@ -1641,7 +1646,7 @@ def test_cast_supports_string_conversions_like_onnx_reference(monkeypatch):
     np.testing.assert_array_equal(actual_string, expected_string)
 
 
-# Egor Izmaylov: Function `test_additional_onnx17_official_ops` locks down the test additional onnx17 official ops behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_additional_onnx17_official_ops` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_additional_onnx17_official_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -1748,7 +1753,7 @@ def test_additional_onnx17_official_ops(monkeypatch, tmp_path):
     assert ops[2].dtype == "float32"
 
 
-# Egor Izmaylov: Function `test_independent_onnx17_gap_ops` locks down the test independent onnx17 gap ops behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_independent_onnx17_gap_ops` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_independent_onnx17_gap_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -2033,7 +2038,7 @@ def test_independent_onnx17_gap_ops(monkeypatch, tmp_path):
     ]
 
 
-# Egor Izmaylov: Function `test_onnx17_probability_loss_and_spectral_ops` locks down the test onnx17 probability loss and spectral ops behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onnx17_probability_loss_and_spectral_ops` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onnx17_probability_loss_and_spectral_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -2191,7 +2196,7 @@ def test_onnx17_probability_loss_and_spectral_ops(monkeypatch, tmp_path):
     ]
 
 
-# Egor Izmaylov: Function `test_onnx17_recurrent_ops` locks down the test onnx17 recurrent ops behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onnx17_recurrent_ops` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onnx17_recurrent_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -2290,7 +2295,7 @@ def test_onnx17_recurrent_ops(monkeypatch, tmp_path):
     assert [op.__class__.__name__ for op in ops] == ["RNN", "GRU", "LSTM"]
 
 
-# Egor Izmaylov: Function `test_onnx17_unpool_and_string_normalizer_ops` locks down the test onnx17 unpool and string normalizer ops behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onnx17_unpool_and_string_normalizer_ops` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onnx17_unpool_and_string_normalizer_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -2430,7 +2435,7 @@ def test_onnx17_unpool_and_string_normalizer_ops(monkeypatch, tmp_path):
     ]
 
 
-# Egor Izmaylov: Function `test_roi_pool_ops_use_c_backend_against_reference` locks down the test roi pool ops use c backend against reference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_roi_pool_ops_use_c_backend_against_reference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_roi_pool_ops_use_c_backend_against_reference():
     x_data = np.arange(32, dtype=np.float32).reshape(2, 1, 4, 4)
     roi_input = Tensor(*x_data.shape, dtype="float32", data=x_data)
@@ -2534,7 +2539,7 @@ def test_roi_pool_ops_use_c_backend_against_reference():
     np.testing.assert_allclose(aligned_max.data, expected_max, rtol=1e-6, atol=1e-6)
 
 
-# Egor Izmaylov: Function `test_onnx17_sequence_ops` locks down the test onnx17 sequence ops behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onnx17_sequence_ops` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onnx17_sequence_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -2610,7 +2615,7 @@ def test_onnx17_sequence_ops(monkeypatch, tmp_path):
     ]
 
 
-# Egor Izmaylov: Function `test_onnx17_optional_ops` locks down the test onnx17 optional ops behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onnx17_optional_ops` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onnx17_optional_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -2648,7 +2653,7 @@ def test_onnx17_optional_ops(monkeypatch, tmp_path):
     assert [op.__class__.__name__ for op in ops] == ["Optional", "OptionalHasElement", "OptionalGetElement"]
 
 
-# Egor Izmaylov: Function `test_onnx17_control_flow_ops` locks down the test onnx17 control flow ops behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onnx17_control_flow_ops` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onnx17_control_flow_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -2782,22 +2787,22 @@ def test_onnx17_control_flow_ops(monkeypatch, tmp_path):
     assert [op.__class__.__name__ for op in ops] == ["If", "Loop", "Scan", "SequenceMap"]
 
 
-# Egor Izmaylov: Function `test_control_flow_subgraphs_capture_outer_scope` locks down the test control flow subgraphs capture outer scope behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_control_flow_subgraphs_capture_outer_scope` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_control_flow_subgraphs_capture_outer_scope(monkeypatch):
     _disable_c_backend(monkeypatch)
 
     class PassThroughOp:
-        # Egor Izmaylov: Function `test_control_flow_subgraphs_capture_outer_scope.PassThroughOp.__init__` initializes test_control_flow_subgraphs_capture_outer_scope.PassThroughOp, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+        # 初始化 `PassThroughOp` 的构造参数，保存后续运行、形状推断或验证所需的状态。
         def __init__(self, inputs, outputs):
             self.inputs = inputs
             self.outputs = outputs
             self.name = None
 
-        # Egor Izmaylov: Function `test_control_flow_subgraphs_capture_outer_scope.PassThroughOp.forward` executes the concrete runtime path for test_control_flow_subgraphs_capture_outer_scope.PassThroughOp, consuming real tensor values and returning the graph-runner value contract.
+        # 执行 `PassThroughOp` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
         def forward(self, x):
             return {"tensor": x, "parameters": None}
 
-        # Egor Izmaylov: Function `test_control_flow_subgraphs_capture_outer_scope.PassThroughOp.forward_` performs shape-only inference for test_control_flow_subgraphs_capture_outer_scope.PassThroughOp, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+        # 执行 `PassThroughOp` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
         def forward_(self, x):
             return {"tensor": Tensor_(*x.size, dtype=x.dtype), "parameters": None}
 
@@ -2922,7 +2927,7 @@ def test_control_flow_subgraphs_capture_outer_scope(monkeypatch):
     np.testing.assert_array_equal(mapped[1].data, np.array(7.0, dtype=np.float32))
 
 
-# Egor Izmaylov: Function `test_onehot_and_compress_shape_inference` locks down the test onehot and compress shape inference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_onehot_and_compress_shape_inference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_onehot_and_compress_shape_inference(monkeypatch):
     _disable_c_backend(monkeypatch)
 
@@ -2942,7 +2947,7 @@ def test_onehot_and_compress_shape_inference(monkeypatch):
     assert flat.size == (3,)
 
 
-# Egor Izmaylov: Function `test_reduce_and_nonzero_constant_shape_inference` locks down the test reduce and nonzero constant shape inference behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_reduce_and_nonzero_constant_shape_inference` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_reduce_and_nonzero_constant_shape_inference(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 

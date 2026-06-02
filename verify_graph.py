@@ -1,3 +1,8 @@
+"""文件功能：加载指定 ONNX 模型，验证导入、图构建、形状推断和前向执行流程。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 import argparse
 import os
 import shutil
@@ -11,7 +16,7 @@ from nn.GraphVisualization import GraphGenerate
 from nn.ONNXImport import ONNXImport
 
 
-# Egor Izmaylov: Function `run_verification` implements the run verification step for the graph parsing verification script, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `run_verification` 步骤，规范化输入并返回下游期望的数据或元信息。
 def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False, clean=True):
     result_dir = os.path.join("./result", task_name)
     if clean and os.path.exists(result_dir):
@@ -90,7 +95,7 @@ def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False
     return 0
 
 
-# Egor Izmaylov: Function `main` is the command-line entry point for the graph parsing verification script; it parses runtime options, runs the selected checks, and returns a process status.
+# 作为 `verify_graph.py` 的命令行入口，解析参数、调度检查流程并返回进程退出码。
 def main():
     parser = argparse.ArgumentParser(description="Verify ONNX import, graph construction, and visualization.")
     parser.add_argument("--model", default="./onnx_model/model.onnx", help="ONNX model path.")

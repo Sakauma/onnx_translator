@@ -1,3 +1,8 @@
+"""文件功能：检查 Python 模块、编译工具和 CUDA 工具链是否满足工程验证要求。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 import argparse
 import glob
 import importlib
@@ -21,7 +26,7 @@ REQUIRED_TOOLS = ["gcc", "make", "dot"]
 CUDA_TOOLS = ["nvcc"]
 
 
-# Egor Izmaylov: Function `tool_version` implements the tool version step for the environment health checker, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `tool_version` 步骤，规范化输入并返回下游期望的数据或元信息。
 def tool_version(command):
     path = resolve_tool(command)
     if not path:
@@ -41,7 +46,7 @@ def tool_version(command):
     return path, version
 
 
-# Egor Izmaylov: Function `resolve_tool` implements the resolve tool step for the environment health checker, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `resolve_tool` 步骤，规范化输入并返回下游期望的数据或元信息。
 def resolve_tool(command):
     if command == "nvcc" and os.environ.get("NVCC"):
         nvcc_env = os.environ["NVCC"]
@@ -60,7 +65,7 @@ def resolve_tool(command):
     return None
 
 
-# Egor Izmaylov: Function `check_modules` implements the check modules step for the environment health checker, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `check_modules` 步骤，规范化输入并返回下游期望的数据或元信息。
 def check_modules():
     missing = []
     for module_name in PYTHON_MODULES:
@@ -74,7 +79,7 @@ def check_modules():
     return missing
 
 
-# Egor Izmaylov: Function `check_tools` implements the check tools step for the environment health checker, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `check_tools` 步骤，规范化输入并返回下游期望的数据或元信息。
 def check_tools(tools):
     missing = []
     for command in tools:
@@ -87,7 +92,7 @@ def check_tools(tools):
     return missing
 
 
-# Egor Izmaylov: Function `main` is the command-line entry point for the environment health checker; it parses runtime options, runs the selected checks, and returns a process status.
+# 作为 `tools/health_check.py` 的命令行入口，解析参数、调度检查流程并返回进程退出码。
 def main():
     parser = argparse.ArgumentParser(description="Check local project runtime dependencies.")
     parser.add_argument("--require-cuda", action="store_true", help="Fail when nvcc is unavailable.")

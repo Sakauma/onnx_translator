@@ -1,3 +1,8 @@
+"""文件功能：验证 Graph 运行时的输入校验、输出收集、多输出和重复执行行为。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 import numpy as np
 import pytest
 
@@ -5,53 +10,53 @@ from nn import Graph, Tensor, Tensor_
 
 
 class PassThroughOp:
-    # Egor Izmaylov: Function `PassThroughOp.__init__` initializes PassThroughOp, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `PassThroughOp` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs):
         self.inputs = inputs
         self.outputs = outputs
         self.name = None
 
-    # Egor Izmaylov: Function `PassThroughOp.forward` executes the concrete runtime path for PassThroughOp, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `PassThroughOp` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         return {"tensor": x, "parameters": None}
 
-    # Egor Izmaylov: Function `PassThroughOp.forward_` performs shape-only inference for PassThroughOp, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `PassThroughOp` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=x.dtype), "parameters": None}
 
 
 class AddOneOp:
-    # Egor Izmaylov: Function `AddOneOp.__init__` initializes AddOneOp, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `AddOneOp` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs):
         self.inputs = inputs
         self.outputs = outputs
         self.name = None
 
-    # Egor Izmaylov: Function `AddOneOp.forward` executes the concrete runtime path for AddOneOp, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `AddOneOp` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         return {
             "tensor": Tensor(*x.size, dtype=x.dtype, data=x.data + 1),
             "parameters": None,
         }
 
-    # Egor Izmaylov: Function `AddOneOp.forward_` performs shape-only inference for AddOneOp, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `AddOneOp` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {"tensor": Tensor_(*x.size, dtype=x.dtype), "parameters": None}
 
 
 class SplitOp:
-    # Egor Izmaylov: Function `SplitOp.__init__` initializes SplitOp, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `SplitOp` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs):
         self.inputs = inputs
         self.outputs = outputs
         self.name = None
 
-    # Egor Izmaylov: Function `SplitOp.forward` executes the concrete runtime path for SplitOp, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `SplitOp` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         doubled = Tensor(*x.size, dtype=x.dtype, data=x.data * 2)
         return {"tensor": (x, doubled), "parameters": None}
 
-    # Egor Izmaylov: Function `SplitOp.forward_` performs shape-only inference for SplitOp, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
+    # 执行 `SplitOp` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {
             "tensor": (
@@ -62,7 +67,7 @@ class SplitOp:
         }
 
 
-# Egor Izmaylov: Function `test_graph_forward_returns_inferred_output_and_is_repeatable` locks down the test graph forward returns inferred output and is repeatable behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_graph_forward_returns_inferred_output_and_is_repeatable` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_graph_forward_returns_inferred_output_and_is_repeatable():
     graph = Graph(
         ops=[
@@ -80,7 +85,7 @@ def test_graph_forward_returns_inferred_output_and_is_repeatable():
     np.testing.assert_array_equal(second.data, first.data)
 
 
-# Egor Izmaylov: Function `test_graph_forward_shape_inference_returns_declared_output` locks down the test graph forward shape inference returns declared output behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_graph_forward_shape_inference_returns_declared_output` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_graph_forward_shape_inference_returns_declared_output():
     graph = Graph(
         ops=[
@@ -96,7 +101,7 @@ def test_graph_forward_shape_inference_returns_declared_output():
     assert out.dtype == "float32"
 
 
-# Egor Izmaylov: Function `test_graph_forward_infers_multiple_terminal_outputs` locks down the test graph forward infers multiple terminal outputs behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_graph_forward_infers_multiple_terminal_outputs` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_graph_forward_infers_multiple_terminal_outputs():
     graph = Graph(
         ops=[
@@ -113,7 +118,7 @@ def test_graph_forward_infers_multiple_terminal_outputs():
     np.testing.assert_array_equal(left_out.data, np.array([2.0, 3.0], dtype=np.float32))
 
 
-# Egor Izmaylov: Function `test_graph_forward_validates_input_count` locks down the test graph forward validates input count behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_graph_forward_validates_input_count` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_graph_forward_validates_input_count():
     graph = Graph(
         ops=[PassThroughOp(["input"], ["output"])],
@@ -124,7 +129,7 @@ def test_graph_forward_validates_input_count():
         graph.forward()
 
 
-# Egor Izmaylov: Function `test_graph_forward_raises_for_missing_declared_output` locks down the test graph forward raises for missing declared output behavior in the pytest verification suite, covering regressions that could break ONNX import, runtime, or verification.
+# 验证 `test_graph_forward_raises_for_missing_declared_output` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_graph_forward_raises_for_missing_declared_output():
     graph = Graph(
         ops=[PassThroughOp(["input"], ["output"])],

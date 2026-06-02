@@ -1,3 +1,8 @@
+"""文件功能：构造覆盖当前支持算子集合的 PyTorch 模型，并导出为 ONNX 示例模型。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
 import torch
 import torch.nn as nn
 import torch.onnx
@@ -9,7 +14,7 @@ class FinalSupportedModel(nn.Module):
     """
     测试模型。
     """
-    # Egor Izmaylov: Function `FinalSupportedModel.__init__` initializes FinalSupportedModel, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
+    # 初始化 `FinalSupportedModel` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self):
         super(FinalSupportedModel, self).__init__()
         
@@ -45,7 +50,7 @@ class FinalSupportedModel(nn.Module):
         # Buffer
         self.register_buffer('dummy_idx', torch.tensor([0], dtype=torch.int64))
 
-    # Egor Izmaylov: Function `FinalSupportedModel.forward` executes the concrete runtime path for FinalSupportedModel, consuming real tensor values and returning the graph-runner value contract.
+    # 执行 `FinalSupportedModel` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
         # x: [1, 4, 32, 32]
         results = []
@@ -113,7 +118,7 @@ class FinalSupportedModel(nn.Module):
         final_out = torch.cat(results, dim=0).sum()
         return final_out
 
-# Egor Izmaylov: Function `export_model` implements the export model step for the ONNX fixture generator, normalizing inputs and returning the exact data or metadata contract expected downstream.
+# 实现 `export_model` 步骤，规范化输入并返回下游期望的数据或元信息。
 def export_model():
     model = FinalSupportedModel()
     model.eval()

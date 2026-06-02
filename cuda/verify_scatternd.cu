@@ -1,3 +1,9 @@
+/*
+ * 文件功能：提供 scatternd 算子的 CUDA 参考验证程序，供数值正确性脚本与 C 后端结果对比。
+ * 作者：Egor Izmaylov
+ * 时间：2026-06-02
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
@@ -8,7 +14,7 @@ struct ScatterNDParams {
     int I;
 };
 
-// Egor Izmaylov: Function `scatternd_2d_points` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
+// 实现 `scatternd_2d_points` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
 __global__ void scatternd_2d_points(
     const float* data,
     const long long* indices,
@@ -24,7 +30,7 @@ __global__ void scatternd_2d_points(
     __syncthreads(); // 不同 block 不同步，下面用单独 kernel 更稳
 }
 
-// Egor Izmaylov: Function `scatternd_apply_updates` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
+// 实现 `scatternd_apply_updates` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
 __global__ void scatternd_apply_updates(
     float* out,
     const long long* indices,
@@ -47,7 +53,7 @@ __global__ void scatternd_apply_updates(
     }
 }
 
-// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
+// 作为 CUDA 验证程序入口，从二进制文件读取输入、执行参考计算并写回结果。
 int main(int argc, char** argv) {
     // <out_len> <data.bin> <indices.bin> <updates.bin> <params.bin> <out.bin>
     if (argc != 7) {
