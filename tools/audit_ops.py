@@ -15,6 +15,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+OPERATORS_SOURCES = [ROOT / "nn" / "Operators.py", *sorted((ROOT / "nn" / "operators").glob("*.py"))]
+IMPORTER_SOURCES = [ROOT / "nn" / "ONNXImport.py", *sorted((ROOT / "nn" / "importer").glob("*.py"))]
 
 
 @dataclass(frozen=True)
@@ -178,16 +180,21 @@ def base_names(node: ast.ClassDef) -> tuple[str, ...]:
 
 # 实现 `parse_operator_classes` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_operator_classes() -> dict[str, dict]:
-    source = (ROOT / "nn" / "Operators.py").read_text(encoding="utf-8")
-    module = ast.parse(source)
     method_map = {}
     class_nodes = {}
+    class_sources = {}
 
-    for node in module.body:
-        if not isinstance(node, ast.ClassDef):
+    for path in OPERATORS_SOURCES:
+        if not path.exists():
             continue
-        class_nodes[node.name] = node
-        method_map[node.name] = {item.name: item for item in node.body if isinstance(item, ast.FunctionDef)}
+        source = path.read_text(encoding="utf-8")
+        module = ast.parse(source)
+        for node in module.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            class_nodes[node.name] = node
+            class_sources[node.name] = path
+            method_map[node.name] = {item.name: item for item in node.body if isinstance(item, ast.FunctionDef)}
 
     # 实现 `has_method` 步骤，规范化输入并返回下游期望的数据或元信息。
     def has_method(class_name: str, method_name: str) -> bool:
@@ -277,6 +284,7 @@ def parse_operator_classes() -> dict[str, dict]:
 
         operators[name] = {
             "line": node.lineno,
+            "source": str(class_sources[name].relative_to(ROOT)),
             "bases": bases,
             "has_forward": has_method(name, "forward"),
             "has_forward_shape": has_method(name, "forward_"),
@@ -289,9 +297,10 @@ def parse_operator_classes() -> dict[str, dict]:
 
 # 实现 `parse_import_supported_raw_ops` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_import_supported_raw_ops() -> set[str]:
-    source = (ROOT / "nn" / "ONNXImport.py").read_text(encoding="utf-8")
+    source = "\n".join(path.read_text(encoding="utf-8") for path in IMPORTER_SOURCES if path.exists())
     ops = set(re.findall(r'node\.op_type\s*==\s*"([^"]+)"', source))
     ops.update(re.findall(r'op_upper\s*==\s*"([^"]+)"', source))
+    ops.update(re.findall(r'@register_factory\(\s*"([^"]+)"\s*\)', source))
     for match in re.finditer(r"node\.op_type\s+in\s+\[([^\]]+)\]", source):
         ops.update(re.findall(r'"([^"]+)"', match.group(1)))
     return ops
@@ -321,7 +330,7 @@ def parse_onnx17_official_ops() -> tuple[dict[str, str], str | None]:
 # 实现 `parse_c_functions` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_c_functions() -> tuple[set[str], set[str]]:
     header = (ROOT / "tensor_ops" / "tensor_ops.h").read_text(encoding="utf-8")
-    source = (ROOT / "tensor_ops" / "tensor_ops.c").read_text(encoding="utf-8")
+    source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((ROOT / "tensor_ops").glob("*.c")))
     declared = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*_forward)\s*\(", header))
     implemented = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*_forward)\b", source))
     return declared, implemented
@@ -334,9 +343,29 @@ def parse_cuda_verifiers() -> set[str]:
 
 # 实现 `parse_numerical_plans` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_numerical_plans() -> set[str]:
-    source = (ROOT / "numerical_correctness.py").read_text(encoding="utf-8")
+    source_paths = [
+        ROOT / "numerical_correctness.py",
+        ROOT / "tools" / "numerical" / "cli.py",
+    ]
+    source = "\n".join(path.read_text(encoding="utf-8") for path in source_paths if path.exists())
     module = ast.parse(source)
     plans: list[str] = []
+
+    # 从计划列表字面量中抽取第二列 op_name，兼容旧的 `plans = [...]`
+    # 和新拆分后的 `build_default_plans()` 返回值。
+    def extract_plan_names(value: ast.AST) -> list[str]:
+        if not isinstance(value, ast.List):
+            return []
+        extracted = []
+        for item in value.elts:
+            if (
+                isinstance(item, ast.Tuple)
+                and len(item.elts) >= 2
+                and isinstance(item.elts[1], ast.Constant)
+                and isinstance(item.elts[1].value, str)
+            ):
+                extracted.append(item.elts[1].value)
+        return extracted
 
     class Visitor(ast.NodeVisitor):
         # 处理 AST 访问节点 `visit_Assign`，收集后续审计分类所需的结构信息。
@@ -345,18 +374,15 @@ def parse_numerical_plans() -> set[str]:
             if not any(isinstance(target, ast.Name) and target.id == "plans" for target in node.targets):
                 self.generic_visit(node)
                 return
-            if not isinstance(node.value, ast.List):
-                self.generic_visit(node)
-                return
-            extracted = []
-            for item in node.value.elts:
-                if (
-                    isinstance(item, ast.Tuple)
-                    and len(item.elts) >= 2
-                    and isinstance(item.elts[1], ast.Constant)
-                    and isinstance(item.elts[1].value, str)
-                ):
-                    extracted.append(item.elts[1].value)
+            extracted = extract_plan_names(node.value)
+            if extracted:
+                plans = extracted
+            self.generic_visit(node)
+
+        # 处理 AST 访问节点 `visit_Return`，识别 `build_default_plans()` 中直接返回的计划列表。
+        def visit_Return(self, node: ast.Return) -> None:
+            nonlocal plans
+            extracted = extract_plan_names(node.value)
             if extracted:
                 plans = extracted
             self.generic_visit(node)
@@ -539,10 +565,10 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
         "- `ONNXImport`：`nn/ONNXImport.py` 中存在显式映射，可从 ONNX node 构造对应算子类。",
         "- `forward`：`nn/Operators.py` 中存在运行时前向实现，继承自 `ReduceBase`/`ArgBase` 的实现也计入。",
         "- `forward_`：存在图构建/形状推断实现，继承实现也计入。",
-        "- `C backend funcs`：Python 算子类中引用的 `<op>_forward` C 函数均能在 `tensor_ops/tensor_ops.c` 中找到，且 `tensor_ops.h` 与 `.c` 声明/实现集合一致。",
+            "- `C backend funcs`：Python 算子类中引用的 `<op>_forward` C 函数均能在 `tensor_ops/*.c` 中找到，且 `tensor_ops.h` 与 `.c` 声明/实现集合一致。",
         "- `C runtime path`：`forward()` 运行路径实际引用 `<op>_forward` C 函数；仅在 `__init__`、形状推断或未调用 helper 中出现不计入。",
         "- `CUDA verifier`：`cuda/verify_<op>.cu` 存在，仅说明有参考验证程序源码。",
-            "- `active numerical plan`：`numerical_correctness.py` 当前实际 `plans` 列表中包含该算子，代表会被默认数值验证门禁执行。",
+            "- `active numerical plan`：`numerical_correctness.py` 兼容入口对应的 `tools/numerical/cli.py` 默认计划中包含该算子，代表会被默认数值验证门禁执行。",
             "- `ONNX opset 17 官方覆盖`：通过本地 `onnx.defs` 读取默认 domain 中 `since_version <= 17` 的最新 schema，并与 `ONNXImport` 的显式映射做名称级对比。",
         "",
         "## 总览",

@@ -19,9 +19,9 @@ all: $(TARGET)
 
 .PHONY: all clean check test audit verify verify-cpu
 
-$(TARGET): $(SRCS)
+$(TARGET): $(SRCS) $(SRC_DIR)/tensor_ops.h $(SRC_DIR)/tensor_ops_internal.h
 	@echo "Compiling C extension..."
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)
 	@echo "Build successful: $(TARGET)"
 
 clean:

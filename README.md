@@ -2,6 +2,11 @@
 
 本项目实现 ONNX 模型导入、图构建、C 后端算子执行，以及 CUDA 参考程序数值验证。
 
+## 文档入口
+
+- [工程架构说明](docs/architecture.md)：说明 ONNXImport、算子层、C 后端、CUDA verifier 和测试框架的关系。
+- [新增算子流程](docs/add_operator.md)：说明新增算子的 Python、ONNX factory、C ABI、CUDA verifier、数值计划和 pytest 覆盖步骤。
+
 ## 后端化边界
 
 普通数值/张量算子的核心计算应优先落在 `tensor_ops/tensor_ops.c`，Python 侧主要负责 ONNX 属性解析、shape 推导、ctypes 调度和少量动态语义 fallback。新增或补齐算子时，不应把主体计算长期停留在 `nn/Operators.py`。
@@ -38,6 +43,28 @@ make PYTHON=$PYTHON check
 ```
 
 `make check` 会编译 `tensor_ops.so`，并对主要 Python 入口做 `py_compile` 检查。当前目标是保持 `-Wall -Wextra` 下无 C 编译警告。
+
+## 常用验证命令
+
+```bash
+make PYTHON=$PYTHON check
+$PYTHON -m pytest -q tests
+bash compile_cuda.sh
+$PYTHON numerical_correctness.py --iterations 20 --skip-plots
+$PYTHON tools/verify_all.py --skip-cuda
+$PYTHON tools/audit_ops.py --output /tmp/onnx_translator_audit.md
+```
+
+如果只改 Python 导入或 shape 逻辑，优先运行 `make PYTHON=$PYTHON check` 和 `$PYTHON -m pytest -q tests`。如果改 C 后端或 CUDA verifier，应补充 `bash compile_cuda.sh` 和对应 `numerical_correctness.py --op <op>`。
+
+## 推荐开发流程
+
+1. 修改前运行 `tools/audit_ops.py` 或目标测试，确认当前覆盖基线。
+2. Python 算子改动放在 `nn/operators/`，旧入口 `nn/Operators.py` 只做兼容 re-export。
+3. ONNX 属性解析放在 `nn/importer/node_factories_*.py`，通过注册表接入。
+4. 普通数值算子的核心计算放在 `tensor_ops/tensor_ops_*.c`，共享辅助逻辑放在 `tensor_ops/tensor_ops_internal.h`。
+5. 数值验证计划放在 `tools/numerical/cli.py`，测试按领域放进 `tests/test_operator_*.py`。
+6. 提交前至少运行 `make PYTHON=$PYTHON check`、`$PYTHON -m pytest -q tests` 和 `tools/audit_ops.py`。
 
 ## 一键验证门禁
 

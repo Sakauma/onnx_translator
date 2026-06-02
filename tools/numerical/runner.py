@@ -1,0 +1,583 @@
+"""文件功能：执行单个算子的数值验证计划，包括输入准备、参数打包和结果比较。
+作者：Egor Izmaylov
+时间：2026-06-02
+"""
+
+import os
+import traceback
+
+import numpy as np
+
+from nn import Tensor
+
+from .compare import check_accuracy
+from .cuda import run_cuda_ground_truth
+from .data import generate_random_data, random_uniform_like_reference
+from .dtype import to_float32
+
+
+def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterations=5):
+    init_args = init_args or {}
+    print(f"🧪 Testing {op_name.upper()}: {dtypes} -> {out_dtype}")
+    
+    atol, rtol = 1e-4, 1e-4
+    if "float16" in out_dtype: atol, rtol = 0.01, 0.01 
+    if "bfloat16" in out_dtype: atol, rtol = 0.1, 0.02
+    if "float8" in out_dtype: atol, rtol = 0.1, 0.1    
+    if "int" in out_dtype: atol, rtol = 0, 0
+    if op_name == "cos": atol = max(atol, 0.02)
+    if op_name == "einsum":
+        atol, rtol = max(atol, 1e-2), max(rtol, 1e-3)
+
+    pass_cnt = 0
+    stats_abs = []
+    stats_rel = []
+    
+    for i in range(iterations):
+        # 1. 生成数据
+        inputs_np = []
+        for s, d in zip(shapes, dtypes):
+            if s is None: inputs_np.append(None)
+            else: inputs_np.append(generate_random_data(s, d))
+
+        if op_name == "clip":
+            inputs_np[1][...] = -1.0
+            inputs_np[2][...] = 1.0
+
+        if op_name == "sqrt":
+            # 主路径：保证非负，避免 NaN 干扰对齐
+            inputs_np[0] = np.abs(inputs_np[0]).astype(inputs_np[0].dtype, copy=False)
+
+        if op_name == "gather":
+            M, N = shapes[0]      # data shape (M,N)
+            idx_shape = shapes[1] # indices shape (I,)
+            inputs_np[1] = np.random.randint(0, M, size=idx_shape).astype(np.int64)
+          
+        if op_name in ["quantize_linear", "dequantize_linear"]:
+            if inputs_np[1] is not None: inputs_np[1] = np.abs(inputs_np[1]) + 1e-4
+            if inputs_np[2] is not None:
+                inputs_np[2] = np.round(inputs_np[2])
+                if op_name == "quantize_linear": inputs_np[2] = np.clip(inputs_np[2], -128, 127)
+        if op_name == "scatternd":
+            M, N = shapes[0]       # data: (M,N)
+            I, K = shapes[1]       # indices: (I,2)
+            assert K == 2
+            rng = np.random.default_rng(0)
+            flat = rng.choice(M * N, size=I, replace=False)
+            rows = flat // N
+            cols = flat % N
+            inputs_np[1] = np.stack([rows, cols], axis=1).astype(np.int64)
+
+        if op_name == "gather_elements":
+            # 主路径：data=(M,N), indices=(M,N), axis=1
+            M, N = shapes[0]
+            inputs_np[1] = np.random.randint(0, N, size=(M, N)).astype(np.int64)
+
+        if op_name == "gathernd":
+            # 简化主路径：data=(M,N), indices=(I,2) -> out=(I,)
+            M, N = shapes[0]
+            I, K = shapes[1]
+            assert K == 2
+            rows = np.random.randint(0, M, size=I, dtype=np.int64)
+            cols = np.random.randint(0, N, size=I, dtype=np.int64)
+            inputs_np[1] = np.stack([rows, cols], axis=1).astype(np.int64)
+        if op_name == "reduce_prod":
+            inputs_np[0] = np.clip(to_float32(inputs_np[0], dtypes[0]), -1.1, 1.1).astype(np.float32)
+
+        if op_name == "nonzero":
+            # 保证既有 0 也有非 0，避免输出全空或全满太极端
+            x = to_float32(inputs_np[0], dtypes[0]).astype(np.float32)
+            mask = np.random.rand(*x.shape) < 0.35
+            x[mask] = 0.0
+            x[~mask] = np.where(np.abs(x[~mask]) < 1e-3, 1.0, x[~mask])
+            inputs_np[0] = x.astype(np.float32)
+
+        if op_name == "argmin" or op_name == "argmax":
+            # 不需要额外处理，主路径由 plan 固定成 2D + axis=1
+            pass
+
+        if op_name == "resize":
+            # inputs: x, roi, scales, sizes
+            target_sizes = init_args.get("sizes_value", list(shapes[0]))
+            inputs_np[1] = np.array([], dtype=np.float32)   # roi
+            inputs_np[2] = np.array([], dtype=np.float32)   # scales
+            inputs_np[3] = np.array(target_sizes, dtype=np.int64)
+
+        if op_name == "einsum":
+            pass
+
+        if op_name == "topk":
+            M, N = shapes[0]
+            k_val = init_args.get("k_value", min(4, N))
+
+            # 第二个输入 k
+            inputs_np[1] = np.array([k_val], dtype=np.int64)
+
+            # 为了避免 ties，给输入加一点单调扰动
+            x = to_float32(inputs_np[0], dtypes[0]).astype(np.float32)
+            eps = (np.arange(x.size, dtype=np.float32).reshape(x.shape) * 1e-6)
+            x = x + eps
+            inputs_np[0] = x
+
+        if op_name == "max_unpool":
+            inputs_np[1] = np.array([[[[5, 7], [13, 15]]]], dtype=np.int64)
+
+        if op_name == "qlinear_conv":
+            out_channels = shapes[3][0]
+            inputs_np[0] = np.random.randint(0, 32, size=shapes[0]).astype(np.uint8)
+            inputs_np[1] = np.array([0.04], dtype=np.float32)
+            inputs_np[2] = np.array([12], dtype=np.uint8)
+            inputs_np[3] = np.random.randint(0, 24, size=shapes[3]).astype(np.uint8)
+            inputs_np[4] = np.linspace(0.03, 0.06, out_channels, dtype=np.float32)
+            inputs_np[5] = np.linspace(7, 11, out_channels, dtype=np.uint8)
+            inputs_np[6] = np.array([0.05], dtype=np.float32)
+            inputs_np[7] = np.array([121], dtype=np.uint8)
+
+        if op_name == "matmul_integer":
+            m, _k = shapes[0]
+            _k2, n = shapes[1]
+            inputs_np[0] = np.random.randint(0, 32, size=shapes[0]).astype(np.uint8)
+            inputs_np[1] = np.random.randint(-16, 16, size=shapes[1]).astype(np.int8)
+            inputs_np[2] = np.linspace(3, 9, m, dtype=np.uint8)
+            inputs_np[3] = np.linspace(-4, 4, n, dtype=np.int8)
+
+        if op_name == "qlinear_matmul":
+            m, _k = shapes[0]
+            _k2, n = shapes[3]
+            inputs_np[0] = np.random.randint(0, 32, size=shapes[0]).astype(np.uint8)
+            inputs_np[1] = np.linspace(0.02, 0.05, m, dtype=np.float32)
+            inputs_np[2] = np.linspace(5, 11, m, dtype=np.uint8)
+            inputs_np[3] = np.random.randint(0, 24, size=shapes[3]).astype(np.uint8)
+            inputs_np[4] = np.linspace(0.03, 0.07, n, dtype=np.float32)
+            inputs_np[5] = np.linspace(6, 12, n, dtype=np.uint8)
+            inputs_np[6] = np.array([0.04], dtype=np.float32)
+            inputs_np[7] = np.array([117], dtype=np.uint8)
+
+        if op_name == "random_uniform_like":
+            # 输入只提供 shape，数值本身不会参与 reference 计算
+            pass
+
+        inputs_tensor = []
+        for data, d in zip(inputs_np, dtypes):
+            if data is not None: inputs_tensor.append(Tensor(*data.shape, dtype=d, data=data))
+            else: inputs_tensor.append(None)
+
+        # 2. NPS 运行
+        try:
+            op_init_args = dict(init_args)
+            sizes_value = op_init_args.pop("sizes_value", None)
+            k_value = op_init_args.pop("k_value", None)
+
+            valid_tensors = [t for t in inputs_tensor if t is not None]
+
+            if op_name == "random_uniform_like":
+                low = float(init_args.get("low", 0.0))
+                high = float(init_args.get("high", 1.0))
+                seed = int(init_args.get("seed", 123))
+                nps_out = random_uniform_like_reference(shapes[0], low, high, seed)
+
+            elif op_name in {"conv2d", "conv_transpose", "gemm"}:
+                op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
+                nps_out = op.forward(inputs_tensor[0], inputs_tensor[1], inputs_tensor[2])["tensor"].data
+
+            elif op_name == "conv_integer":
+                op = op_cls(inputs=[], outputs=[], **op_init_args)
+                nps_out = op.forward(inputs_tensor[0], inputs_tensor[1], inputs_tensor[2], inputs_tensor[3])["tensor"].data
+
+            else:
+                op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
+
+                if op_name == "cumsum":
+                    axis_np = np.array([0], dtype=np.int64)
+                    axis_tensor = Tensor(*axis_np.shape, dtype="int64", data=axis_np)
+                    nps_out = op.forward(valid_tensors[0], axis_tensor)["tensor"].data
+
+                elif op_name == "resize":
+                    nps_out = op.forward(valid_tensors[0], valid_tensors[1], valid_tensors[2], valid_tensors[3])["tensor"].data
+
+                elif op_name == "topk":
+                    topk_ret = op.forward(valid_tensors[0], valid_tensors[1])["tensor"]
+                    nps_out = topk_ret[0].data
+                    nps_topk_indices = topk_ret[1].data
+
+                else:
+                    nps_out = op.forward(*valid_tensors)["tensor"].data
+
+            if op_name in ["reduce_sum", "reduce_max", "reduce_min", "reduce_prod"]:
+                if np.shape(nps_out) == ():
+                    nps_out = np.array([float(nps_out)], dtype=np.float32)
+                else:
+                    nps_out = np.asarray(nps_out, dtype=np.float32).reshape(1,)
+
+        except Exception as e:
+            print(f"  ❌ Iter {i} Crash: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+            
+        # 3. CUDA 参数打包
+        params_bin = None
+        if op_name == "conv2d":
+            x, w = inputs_np[0], inputs_np[1]
+            pads, s, d, g = init_args['pads'], init_args['strides'], init_args['dilations'], init_args['group']
+            oh = (x.shape[2] + pads[0] + pads[2] - d[0]*(w.shape[2]-1) - 1)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - d[1]*(w.shape[3]-1) - 1)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], w.shape[0], w.shape[2], w.shape[3],
+                      oh, ow, pads[0], pads[1], s[0], s[1], d[0], d[1], g]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "conv_integer":
+            x, w, x_zp, w_zp = inputs_np[0], inputs_np[1], inputs_np[2], inputs_np[3]
+            pads, s, d, g = init_args['pads'], init_args['strides'], init_args['dilations'], init_args['group']
+            oh = (x.shape[2] + pads[0] + pads[2] - d[0]*(w.shape[2]-1) - 1)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - d[1]*(w.shape[3]-1) - 1)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], w.shape[0], w.shape[2], w.shape[3],
+                      oh, ow, pads[0], pads[1], s[0], s[1], d[0], d[1], g, x_zp.size, w_zp.size]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "qlinear_conv":
+            x, x_scale, x_zp, w, w_scale, w_zp, y_scale, y_zp = inputs_np[:8]
+            pads, s, d, g = init_args['pads'], init_args['strides'], init_args['dilations'], init_args['group']
+            oh = (x.shape[2] + pads[0] + pads[2] - d[0]*(w.shape[2]-1) - 1)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - d[1]*(w.shape[3]-1) - 1)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], w.shape[0], w.shape[2], w.shape[3],
+                      oh, ow, pads[0], pads[1], s[0], s[1], d[0], d[1], g,
+                      x_scale.size, x_zp.size, w_scale.size, w_zp.size, y_scale.size, y_zp.size]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "conv_transpose":
+            x, w = inputs_np[0], inputs_np[1]
+            pads, s, d, g = init_args['pads'], init_args['strides'], init_args['dilations'], init_args['group']
+            output_padding = init_args.get('output_padding', [0, 0])
+            effective_h = d[0] * (w.shape[2] - 1) + 1
+            effective_w = d[1] * (w.shape[3] - 1) + 1
+            oh = s[0] * (x.shape[2] - 1) + output_padding[0] + effective_h - pads[0] - pads[2]
+            ow = s[1] * (x.shape[3] - 1) + output_padding[1] + effective_w - pads[1] - pads[3]
+            out_c = w.shape[1] * g
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], w.shape[1], w.shape[2], w.shape[3],
+                      out_c, oh, ow, pads[0], pads[1], s[0], s[1], d[0], d[1], g]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "matmul_integer":
+            a, b, a_zp, b_zp = inputs_np[0], inputs_np[1], inputs_np[2], inputs_np[3]
+            M, K = a.shape
+            K2, N = b.shape
+            assert K == K2
+            params_bin = np.array([M, K, N, a_zp.size, b_zp.size], dtype=np.int32).tobytes()
+        elif op_name == "qlinear_matmul":
+            a, a_scale, a_zp, b, b_scale, b_zp, y_scale, y_zp = inputs_np[:8]
+            M, K = a.shape
+            K2, N = b.shape
+            assert K == K2
+            params_bin = np.array(
+                [M, K, N, a_scale.size, a_zp.size, b_scale.size, b_zp.size, y_scale.size, y_zp.size],
+                dtype=np.int32,
+            ).tobytes()
+        elif op_name == "max_pool":
+            x = inputs_np[0]
+            k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
+            oh = (x.shape[2] + pads[0] + pads[2] - k[0])//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - k[1])//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow, k[0], k[1], pads[0], pads[1], s[0], s[1]]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "average_pool":
+            x = inputs_np[0]
+            k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
+            d = init_args.get('dilations', [1, 1])
+            count_include_pad = init_args.get('count_include_pad', 0)
+            kernel_extent_h = d[0] * (k[0] - 1) + 1
+            kernel_extent_w = d[1] * (k[1] - 1) + 1
+            oh = (x.shape[2] + pads[0] + pads[2] - kernel_extent_h)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - kernel_extent_w)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow,
+                      k[0], k[1], pads[0], pads[1], s[0], s[1], d[0], d[1], count_include_pad]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "lp_pool":
+            x = inputs_np[0]
+            k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
+            d = init_args.get('dilations', [1, 1])
+            p_norm = init_args.get('p', 2)
+            kernel_extent_h = d[0] * (k[0] - 1) + 1
+            kernel_extent_w = d[1] * (k[1] - 1) + 1
+            oh = (x.shape[2] + pads[0] + pads[2] - kernel_extent_h)//s[0] + 1
+            ow = (x.shape[3] + pads[1] + pads[3] - kernel_extent_w)//s[1] + 1
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow,
+                      k[0], k[1], pads[0], pads[1], s[0], s[1], d[0], d[1], p_norm]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name in {"global_average_pool", "global_max_pool", "global_lp_pool"}:
+            x = inputs_np[0]
+            spatial_size = int(np.prod(x.shape[2:])) if x.ndim > 2 else 1
+            if op_name == "global_lp_pool":
+                params_bin = np.array([x.shape[0], x.shape[1], spatial_size, init_args.get('p', 2)], dtype=np.int32).tobytes()
+            else:
+                params_bin = np.array([x.shape[0], x.shape[1], spatial_size], dtype=np.int32).tobytes()
+        elif op_name == "max_unpool":
+            x = inputs_np[0]
+            k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
+            oh = (x.shape[2] - 1) * s[0] - pads[0] - pads[2] + k[0]
+            ow = (x.shape[3] - 1) * s[1] - pads[1] - pads[3] + k[1]
+            p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow,
+                      k[0], k[1], pads[0], pads[1], pads[2], pads[3], s[0], s[1]]
+            params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "gemm":
+            a, b, c = inputs_np[0], inputs_np[1], inputs_np[2]
+            tA, tB = init_args['transA'], init_args['transB']
+            M = a.shape[0] if tA==0 else a.shape[1]
+            K = a.shape[1] if tA==0 else a.shape[0]
+            N = b.shape[1] if tB==0 else b.shape[0]
+            has_c = 1 if c is not None else 0
+            c_type = 0
+            if has_c:
+                if c.size == 1: c_type=1
+                elif c.ndim==1 or (c.ndim==2 and c.shape[0]==1): c_type=2
+                elif c.ndim==2 and c.shape[1]==1: c_type=3
+                else: c_type=4
+            ints = np.array([M, N, K, tA, tB, c_type, has_c], dtype=np.int32).tobytes()
+            floats = np.array([init_args['alpha'], init_args['beta']], dtype=np.float32).tobytes()
+            params_bin = ints + floats
+        elif op_name == "softmax":
+            x, axis = inputs_np[0], init_args['axis']
+            if axis < 0: axis += x.ndim
+            inner, outer = x.shape[axis], int(np.prod(x.shape[:axis]))
+            rem = int(np.prod(x.shape[axis+1:]))
+            params_bin = np.array([outer, inner, rem], dtype=np.int32).tobytes()
+        elif op_name == "quantize_linear":
+            is_signed = 1 if "int8" in out_dtype and "uint8" not in out_dtype else 0
+            params_bin = np.array([is_signed], dtype=np.int32).tobytes()
+        elif op_name == "matmul":
+            M, K = shapes[0]
+            K2, N = shapes[1]
+            assert K2 == K
+            params_bin = np.array([M, K, N], dtype=np.int32).tobytes()
+        elif op_name == "reduce_mean":
+            M, N = shapes[0]
+            params_bin = np.array([M, N], dtype=np.int32).tobytes()
+
+        elif op_name == "gather":
+            # 主路径：data=(M,N), indices=(I,), axis=0
+            M, N = shapes[0]
+            (I,) = shapes[1]
+            params_bin = np.array([M, N, I], dtype=np.int32).tobytes()
+    
+        elif op_name == "scatternd":
+            M, N = shapes[0]         # data: (M,N)
+            I, K = shapes[1]         # indices: (I,2)
+            assert K == 2
+            (I2,) = shapes[2]        # updates: (I,)
+            assert I2 == I
+            params_bin = np.array([M, N, I], dtype=np.int32).tobytes()
+        elif op_name in ["reduce_sum", "reduce_max", "reduce_min", "reduce_prod"]:
+            in_len = int(inputs_np[0].size) 
+            params_bin = np.array([in_len], dtype=np.int64).tobytes()
+
+        elif op_name == "gather_elements":
+            M, N = shapes[0]
+            axis = init_args.get("axis", 1)
+            params_bin = np.array([M, N, axis], dtype=np.int32).tobytes()
+
+        elif op_name == "gathernd":
+            A, B = shapes[0]
+            I, K = shapes[1]
+            params_bin = np.array([A, B, I, K], dtype=np.int32).tobytes()
+
+        elif op_name == "cumsum":
+            N = int(np.prod(shapes[0]))
+            exclusive = int(init_args.get("exclusive", 0))
+            reverse = int(init_args.get("reverse", 0))
+            params_bin = np.array([N, exclusive, reverse], dtype=np.int32).tobytes()
+
+        elif op_name == "nonzero":
+            x = inputs_np[0]
+            rank = x.ndim
+            dims = np.array(list(x.shape), dtype=np.int32)
+            params_bin = np.array([rank], dtype=np.int32).tobytes() + dims.tobytes()
+
+        elif op_name == "argmin" or op_name == "argmax":
+            M, N = shapes[0]
+            axis = init_args.get("axis", 1)
+            keepdims = init_args.get("keepdims", 0)
+            select_last_index = init_args.get("select_last_index", 0)
+            params_bin = np.array([M, N, axis, keepdims, select_last_index], dtype=np.int32).tobytes()
+
+        elif op_name == "resize":
+            N, C, IH, IW = shapes[0]
+            OH, OW = init_args["sizes_value"][2], init_args["sizes_value"][3]
+            params_bin = np.array([N, C, IH, IW, OH, OW], dtype=np.int32).tobytes()
+
+        elif op_name == "einsum":
+            M, K = shapes[0]
+            K2, N = shapes[1]
+            assert K == K2
+            params_bin = np.array([M, K, N], dtype=np.int32).tobytes()
+
+        elif op_name == "topk":
+            M, N = shapes[0]
+            k_val = int(inputs_np[1].reshape(-1)[0])
+            axis = init_args.get("axis", 1)
+            largest = init_args.get("largest", 1)
+            sorted_flag = init_args.get("sorted", 1)
+            params_bin = np.array([M, N, axis, k_val, largest, sorted_flag], dtype=np.int32).tobytes()
+
+        elif op_name == "random_uniform_like":
+            numel = int(np.prod(shapes[0]))
+            low = float(init_args.get("low", 0.0))
+            high = float(init_args.get("high", 1.0))
+            seed = np.uint32(int(init_args.get("seed", 123)))
+            params_bin = (np.array([numel], dtype=np.int32).tobytes() + np.array([low, high], dtype=np.float32).tobytes() + np.array([seed], dtype=np.uint32).tobytes())
+
+        # 4. 数据转换与 广播处理
+        expected_shape = nps_out.shape
+        if expected_shape == ():
+            expected_shape = (1,) # 统一当成 1 元素张量来跑 CUDA/读写 bin
+            nps_out = np.array([nps_out], dtype=nps_out.dtype)
+        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "max_unpool", "gemm", "softmax"] # 这些算子自己处理形状
+        is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
+        
+        cuda_inputs = []
+        for i, (inp, d) in enumerate(zip(inputs_np, dtypes)):
+            if inp is None:
+                cuda_inputs.append(None)
+            else:
+                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk", "max_unpool"] and d == "int64":
+                    cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int64)))
+                    continue
+
+                target_dtype = np.float64 if is_double_kernel else np.float32
+                val_f32 = to_float32(inp, d)
+                
+                # 广播逻辑
+                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like"]):
+                    try:
+                        if val_f32.shape != expected_shape:
+                            val_f32 = np.broadcast_to(val_f32, expected_shape)
+                    except Exception as e:
+                        print(f"Warning: Broadcast failed for input {i} in {op_name}: {e}")
+                
+                cuda_inputs.append(val_f32.astype(target_dtype))
+        
+        # 5. 执行 CUDA
+        # cuda_out = run_cuda_ground_truth(
+        #     op_name, 
+        #     cuda_inputs, 
+        #     params_binary=params_bin, 
+        #     output_dtype=np.float64 if is_double_kernel else np.float32,
+        #     target_shape=expected_shape
+        # ) 
+            
+        # if cuda_out is None: continue
+        
+        # out_np_dtype = (np.uint8 if out_dtype == "bool" else (np.float64 if is_double_kernel else np.float32))
+        if out_dtype == "bool":
+            out_np_dtype = np.uint8
+        elif op_name in {"qlinear_conv", "qlinear_matmul"} and out_dtype == "uint8":
+            out_np_dtype = np.uint8
+        elif out_dtype == "int32":
+            out_np_dtype = np.int32
+        elif out_dtype == "int64":
+            out_np_dtype = np.int64
+        else:
+            out_np_dtype = np.float64 if is_double_kernel else np.float32
+
+        cuda_out = run_cuda_ground_truth(
+        op_name,
+        cuda_inputs,
+        params_binary=params_bin,
+        output_dtype=out_np_dtype,
+        target_shape=expected_shape
+        )
+
+        if cuda_out is None:
+            continue
+
+        if op_name == "topk":
+            idx_path = "tmp_out_idx.bin"
+            if not os.path.exists(idx_path):
+                print(f"  ❌ Iter {i} FAILED")
+                print("     Missing tmp_out_idx.bin for TopK")
+                break
+
+            cuda_topk_indices = np.fromfile(idx_path, dtype=np.int64).reshape(expected_shape)
+            os.remove(idx_path)
+
+            nps_vals = to_float32(nps_out, out_dtype)
+            ok_vals, max_abs, max_rel, fail_mask = check_accuracy(nps_vals, cuda_out, atol, rtol, out_dtype)
+
+            ok_idx = np.array_equal(
+                np.asarray(nps_topk_indices).astype(np.int64),
+                np.asarray(cuda_topk_indices).astype(np.int64)
+            )
+
+            if max_abs >= 0:
+                stats_abs.append(max_abs)
+                stats_rel.append(max_rel)
+
+            if ok_vals and ok_idx:
+                pass_cnt += 1
+            else:
+                print(f"  ❌ Iter {i} FAILED")
+                if not ok_idx:
+                    print("     TopK indices mismatch")
+                else:
+                    print(f"     Max Abs Diff: {max_abs:.6f} (Limit: {atol})")
+                    print(f"     Max Rel Diff: {max_rel:.6f} (Limit: {rtol})")
+                break
+            continue
+
+        if out_dtype == "bool":
+            cuda_out = cuda_out.astype(np.float32)   
+
+        # 6. 对比
+        # nps_f32 = to_float32(nps_out, out_dtype)
+        # is_ok, max_abs, max_rel, fail_mask = check_accuracy(nps_f32, cuda_out, atol, rtol, out_dtype)
+        if out_dtype in {"int32", "int64"}:
+            int_dtype = np.int32 if out_dtype == "int32" else np.int64
+            nps_int = np.asarray(nps_out).astype(int_dtype)
+            cuda_int = np.asarray(cuda_out).astype(int_dtype)
+            is_ok = np.array_equal(nps_int, cuda_int)
+            max_abs = 0.0 if is_ok else -1.0
+            max_rel = 0.0 if is_ok else -1.0
+            fail_mask = None if is_ok else (nps_int != cuda_int)
+            nps_f32 = nps_int.astype(np.float32)
+        else:
+            nps_f32 = to_float32(nps_out, out_dtype)
+            is_ok, max_abs, max_rel, fail_mask = check_accuracy(nps_f32, cuda_out, atol, rtol, out_dtype)
+        
+        if max_abs >= 0:
+            stats_abs.append(max_abs)
+            stats_rel.append(max_rel)
+        if is_ok:
+            pass_cnt += 1
+        else:
+            print(f"  ❌ Iter {i} FAILED")
+            if max_abs == -999.0: print(f"     Failed due to Overflow/Inf Logic Mismatch")
+            elif max_abs == -1.0: print(f"     Failed due to NaN/Inf Mismatch")
+            else:
+                print(f"     Max Abs Diff: {max_abs:.6f} (Limit: {atol})")
+                print(f"     Max Rel Diff: {max_rel:.6f} (Limit: {rtol})")
+            
+            if fail_mask is not None and np.any(fail_mask):
+                idx_flat = np.argmax(fail_mask)
+                idx = np.unravel_index(idx_flat, fail_mask.shape)
+                print(f"     🔍 Debug Sample at {idx}:")
+                print(f"        GT (CUDA) = {cuda_out[idx]}")
+                print(f"        NPS (C)   = {nps_f32[idx]}")
+                # 显示原始输入值
+                for k, inp_arr in enumerate(inputs_np):
+                    val_disp = ""
+                    if inp_arr is None: val_disp = "None"
+                    else:
+                        try:
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd","nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like"]):
+                                val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
+                            else:
+                                if inp_arr.shape == expected_shape:
+                                    val_disp = inp_arr[idx]
+                                else:
+                                    val_disp = f"Shape{inp_arr.shape} (No direct mapping)"
+                        except Exception as e:
+                            val_disp = f"Error: {e}"
+                            
+                    print(f"        Input {k}   = {val_disp}")
+            break
+
+    if pass_cnt == iterations:
+        print(f"  ✅ Pass ({pass_cnt}/{iterations})\n")
+    else:
+        print(f"  ⚠️  Fail\n")
+    return stats_abs, stats_rel, pass_cnt == iterations
