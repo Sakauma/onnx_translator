@@ -1,7 +1,13 @@
-"""文件功能：定义 Tensor、Tensor_、Ops 和 Graph 等核心运行时抽象，以及 Python 与 C 后端共享的 dtype 映射。
-作者：Egor Izmaylov
-时间：2026-06-02
-"""
+# /**
+#   ******************************************************************************
+#   * @file        __init__.py
+#   * @author      Egor Izmaylov
+#   * @brief       定义 Tensor、Tensor_、Ops 和 Graph 等核心运行时抽象，以及 Python 与 C 后端共享的 dtype 映射。
+#   * @details     2026.06.02  V1.0.0  创建
+#   ******************************************************************************
+#   * @attention
+#   ******************************************************************************
+# */
 
 from collections import OrderedDict
 import ctypes

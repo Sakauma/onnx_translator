@@ -1,7 +1,13 @@
-"""文件功能：兼容旧命令的数值正确性验证入口，实际逻辑位于 tools.numerical 包。
-作者：Egor Izmaylov
-时间：2026-06-02
-"""
+# /**
+#   ******************************************************************************
+#   * @file        numerical_correctness.py
+#   * @author      Egor Izmaylov
+#   * @brief       兼容旧命令的数值正确性验证入口，实际逻辑位于 tools.numerical 包。
+#   * @details     2026.06.02  V1.0.0  创建
+#   ******************************************************************************
+#   * @attention
+#   ******************************************************************************
+# */
 
 from tools.numerical.compare import check_accuracy
 from tools.numerical.cuda import CUDA_VERIFY_DIR, run_cuda_ground_truth
