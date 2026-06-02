@@ -21,7 +21,7 @@
 
 ## 二、数值验证（Python + CUDA）
 
-数值验证采用工程内统一验证脚本 `numerical_correctness.py`：
+数值验证采用工程内统一验证入口 `python tools/cli.py numerical`：
 
 - Python 侧通过 `nn/Operators.py` 调用 `tensor_ops.so` 作为参考实现
 - CUDA 侧通过 `cache/verify_*` 可执行文件作为 ground truth
@@ -115,8 +115,8 @@
 针对算子中以图结构和 shape 推导为主的算子，
 采用模型图验证方式进行覆盖：
 
-- 使用 `create_model.py` 生成模型
-- 使用 `verify_graph.py` 验证图构建、节点连接及 shape 推导过程
+- 使用 `python tools/cli.py create-model` 生成模型
+- 使用 `python tools/cli.py verify-graph` 验证图构建、节点连接及 shape 推导过程
 - 验证模型图能够正确生成且无报错
 
-图结构与 shape 验证通过 create_graph_ops_model.py 构造覆盖 Cast / Shape / ConstantOfShape / Unsqueeze / Squeeze / Slice / Transpose / Concat / Reshape / Expand / Where / Range 等算子的 ONNX 模型，并使用 verify_graph.py 完成图导入、节点连接与 shape 推导验证，生成图结构可视化结果（result/nps_verification/nps_verification.pdf）
+图结构与 shape 验证通过 `python tools/cli.py create-graph-model` 构造覆盖 Cast / Shape / ConstantOfShape / Unsqueeze / Squeeze / Slice / Transpose / Concat / Reshape / Expand / Where / Range 等算子的 ONNX 模型，并使用 `python tools/cli.py verify-graph` 完成图导入、节点连接与 shape 推导验证，生成图结构可视化结果（result/nps_verification/nps_verification.pdf）

@@ -95,15 +95,15 @@ def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False
     return 0
 
 
-# 作为 `verify_graph.py` 的命令行入口，解析参数、调度检查流程并返回进程退出码。
-def main():
+# 作为 `tools/cli.py verify-graph` 子命令实现，解析参数、调度检查流程并返回进程退出码。
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Verify ONNX import, graph construction, and visualization.")
     parser.add_argument("--model", default="./onnx_model/model.onnx", help="ONNX model path.")
     parser.add_argument("--task-name", default="nps_verification", help="Result subdirectory name.")
     parser.add_argument("--allow-generic", action="store_true", help="Allow GenericNode fallback nodes.")
     parser.add_argument("--no-strict", action="store_true", help="Let ONNXImport downgrade unsupported nodes instead of failing immediately.")
     parser.add_argument("--no-clean", action="store_true", help="Keep the previous result directory.")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if not os.path.exists(args.model):
         print(f"找不到模型文件: {args.model}")

@@ -344,7 +344,7 @@ def parse_cuda_verifiers() -> set[str]:
 # 实现 `parse_numerical_plans` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_numerical_plans() -> set[str]:
     source_paths = [
-        ROOT / "numerical_correctness.py",
+        ROOT / "tools" / "commands" / "numerical_correctness.py",
         ROOT / "tools" / "numerical" / "cli.py",
     ]
     source = "\n".join(path.read_text(encoding="utf-8") for path in source_paths if path.exists())
@@ -565,11 +565,11 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
         "- `ONNXImport`：`nn/ONNXImport.py` 中存在显式映射，可从 ONNX node 构造对应算子类。",
         "- `forward`：`nn/Operators.py` 中存在运行时前向实现，继承自 `ReduceBase`/`ArgBase` 的实现也计入。",
         "- `forward_`：存在图构建/形状推断实现，继承实现也计入。",
-            "- `C backend funcs`：Python 算子类中引用的 `<op>_forward` C 函数均能在 `tensor_ops/*.c` 中找到，且 `tensor_ops.h` 与 `.c` 声明/实现集合一致。",
+        "- `C backend funcs`：Python 算子类中引用的 `<op>_forward` C 函数均能在 `tensor_ops/*.c` 中找到，且 `tensor_ops.h` 与 `.c` 声明/实现集合一致。",
         "- `C runtime path`：`forward()` 运行路径实际引用 `<op>_forward` C 函数；仅在 `__init__`、形状推断或未调用 helper 中出现不计入。",
         "- `CUDA verifier`：`cuda/verify_<op>.cu` 存在，仅说明有参考验证程序源码。",
-            "- `active numerical plan`：`numerical_correctness.py` 兼容入口对应的 `tools/numerical/cli.py` 默认计划中包含该算子，代表会被默认数值验证门禁执行。",
-            "- `ONNX opset 17 官方覆盖`：通过本地 `onnx.defs` 读取默认 domain 中 `since_version <= 17` 的最新 schema，并与 `ONNXImport` 的显式映射做名称级对比。",
+        "- `active numerical plan`：统一入口 `python tools/cli.py numerical` 对应的 `tools/numerical/cli.py` 默认计划中包含该算子，代表会被默认数值验证门禁执行。",
+        "- `ONNX opset 17 官方覆盖`：通过本地 `onnx.defs` 读取默认 domain 中 `since_version <= 17` 的最新 schema，并与 `ONNXImport` 的显式映射做名称级对比。",
         "",
         "## 总览",
         "",

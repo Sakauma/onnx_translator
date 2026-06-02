@@ -32,7 +32,7 @@
 ## 4. CUDA verifier
 
 1. 新增 `cuda/verify_<op>.cu`，命名与数值计划中的 `op_name` 保持一致。
-2. 运行 `bash compile_cuda.sh`，确认可执行文件写入 `cache/verify_<op>`。
+2. 运行 `python tools/cli.py compile-cuda`，确认可执行文件写入 `cache/verify_<op>`。
 3. CUDA 输出使用二进制文件协议，与 `tools/numerical/cuda.py` 保持一致。
 
 ## 5. 数值计划
@@ -40,7 +40,7 @@
 1. 在 `tools/numerical/cli.py` 的 `build_default_plans()` 中加入计划。
 2. 覆盖基础形状、广播、类型提升和主要边界值。
 3. 对复杂参数使用 `init_args`，并在 `tools/numerical/runner.py` 中补充参数打包逻辑。
-4. 用 `python numerical_correctness.py --op <op> --iterations 5 --skip-plots` 做单算子验证。
+4. 用 `python tools/cli.py numerical --op <op> --iterations 5 --skip-plots` 做单算子验证。
 
 ## 6. Pytest 覆盖
 
@@ -54,7 +54,7 @@
 ```bash
 make PYTHON=$PYTHON check
 $PYTHON -m pytest -q tests
-bash compile_cuda.sh
-$PYTHON numerical_correctness.py --op <op> --iterations 5 --skip-plots
+$PYTHON tools/cli.py compile-cuda
+$PYTHON tools/cli.py numerical --op <op> --iterations 5 --skip-plots
 $PYTHON tools/audit_ops.py --output /tmp/onnx_translator_audit.md
 ```

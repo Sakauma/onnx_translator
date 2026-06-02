@@ -54,6 +54,6 @@ flowchart LR
 
 ## 验证链路
 
-`numerical_correctness.py` 是旧 CLI 入口，实际逻辑位于 `tools/numerical/`。该包负责生成随机输入、调用 CUDA verifier、运行 C 后端、比较误差，并输出统计信息。
+`tools/cli.py numerical` 是数值验证入口，实际逻辑位于 `tools/numerical/`。该包负责生成随机输入、调用 CUDA verifier、运行 C 后端、比较误差，并输出统计信息。模型生成、图验证和 CUDA 编译也统一由 `tools/cli.py` 的子命令调度。
 
 `tests/` 已按算子域拆分。共享测试导入集中在 `operator_test_context.py`，后端屏蔽辅助函数在 `conftest.py`。

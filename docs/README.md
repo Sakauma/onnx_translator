@@ -21,4 +21,4 @@
 
 ## 根目录保留项
 
-`AGENTS.md` 保留在仓库根目录，方便 Codex 和其他代理工具自动读取仓库协作规则。`create_model.py`、`verify_graph.py`、`numerical_correctness.py` 等脚本也保留在根目录，避免破坏已有公共命令。
+`AGENTS.md` 保留在仓库根目录，方便 Codex 和其他代理工具自动读取仓库协作规则。工程工具命令集中到 `tools/cli.py` 和 `tools/commands/`，根目录不再放散落的命令脚本。

@@ -52,13 +52,13 @@ make PYTHON=$PYTHON check
 ```bash
 make PYTHON=$PYTHON check
 $PYTHON -m pytest -q tests
-bash compile_cuda.sh
-$PYTHON numerical_correctness.py --iterations 20 --skip-plots
+$PYTHON tools/cli.py compile-cuda
+$PYTHON tools/cli.py numerical --iterations 20 --skip-plots
 $PYTHON tools/verify_all.py --skip-cuda
 $PYTHON tools/audit_ops.py --output /tmp/onnx_translator_audit.md
 ```
 
-如果只改 Python 导入或 shape 逻辑，优先运行 `make PYTHON=$PYTHON check` 和 `$PYTHON -m pytest -q tests`。如果改 C 后端或 CUDA verifier，应补充 `bash compile_cuda.sh` 和对应 `numerical_correctness.py --op <op>`。
+如果只改 Python 导入或 shape 逻辑，优先运行 `make PYTHON=$PYTHON check` 和 `$PYTHON -m pytest -q tests`。如果改 C 后端或 CUDA verifier，应补充 `$PYTHON tools/cli.py compile-cuda` 和对应 `$PYTHON tools/cli.py numerical --op <op>`。
 
 ## 推荐开发流程
 
@@ -111,13 +111,13 @@ make PYTHON=$PYTHON audit
 使用 PyTorch 导出综合算子模型：
 
 ```bash
-$PYTHON create_model.py
+$PYTHON tools/cli.py create-model
 ```
 
 生成只覆盖图结构/shape 类算子的模型：
 
 ```bash
-$PYTHON create_graph_ops_model.py
+$PYTHON tools/cli.py create-graph-model
 ```
 
 模型默认写入 `onnx_model/model.onnx`。
@@ -127,13 +127,13 @@ $PYTHON create_graph_ops_model.py
 严格验证模型导入、图连接、shape 推导和可视化生成：
 
 ```bash
-$PYTHON verify_graph.py --model ./onnx_model/model.onnx --task-name nps_verification
+$PYTHON tools/cli.py verify-graph --model ./onnx_model/model.onnx --task-name nps_verification
 ```
 
 默认 strict 模式会在不支持或解析失败的节点上直接失败。只有在明确接受占位节点时才使用：
 
 ```bash
-$PYTHON verify_graph.py --model ./onnx_model/model.onnx --no-strict --allow-generic
+$PYTHON tools/cli.py verify-graph --model ./onnx_model/model.onnx --no-strict --allow-generic
 ```
 
 ## CUDA 数值验证
@@ -141,25 +141,25 @@ $PYTHON verify_graph.py --model ./onnx_model/model.onnx --no-strict --allow-gene
 先编译 CUDA 参考程序：
 
 ```bash
-bash compile_cuda.sh
+$PYTHON tools/cli.py compile-cuda
 ```
 
 可通过环境变量覆盖路径：
 
 ```bash
-CUDA_DIR=cuda CACHE_DIR=cache NVCC=/path/to/nvcc bash compile_cuda.sh
+CUDA_DIR=cuda CACHE_DIR=cache NVCC=/path/to/nvcc $PYTHON tools/cli.py compile-cuda
 ```
 
 运行数值验证：
 
 ```bash
-$PYTHON numerical_correctness.py --iterations 20 --skip-plots
+$PYTHON tools/cli.py numerical --iterations 20 --skip-plots
 ```
 
 只跑某个算子：
 
 ```bash
-$PYTHON numerical_correctness.py --op add --iterations 5 --skip-plots
+$PYTHON tools/cli.py numerical --op add --iterations 5 --skip-plots
 ```
 
 如果 `cache/verify_<op>` 缺失，数值验证会返回非零退出码。

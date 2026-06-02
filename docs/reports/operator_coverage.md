@@ -1,6 +1,6 @@
 # 算子实现情况评估
 
-> 自动生成时间：2026-06-02 13:54:10
+> 自动生成时间：2026-06-02 14:33:21
 > 生成命令：`python tools/audit_ops.py --output docs/reports/operator_coverage.md`
 
 ## 评估口径
@@ -11,7 +11,7 @@
 - `C backend funcs`：Python 算子类中引用的 `<op>_forward` C 函数均能在 `tensor_ops/*.c` 中找到，且 `tensor_ops.h` 与 `.c` 声明/实现集合一致。
 - `C runtime path`：`forward()` 运行路径实际引用 `<op>_forward` C 函数；仅在 `__init__`、形状推断或未调用 helper 中出现不计入。
 - `CUDA verifier`：`cuda/verify_<op>.cu` 存在，仅说明有参考验证程序源码。
-- `active numerical plan`：`numerical_correctness.py` 兼容入口对应的 `tools/numerical/cli.py` 默认计划中包含该算子，代表会被默认数值验证门禁执行。
+- `active numerical plan`：统一入口 `python tools/cli.py numerical` 对应的 `tools/numerical/cli.py` 默认计划中包含该算子，代表会被默认数值验证门禁执行。
 - `ONNX opset 17 官方覆盖`：通过本地 `onnx.defs` 读取默认 domain 中 `since_version <= 17` 的最新 schema，并与 `ONNXImport` 的显式映射做名称级对比。
 
 ## 总览

@@ -42,7 +42,7 @@ def build_steps(args: argparse.Namespace, root: Path) -> list[Step]:
     ]
 
     if not args.skip_cuda:
-        steps.append(Step("compile CUDA verifiers", ["bash", "compile_cuda.sh"]))
+        steps.append(Step("compile CUDA verifiers", [_python(), "tools/cli.py", "compile-cuda"]))
 
     make_env = {"PYTHON": _python()}
     steps.extend(
@@ -50,24 +50,26 @@ def build_steps(args: argparse.Namespace, root: Path) -> list[Step]:
             Step("clean C backend", ["make", "clean"], env=make_env),
             Step("build and static-check C/Python", ["make", "check"], env=make_env),
             Step("run unit tests", [_python(), "-m", "pytest", "-q"]),
-            Step("generate graph-ops ONNX model", [_python(), "create_graph_ops_model.py"]),
+            Step("generate graph-ops ONNX model", [_python(), "tools/cli.py", "create-graph-model"]),
             Step(
                 "verify graph-ops model",
                 [
                     _python(),
-                    "verify_graph.py",
+                    "tools/cli.py",
+                    "verify-graph",
                     "--model",
                     "./onnx_model/model.onnx",
                     "--task-name",
                     "nps_graph_ops",
                 ],
             ),
-            Step("generate PyTorch export ONNX model", [_python(), "create_model.py"]),
+            Step("generate PyTorch export ONNX model", [_python(), "tools/cli.py", "create-model"]),
             Step(
                 "verify PyTorch export model",
                 [
                     _python(),
-                    "verify_graph.py",
+                    "tools/cli.py",
+                    "verify-graph",
                     "--model",
                     "./onnx_model/model.onnx",
                     "--task-name",
@@ -80,7 +82,8 @@ def build_steps(args: argparse.Namespace, root: Path) -> list[Step]:
     if not args.skip_cuda and not args.skip_numerical:
         numerical_command = [
             _python(),
-            "numerical_correctness.py",
+            "tools/cli.py",
+            "numerical",
             "--iterations",
             str(args.iterations),
             "--skip-plots",

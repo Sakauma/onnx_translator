@@ -30,9 +30,12 @@ clean:
 
 check: all
 	$(PYTHON) -m py_compile \
-		create_model.py create_graph_ops_model.py graph_logic.py verify_graph.py numerical_correctness.py \
 		nn/__init__.py nn/Operators.py nn/ONNXImport.py nn/ModelInitParas.py nn/GraphVisualization.py \
-		tools/health_check.py tools/verify_all.py tools/audit_ops.py
+		tools/__init__.py tools/cli.py tools/health_check.py tools/verify_all.py tools/audit_ops.py \
+		tools/commands/__init__.py tools/commands/create_model.py tools/commands/create_graph_ops_model.py \
+		tools/commands/graph_logic.py tools/commands/verify_graph.py tools/commands/numerical_correctness.py \
+		tools/numerical/__init__.py tools/numerical/cli.py tools/numerical/compare.py tools/numerical/cuda.py \
+		tools/numerical/data.py tools/numerical/dtype.py tools/numerical/runner.py
 	@echo "Static Python compile check passed."
 
 test:
