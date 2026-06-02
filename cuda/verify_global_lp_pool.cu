@@ -3,6 +3,7 @@
 #include <math.h>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `global_lp_pool_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void global_lp_pool_kernel(const double* X, double* Y, int outer, int spatial_size, int p_norm) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= outer) return;
@@ -15,6 +16,7 @@ __global__ void global_lp_pool_kernel(const double* X, double* Y, int outer, int
     Y[idx] = pow(sum_pow, 1.0 / (double)p_norm);
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc < 5) return 1;
 

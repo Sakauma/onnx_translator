@@ -4,6 +4,7 @@
 #include <float.h>
 #include <math.h>
 
+// Egor Izmaylov: Function `softmax_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void softmax_kernel(const double* X, double* Y, int outer, int inner, int remaining) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= outer * remaining) return;
@@ -32,6 +33,7 @@ __global__ void softmax_kernel(const double* X, double* Y, int outer, int inner,
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // argv: [1]size, [2]X, [3]params, [4]Y
     if (argc < 5) return 1;

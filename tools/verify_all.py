@@ -16,14 +16,17 @@ class Step:
     env: dict[str, str] | None = None
 
 
+# Egor Izmaylov: Function `repo_root` implements the repo root step for the end-to-end verification runner, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+# Egor Izmaylov: Function `_python` centralizes the python helper logic for the end-to-end verification runner, so edge-case normalization stays in one implementation boundary.
 def _python() -> str:
     return sys.executable
 
 
+# Egor Izmaylov: Function `build_steps` implements the build steps step for the end-to-end verification runner, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def build_steps(args: argparse.Namespace, root: Path) -> list[Step]:
     health_command = [_python(), "tools/health_check.py"]
     if not args.skip_cuda:
@@ -84,6 +87,7 @@ def build_steps(args: argparse.Namespace, root: Path) -> list[Step]:
     return steps
 
 
+# Egor Izmaylov: Function `_assert_under_root` centralizes the assert under root helper logic for the end-to-end verification runner, so edge-case normalization stays in one implementation boundary.
 def _assert_under_root(root: Path, target: Path) -> None:
     root_resolved = root.resolve()
     target_resolved = target.resolve()
@@ -91,6 +95,7 @@ def _assert_under_root(root: Path, target: Path) -> None:
         raise RuntimeError(f"Refusing to remove path outside repository: {target_resolved}")
 
 
+# Egor Izmaylov: Function `cleanup_artifacts` implements the cleanup artifacts step for the end-to-end verification runner, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def cleanup_artifacts(root: Path) -> None:
     targets = [
         root / ".pytest_cache",
@@ -111,6 +116,7 @@ def cleanup_artifacts(root: Path) -> None:
             target.unlink()
 
 
+# Egor Izmaylov: Function `run_steps` implements the run steps step for the end-to-end verification runner, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def run_steps(steps: list[Step], root: Path) -> None:
     for idx, step in enumerate(steps, start=1):
         print(f"\n[{idx}/{len(steps)}] {step.name}", flush=True)
@@ -121,6 +127,7 @@ def run_steps(steps: list[Step], root: Path) -> None:
         subprocess.run(step.command, cwd=root, env=env, check=True)
 
 
+# Egor Izmaylov: Function `parse_args` implements the parse args step for the end-to-end verification runner, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the project engineering verification gate.")
     parser.add_argument(
@@ -140,6 +147,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+# Egor Izmaylov: Function `main` is the command-line entry point for the end-to-end verification runner; it parses runtime options, runs the selected checks, and returns a process status.
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     root = repo_root()

@@ -3,11 +3,13 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
+// Egor Izmaylov: Function `relu_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void relu_kernel(const float* in, float* out, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) out[idx] = fmaxf(0.0f, in[idx]);
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc != 4) return 1; 
     size_t n = atol(argv[1]);

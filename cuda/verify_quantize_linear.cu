@@ -4,18 +4,21 @@
 #include <math.h>
 
 // 升级: 所有指针和计算改为 double
+// Egor Izmaylov: Function `saturate_cast_int8` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ double saturate_cast_int8(double val) {
     if (val > 127.0) return 127.0;
     if (val < -128.0) return -128.0;
     return val;
 }
 
+// Egor Izmaylov: Function `saturate_cast_uint8` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ double saturate_cast_uint8(double val) {
     if (val > 255.0) return 255.0;
     if (val < 0.0) return 0.0;
     return val;
 }
 
+// Egor Izmaylov: Function `quantize_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void quantize_kernel(const double* x, const double* scale, const double* zp, double* out, size_t n, int is_signed) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
@@ -31,6 +34,7 @@ __global__ void quantize_kernel(const double* x, const double* scale, const doub
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc < 7) return 1; 
     size_t n = atol(argv[1]);

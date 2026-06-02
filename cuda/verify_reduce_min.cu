@@ -6,6 +6,7 @@
 
 typedef struct { int64_t in_len; } ReduceAllParams;
 
+// Egor Izmaylov: Function `reduce_min_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void reduce_min_kernel(const float* in, float* out, int64_t n) {
     if (blockIdx.x != 0 || threadIdx.x != 0) return;
 
@@ -17,6 +18,7 @@ __global__ void reduce_min_kernel(const float* in, float* out, int64_t n) {
     out[0] = (float)acc;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <in.bin> <params.bin> <out.bin>
     if (argc != 5) {

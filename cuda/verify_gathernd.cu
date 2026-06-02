@@ -10,6 +10,7 @@ struct GatherNDParams {
     int32_t K; 
 };
 
+// Egor Izmaylov: Function `gathernd_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void gathernd_kernel(
     const float* data,
     const int64_t* idx,
@@ -35,6 +36,7 @@ __global__ void gathernd_kernel(
     out[i] = data[(size_t)r * B + (size_t)c];
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <data.bin> <indices.bin> <params.bin> <out.bin>
     if (argc != 6) {

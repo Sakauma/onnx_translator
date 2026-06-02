@@ -1,3 +1,12 @@
+"""ONNX model importer.
+
+Egor Izmaylov: The importer translates ONNX graph nodes into local operator
+objects while preserving opset-17 attributes, inferred dtypes, and initializer
+constants. It should stay declarative: parse attributes here, then delegate all
+runtime behavior to nn.Operators so graph construction and execution remain
+testable independently.
+"""
+
 import onnx
 import numpy as np
 from onnx import numpy_helper
@@ -10,6 +19,7 @@ class GenericNode:
     """
     通用占位节点：用于承载尚未实现、解析失败或自定义的算子。
     """
+    # Egor Izmaylov: Function `GenericNode.__init__` initializes GenericNode, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
     def __init__(self, op_type, inputs, outputs, name=None, attributes=None, error=None):
         self.op_type = op_type
         self.inputs = list(inputs) if inputs else []
@@ -18,10 +28,12 @@ class GenericNode:
         self.attributes = attributes if attributes else {}
         self.error = error
 
+    # Egor Izmaylov: Function `GenericNode.forward` executes the concrete runtime path for GenericNode, consuming real tensor values and returning the graph-runner value contract.
     def forward(self, *args):
         # 运行时占位
         return {"tensor": [None] * len(self.outputs), "parameters": None}
 
+    # Egor Izmaylov: Function `GenericNode.forward_` performs shape-only inference for GenericNode, returning `Tensor_` metadata without touching numeric storage or C backend buffers.
     def forward_(self, *args):
         # 图推断占位
         out_tensors = []
@@ -30,6 +42,7 @@ class GenericNode:
         res = out_tensors[0] if len(out_tensors) == 1 else out_tensors
         return {"tensor": res, "parameters": None, "graph": None}
 
+    # Egor Izmaylov: Function `GenericNode.parameters` exposes the imported node parameters for GenericNode, including unsupported-node diagnostics used by non-strict import mode.
     @property
     def parameters(self):
         info = []
@@ -41,6 +54,7 @@ class GenericNode:
             info.append(f"{k}={val_str}")
         return {"info": "\\n".join(info)}
 
+# Egor Izmaylov: Function `ONNXImport` implements the ONNXImport step for the ONNX importer, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def ONNXImport(file_path, strict=False):
     """
     [Optimized] 从ONNX模型文件导入计算图节点
@@ -60,6 +74,10 @@ def ONNXImport(file_path, strict=False):
         print(f" Critical Error: Failed to load ONNX file. {e}")
         raise e
 
+    # Egor Izmaylov: dtype inference is done once up front because many operator
+    # constructors need the output dtype to choose a C tensor type or a Python
+    # fallback dtype. Re-running shape inference per node would be both slow and
+    # less predictable for partially inferred graphs.
     # =========================================================================
     # 预计算类型映射表
     # =========================================================================
@@ -84,9 +102,13 @@ def ONNXImport(file_path, strict=False):
     for t in graph.value_info: dtype_map[t.name] = t.type.tensor_type.elem_type
 
     # 内部辅助函数：获取 dtype
+    # Egor Izmaylov: Function `ONNXImport.get_dtype` implements the get dtype step for the ONNX importer, normalizing inputs and returning the exact data or metadata contract expected downstream.
     def get_dtype(name, default=onnx.TensorProto.FLOAT):
         return dtype_map.get(name, default)
 
+    # Egor Izmaylov: initializers are emitted as Constant operators before graph
+    # nodes so later runtime code can treat weights and model inputs uniformly.
+    # This keeps graph traversal simple and avoids a second parameter namespace.
     # =========================================================================
     # 解析 Initializers
     # =========================================================================
@@ -100,6 +122,10 @@ def ONNXImport(file_path, strict=False):
         except Exception as e:
             print(f" Warning: Failed to convert initializer {init.name}: {e}")
 
+    # Egor Izmaylov: each branch below should copy ONNX attribute defaults from
+    # the official schema for opset 17. When an op has optional tensor inputs,
+    # keep empty-string placeholders intact because runtime dispatch uses input
+    # positions to match ONNX semantics.
     # =========================================================================
     # 解析 Nodes
     # =========================================================================

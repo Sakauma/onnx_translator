@@ -3,6 +3,7 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
+// Egor Izmaylov: Function `sin_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void sin_kernel(const float* in, float* out, size_t n) {
     size_t idx = (size_t)blockIdx.x * (size_t)blockDim.x + (size_t)threadIdx.x;
     if (idx < n) {
@@ -11,6 +12,7 @@ __global__ void sin_kernel(const float* in, float* out, size_t n) {
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <n> <in.bin> <out.bin>
     if (argc != 4) {

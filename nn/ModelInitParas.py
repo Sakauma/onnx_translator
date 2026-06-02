@@ -13,6 +13,7 @@ onnx_np_dtype_mapping = {
  "bool": np.bool_,
 }
 
+# Egor Izmaylov: Function `get_tensor_dtype` implements the get tensor dtype step for the initializer metadata extractor, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def get_tensor_dtype(tensor_name, model):
     """
     获取张量的数据类型
@@ -41,6 +42,7 @@ def get_tensor_dtype(tensor_name, model):
             
     return None
 
+# Egor Izmaylov: Function `ONNXParasGen` implements the ONNXParasGen step for the initializer metadata extractor, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def ONNXParasGen(file_path):
     """
     从ONNX模型文件生成初始参数张量 (已修复权重冲突问题)

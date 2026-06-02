@@ -2,11 +2,13 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `less_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void less_kernel(const float* a, const float* b, unsigned char* out, size_t n) {
     size_t idx = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) out[idx] = (a[idx] < b[idx]) ? (unsigned char)1 : (unsigned char)0;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc != 5) {
         printf("Usage: %s <out_len> <in0.bin> <in1.bin> <out.bin>\n", argv[0]);

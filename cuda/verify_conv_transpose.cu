@@ -3,6 +3,7 @@
 #include <string.h>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `conv_transpose_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void conv_transpose_kernel(const double* X, const double* W, const double* B, double* Y,
                                       int batch, int in_c, int in_h, int in_w,
                                       int m_per_group, int k_h, int k_w,
@@ -49,6 +50,7 @@ __global__ void conv_transpose_kernel(const double* X, const double* W, const do
     Y[idx] = sum;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc < 6) return 1;
 

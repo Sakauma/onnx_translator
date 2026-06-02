@@ -8,6 +8,7 @@ struct ScatterNDParams {
     int I;
 };
 
+// Egor Izmaylov: Function `scatternd_2d_points` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void scatternd_2d_points(
     const float* data,
     const long long* indices,
@@ -23,6 +24,7 @@ __global__ void scatternd_2d_points(
     __syncthreads(); // 不同 block 不同步，下面用单独 kernel 更稳
 }
 
+// Egor Izmaylov: Function `scatternd_apply_updates` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void scatternd_apply_updates(
     float* out,
     const long long* indices,
@@ -45,6 +47,7 @@ __global__ void scatternd_apply_updates(
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <data.bin> <indices.bin> <updates.bin> <params.bin> <out.bin>
     if (argc != 7) {

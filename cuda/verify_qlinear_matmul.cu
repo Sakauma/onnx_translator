@@ -4,6 +4,7 @@
 #include <math.h>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `read_row_param` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ double read_row_param(const double* data, int size, int row, int idx, double default_value) {
     if (data == NULL || size <= 0) return default_value;
     if (size == 1) return data[0];
@@ -11,6 +12,7 @@ __device__ double read_row_param(const double* data, int size, int row, int idx,
     return data[idx];
 }
 
+// Egor Izmaylov: Function `read_col_param` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ double read_col_param(const double* data, int size, int col, int idx, double default_value) {
     if (data == NULL || size <= 0) return default_value;
     if (size == 1) return data[0];
@@ -18,6 +20,7 @@ __device__ double read_col_param(const double* data, int size, int col, int idx,
     return data[idx];
 }
 
+// Egor Izmaylov: Function `saturate_uint8` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ uint8_t saturate_uint8(double value) {
     long long rounded = llrint(value);
     if (rounded < 0) return 0;
@@ -25,6 +28,7 @@ __device__ uint8_t saturate_uint8(double value) {
     return (uint8_t)rounded;
 }
 
+// Egor Izmaylov: Function `qlinear_matmul_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void qlinear_matmul_kernel(const double* A, const double* AScale, const double* AZeroPoint,
                                       const double* B, const double* BScale, const double* BZeroPoint,
                                       const double* YScale, const double* YZeroPoint, uint8_t* Y,
@@ -57,6 +61,7 @@ __global__ void qlinear_matmul_kernel(const double* A, const double* AScale, con
     Y[idx] = saturate_uint8(q);
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc < 12) return 1;
 

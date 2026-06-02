@@ -21,6 +21,7 @@ REQUIRED_TOOLS = ["gcc", "make", "dot"]
 CUDA_TOOLS = ["nvcc"]
 
 
+# Egor Izmaylov: Function `tool_version` implements the tool version step for the environment health checker, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def tool_version(command):
     path = resolve_tool(command)
     if not path:
@@ -40,6 +41,7 @@ def tool_version(command):
     return path, version
 
 
+# Egor Izmaylov: Function `resolve_tool` implements the resolve tool step for the environment health checker, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def resolve_tool(command):
     if command == "nvcc" and os.environ.get("NVCC"):
         nvcc_env = os.environ["NVCC"]
@@ -58,6 +60,7 @@ def resolve_tool(command):
     return None
 
 
+# Egor Izmaylov: Function `check_modules` implements the check modules step for the environment health checker, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def check_modules():
     missing = []
     for module_name in PYTHON_MODULES:
@@ -71,6 +74,7 @@ def check_modules():
     return missing
 
 
+# Egor Izmaylov: Function `check_tools` implements the check tools step for the environment health checker, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def check_tools(tools):
     missing = []
     for command in tools:
@@ -83,6 +87,7 @@ def check_tools(tools):
     return missing
 
 
+# Egor Izmaylov: Function `main` is the command-line entry point for the environment health checker; it parses runtime options, runs the selected checks, and returns a process status.
 def main():
     parser = argparse.ArgumentParser(description="Check local project runtime dependencies.")
     parser.add_argument("--require-cuda", action="store_true", help="Fail when nvcc is unavailable.")

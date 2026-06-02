@@ -4,6 +4,7 @@
 #include <math.h>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `read_param` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ double read_param(const double* data, int size, int full_idx, int full_size,
                              int channel_idx, double default_value) {
     if (data == NULL || size <= 0) return default_value;
@@ -17,6 +18,7 @@ __device__ long long read_int_param(const double* data, int size, int full_idx, 
     return llround(read_param(data, size, full_idx, full_size, channel_idx, (double)default_value));
 }
 
+// Egor Izmaylov: Function `saturate_uint8` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ uint8_t saturate_uint8(double value) {
     long long rounded = llrint(value);
     if (rounded < 0) return 0;
@@ -24,6 +26,7 @@ __device__ uint8_t saturate_uint8(double value) {
     return (uint8_t)rounded;
 }
 
+// Egor Izmaylov: Function `qlinear_conv_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void qlinear_conv_kernel(const double* X, const double* XScale, const double* XZeroPoint,
                                     const double* W, const double* WScale, const double* WZeroPoint,
                                     const double* YScale, const double* YZeroPoint, uint8_t* Y,
@@ -80,6 +83,7 @@ __global__ void qlinear_conv_kernel(const double* X, const double* XScale, const
     Y[idx] = saturate_uint8(q);
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc < 12) return 1;
 

@@ -10,10 +10,12 @@ struct RandomUniformLikeParams {
     uint32_t seed;
 };
 
+// Egor Izmaylov: Function `lcg_next` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ __forceinline__ uint32_t lcg_next(uint32_t x) {
     return x * 1664525u + 1013904223u;
 }
 
+// Egor Izmaylov: Function `random_uniform_like_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void random_uniform_like_kernel(float* out, int numel, float low, float high, uint32_t seed) {
     int tid = (int)blockIdx.x * (int)blockDim.x + (int)threadIdx.x;
     if (tid >= numel) return;
@@ -26,6 +28,7 @@ __global__ void random_uniform_like_kernel(float* out, int numel, float low, flo
     out[tid] = low + (high - low) * u;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <dummy_input.bin> <params.bin> <out.bin>
     if (argc != 5) {

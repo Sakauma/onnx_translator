@@ -3,6 +3,7 @@ import numpy as np
 import onnx
 from onnx import helper, TensorProto, numpy_helper
 
+# Egor Izmaylov: Function `make_const` implements the make const step for the ONNX fixture generator, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def make_const(name: str, value: np.ndarray):
     return helper.make_node(
         "Constant",
@@ -11,6 +12,7 @@ def make_const(name: str, value: np.ndarray):
         value=numpy_helper.from_array(value, name=name + "_value"),
     )
 
+# Egor Izmaylov: Function `export_graph_ops_model` implements the export graph ops model step for the ONNX fixture generator, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def export_graph_ops_model(out_path="./onnx_model/model.onnx"):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 

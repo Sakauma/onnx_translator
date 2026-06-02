@@ -4,6 +4,7 @@
 #include <float.h>
 
 // 辅助：读取 4D 数据 (带 padding 检查)
+// Egor Izmaylov: Function `get_val_4d` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ double get_val_4d(const double* data, int n, int c, int h, int w, 
                              int N, int C, int H, int W) {
     if (n < 0 || n >= N || c < 0 || c >= C || h < 0 || h >= H || w < 0 || w >= W) {
@@ -12,6 +13,7 @@ __device__ double get_val_4d(const double* data, int n, int c, int h, int w,
     return data[((n * C + c) * H + h) * W + w];
 }
 
+// Egor Izmaylov: Function `conv2d_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void conv2d_kernel(const double* X, const double* W, const double* B, double* Y,
                               int batch, int in_c, int in_h, int in_w,
                               int out_c, int k_h, int k_w,
@@ -63,6 +65,7 @@ __global__ void conv2d_kernel(const double* X, const double* W, const double* B,
     Y[idx] = sum;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc < 6) return 1;
 

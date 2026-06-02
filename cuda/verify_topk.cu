@@ -13,6 +13,7 @@ struct TopKParams {
     int32_t sorted_flag;
 };
 
+// Egor Izmaylov: Function `topk_axis1_2d_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void topk_axis1_2d_kernel(
     const float* data,
     float* out_vals,
@@ -58,6 +59,7 @@ __global__ void topk_axis1_2d_kernel(
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <data.bin> <k.bin> <params.bin> <out.bin>
     if (argc != 6) {

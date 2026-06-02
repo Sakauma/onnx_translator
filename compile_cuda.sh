@@ -5,6 +5,7 @@ CUDA_DIR="${CUDA_DIR:-cuda}"
 CACHE_DIR="${CACHE_DIR:-cache}"
 NVCC="${NVCC:-nvcc}"
 
+# Egor Izmaylov: Function `resolve_nvcc` locates the CUDA compiler from NVCC, PATH, or common install roots, so verifier compilation fails with a clear diagnostic when nvcc is unavailable.
 resolve_nvcc() {
     if command -v "${NVCC}" >/dev/null 2>&1; then
         command -v "${NVCC}"

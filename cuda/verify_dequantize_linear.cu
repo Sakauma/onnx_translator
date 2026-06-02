@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `dequantize_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void dequantize_kernel(const double* x, const double* scale, const double* zp, double* out, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
@@ -9,6 +10,7 @@ __global__ void dequantize_kernel(const double* x, const double* scale, const do
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc != 6) return 1; 
     size_t n = atol(argv[1]);

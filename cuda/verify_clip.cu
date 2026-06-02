@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `clip_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void clip_kernel(
     const float* x,
     const float* min_v,
@@ -20,6 +21,7 @@ __global__ void clip_kernel(
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <in0> <in1> <in2> <out>
     if (argc != 6) {

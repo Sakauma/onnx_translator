@@ -3,6 +3,7 @@
 #include <cuda_runtime.h>
 
 // 核心核函数：只处理 float32，保证最高精度真值
+// Egor Izmaylov: Function `add_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void add_kernel(const float* a, const float* b, float* out, size_t n) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
@@ -10,6 +11,7 @@ __global__ void add_kernel(const float* a, const float* b, float* out, size_t n)
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // 统一接口：<数量> <输入A> <输入B> <输出>
     if (argc != 5) return 1; 

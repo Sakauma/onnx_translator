@@ -1,6 +1,7 @@
 from graphviz import Digraph
 import os
 
+# Egor Izmaylov: Function `GraphGenerate` implements the GraphGenerate step for the graph visualization helper, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def GraphGenerate(input_graph, model_name, fast_mode=True):
     """
     生成计算图的可视化图形

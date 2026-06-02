@@ -11,6 +11,7 @@ from nn.GraphVisualization import GraphGenerate
 from nn.ONNXImport import ONNXImport
 
 
+# Egor Izmaylov: Function `run_verification` implements the run verification step for the graph parsing verification script, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False, clean=True):
     result_dir = os.path.join("./result", task_name)
     if clean and os.path.exists(result_dir):
@@ -89,6 +90,7 @@ def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False
     return 0
 
 
+# Egor Izmaylov: Function `main` is the command-line entry point for the graph parsing verification script; it parses runtime options, runs the selected checks, and returns a process status.
 def main():
     parser = argparse.ArgumentParser(description="Verify ONNX import, graph construction, and visualization.")
     parser.add_argument("--model", default="./onnx_model/model.onnx", help="ONNX model path.")

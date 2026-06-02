@@ -24,6 +24,7 @@ CUDA_VERIFY_DIR = os.environ.get("CUDA_VERIFY_DIR", "cache")
 # 1. 辅助工具
 # =============================================================================
 
+# Egor Izmaylov: Function `get_dtype_limits` implements the get dtype limits step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def get_dtype_limits(dtype):
     """
     获取不同数据类型的数值范围限制
@@ -49,6 +50,7 @@ def get_dtype_limits(dtype):
     # Float32 视为无限
     return -float('inf'), float('inf'), False
 
+# Egor Izmaylov: Function `float32_to_bfloat16_bits` implements the float32 to bfloat16 bits step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def float32_to_bfloat16_bits(arr_f32):
     """
     将 float32 数组转换为 bfloat16 的位存储 (uint16)
@@ -64,6 +66,7 @@ def float32_to_bfloat16_bits(arr_f32):
 
     return (final_u32 >> 16).astype(np.uint16)
 
+# Egor Izmaylov: Function `bfloat16_bits_to_float32` implements the bfloat16 bits to float32 step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def bfloat16_bits_to_float32(arr_u16):
     """
     将 bfloat16 位存储 (uint16) 还原为 float32
@@ -72,6 +75,7 @@ def bfloat16_bits_to_float32(arr_u16):
     arr_u32 = arr_u16.astype(np.uint32) << 16
     return arr_u32.view(np.float32)
 
+# Egor Izmaylov: Function `decode_float8_e4m3` implements the decode float8 e4m3 step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def decode_float8_e4m3(val_uint8):
     val_uint8 = int(val_uint8)
     s = (val_uint8 & 0x80) >> 7
@@ -84,6 +88,7 @@ def decode_float8_e4m3(val_uint8):
         return np.nan
     return sign * (1.0 + m / 8.0) * (2.0 ** (e - 7))
 
+# Egor Izmaylov: Function `decode_float8_e5m2` implements the decode float8 e5m2 step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def decode_float8_e5m2(val_uint8):
     val_uint8 = int(val_uint8)
     s = (val_uint8 & 0x80) >> 7
@@ -99,6 +104,7 @@ def decode_float8_e5m2(val_uint8):
 vec_decode_e4m3 = np.vectorize(decode_float8_e4m3)
 vec_decode_e5m2 = np.vectorize(decode_float8_e5m2)
 
+# Egor Izmaylov: Function `to_float32` implements the to float32 step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def to_float32(data, dtype):
     """
     关键修复：将存储在 int 容器中的位模式正确解码为 float32 数值
@@ -121,6 +127,7 @@ def to_float32(data, dtype):
 # 2. 数据生成 (修复 BFloat16 生成逻辑)
 # =============================================================================
 
+# Egor Izmaylov: Function `generate_random_data` implements the generate random data step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def generate_random_data(shape, dtype):
     size = np.prod(shape)
     
@@ -157,6 +164,7 @@ def generate_random_data(shape, dtype):
 # 3. 验证与执行逻辑
 # =============================================================================
 
+# Egor Izmaylov: Function `run_cuda_ground_truth` implements the run cuda ground truth step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=np.float32, target_shape=None):
     exe = os.path.join(CUDA_VERIFY_DIR, f"verify_{op_name}")
     if not os.path.exists(exe):
@@ -217,6 +225,7 @@ def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=
             
     return result
 
+# Egor Izmaylov: Function `random_uniform_like_reference` implements the random uniform like reference step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def random_uniform_like_reference(shape, low, high, seed):
     numel = int(np.prod(shape))
     out = np.empty(numel, dtype=np.float32)
@@ -229,6 +238,7 @@ def random_uniform_like_reference(shape, low, high, seed):
 
     return out.reshape(shape).astype(np.float32)
 
+# Egor Izmaylov: Function `check_accuracy` implements the check accuracy step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def check_accuracy(nps_val, cuda_val, atol, rtol, dtype):
     """
     严谨的验证逻辑：支持数值对比、溢出判定和 NaN 匹配
@@ -296,6 +306,7 @@ def check_accuracy(nps_val, cuda_val, atol, rtol, dtype):
             
         return False, fail_abs, fail_rel, fail_mask
 
+# Egor Izmaylov: Function `verify_op` implements the verify op step for the CPU/CUDA numerical correctness harness, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterations=5):
     init_args = init_args or {}
     print(f"🧪 Testing {op_name.upper()}: {dtypes} -> {out_dtype}")

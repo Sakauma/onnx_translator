@@ -3,6 +3,7 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
+// Egor Izmaylov: Function `python_mod` is a CUDA device helper used inside verifier kernels, keeping parameter decoding and saturation rules consistent across threads.
 __device__ __forceinline__ float python_mod(float a, float b) {
     if (b == 0.0f) return NAN;
     float r = fmodf(a, b);
@@ -10,11 +11,13 @@ __device__ __forceinline__ float python_mod(float a, float b) {
     return r;
 }
 
+// Egor Izmaylov: Function `mod_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void mod_kernel(const float* a, const float* b, float* out, int n) {
     int t = (int)blockIdx.x * (int)blockDim.x + (int)threadIdx.x;
     if (t < n) out[t] = python_mod(a[t], b[t]);
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <a.bin> <b.bin> <out.bin>
     if (argc != 5) {

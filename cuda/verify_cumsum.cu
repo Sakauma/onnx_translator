@@ -9,6 +9,7 @@ struct CumSumParams {
     int32_t reverse;    // 0/1
 };
 
+// Egor Izmaylov: Function `cumsum_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void cumsum_kernel(const float* in, float* out, int N, int exclusive, int reverse) {
     if (blockIdx.x != 0 || threadIdx.x != 0) return;
 
@@ -40,6 +41,7 @@ __global__ void cumsum_kernel(const float* in, float* out, int N, int exclusive,
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <in.bin> <params.bin> <out.bin>
     if (argc != 5) {

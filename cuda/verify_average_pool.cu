@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `average_pool_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void average_pool_kernel(const double* X, double* Y,
                                     int batch, int channels, int in_h, int in_w,
                                     int out_h, int out_w,
@@ -38,6 +39,7 @@ __global__ void average_pool_kernel(const double* X, double* Y,
     Y[idx] = count > 0 ? sum / count : 0.0;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc < 5) return 1;
 

@@ -18,6 +18,7 @@ __device__ long long read_b_zp(const double* zp, int size, int col, int idx) {
     return llround(zp[idx]);
 }
 
+// Egor Izmaylov: Function `matmul_integer_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void matmul_integer_kernel(const double* A, const double* B,
                                       const double* AZeroPoint, const double* BZeroPoint,
                                       int32_t* Y,
@@ -42,6 +43,7 @@ __global__ void matmul_integer_kernel(const double* A, const double* B,
     Y[idx] = (int32_t)acc;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc < 8) return 1;
 

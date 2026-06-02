@@ -12,6 +12,7 @@ struct ArgParams {
     int32_t select_last_index;
 };
 
+// Egor Izmaylov: Function `argmax_axis1_2d_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void argmax_axis1_2d_kernel(const float* x, int64_t* out, int M, int N) {
     int row = (int)blockIdx.x * (int)blockDim.x + (int)threadIdx.x;
     if (row >= M) return;
@@ -30,6 +31,7 @@ __global__ void argmax_axis1_2d_kernel(const float* x, int64_t* out, int M, int 
     out[row] = (int64_t)best_idx;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <x.bin> <params.bin> <out.bin>
     if (argc != 5) {

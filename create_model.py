@@ -9,6 +9,7 @@ class FinalSupportedModel(nn.Module):
     """
     测试模型。
     """
+    # Egor Izmaylov: Function `FinalSupportedModel.__init__` initializes FinalSupportedModel, stores constructor-provided state, and prepares later runtime, shape-inference, or verification dispatch.
     def __init__(self):
         super(FinalSupportedModel, self).__init__()
         
@@ -44,6 +45,7 @@ class FinalSupportedModel(nn.Module):
         # Buffer
         self.register_buffer('dummy_idx', torch.tensor([0], dtype=torch.int64))
 
+    # Egor Izmaylov: Function `FinalSupportedModel.forward` executes the concrete runtime path for FinalSupportedModel, consuming real tensor values and returning the graph-runner value contract.
     def forward(self, x):
         # x: [1, 4, 32, 32]
         results = []
@@ -111,6 +113,7 @@ class FinalSupportedModel(nn.Module):
         final_out = torch.cat(results, dim=0).sum()
         return final_out
 
+# Egor Izmaylov: Function `export_model` implements the export model step for the ONNX fixture generator, normalizing inputs and returning the exact data or metadata contract expected downstream.
 def export_model():
     model = FinalSupportedModel()
     model.eval()

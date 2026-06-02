@@ -10,6 +10,7 @@ __device__ long long read_zp(const double* zp, int zp_size, int full_idx, int ch
     return llround(zp[zp_size == 0 ? 0 : (channel_idx % zp_size)]);
 }
 
+// Egor Izmaylov: Function `conv_integer_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void conv_integer_kernel(const double* X, const double* W,
                                     const double* XZeroPoint, const double* WZeroPoint,
                                     int32_t* Y,
@@ -56,6 +57,7 @@ __global__ void conv_integer_kernel(const double* X, const double* W,
     Y[idx] = (int32_t)acc;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     if (argc < 8) return 1;
 

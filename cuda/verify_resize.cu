@@ -14,6 +14,7 @@ struct ResizeParams {
     int32_t OW;
 };
 
+// Egor Izmaylov: Function `resize_nearest_nchw_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void resize_nearest_nchw_kernel(
     const float* x,
     float* y,
@@ -44,6 +45,7 @@ __global__ void resize_nearest_nchw_kernel(
     y[out_off] = x[in_off];
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <x.bin> <params.bin> <out.bin>
     if (argc != 5) {

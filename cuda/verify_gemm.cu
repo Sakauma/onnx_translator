@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `gemm_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void gemm_kernel(const double* A, const double* B, const double* C, double* Y,
                             int M, int N, int K,
                             float alpha, float beta, int transA, int transB,
@@ -33,6 +34,7 @@ __global__ void gemm_kernel(const double* A, const double* B, const double* C, d
     Y[idx] = res;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // argv: [1]size, [2]A, [3]B, [4]C(or null), [5]params, [6]out
     if (argc < 6) return 1;

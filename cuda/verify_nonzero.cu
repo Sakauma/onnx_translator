@@ -4,6 +4,7 @@
 #include <vector>
 #include <cuda_runtime.h>
 
+// Egor Izmaylov: Function `nonzero_kernel_deterministic` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void nonzero_kernel_deterministic(
     const float* x,
     int64_t* out,
@@ -33,6 +34,7 @@ __global__ void nonzero_kernel_deterministic(
     }
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <x.bin> <params.bin> <out.bin>
     if (argc != 5) {

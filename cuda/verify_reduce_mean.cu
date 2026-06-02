@@ -7,6 +7,7 @@ struct ReduceMeanParams {
     int N;
 };
 
+// Egor Izmaylov: Function `sum_all_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void sum_all_kernel(const float* x, double* partial, int total) {
     __shared__ double sdata[256];
     int tid = threadIdx.x;
@@ -25,6 +26,7 @@ __global__ void sum_all_kernel(const float* x, double* partial, int total) {
     if (tid == 0) partial[blockIdx.x] = sdata[0];
 }
 
+// Egor Izmaylov: Function `sum_partial_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void sum_partial_kernel(const double* partial, double* out, int nblocks) {
     __shared__ double sdata[256];
     int tid = threadIdx.x;
@@ -43,6 +45,7 @@ __global__ void sum_partial_kernel(const double* partial, double* out, int nbloc
     if (tid == 0) out[0] = sdata[0];
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <in0.bin> <params.bin> <out.bin>
     if (argc != 5) {

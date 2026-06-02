@@ -10,6 +10,7 @@ struct EinsumParams {
     int32_t N;
 };
 
+// Egor Izmaylov: Function `einsum_ij_jk_to_ik_kernel` is a CUDA reference kernel for the verifier; it maps thread indices to tensor elements and computes the expected GPU result.
 __global__ void einsum_ij_jk_to_ik_kernel(
     const float* A,
     const float* B,
@@ -30,6 +31,7 @@ __global__ void einsum_ij_jk_to_ik_kernel(
     C[tid] = sum;
 }
 
+// Egor Izmaylov: Function `main` is the standalone CUDA verifier entry point; it reads binary tensors, runs the reference calculation, and writes outputs for numerical_correctness.py.
 int main(int argc, char** argv) {
     // <out_len> <A.bin> <B.bin> <params.bin> <out.bin>
     if (argc != 6) {

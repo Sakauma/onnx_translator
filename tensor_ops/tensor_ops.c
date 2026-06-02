@@ -32,12 +32,14 @@ static pthread_mutex_t cos_lut_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static uint32_t simple_lcg(uint32_t* state);
 
+// Egor Izmaylov: Function `float_to_bits` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline uint32_t float_to_bits(float value) {
     uint32_t bits;
     memcpy(&bits, &value, sizeof(bits));
     return bits;
 }
 
+// Egor Izmaylov: Function `bits_to_float` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline float bits_to_float(uint32_t bits) {
     float value;
     memcpy(&value, &bits, sizeof(value));
@@ -45,6 +47,7 @@ static inline float bits_to_float(uint32_t bits) {
 }
 
 // 获取数据类型的字节大小
+// Egor Izmaylov: Function `get_dtype_size` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline size_t get_dtype_size(DataType dtype) {
     switch (dtype) {
         case DTYPE_FLOAT8_E4M3:
@@ -75,6 +78,7 @@ typedef struct {
 } TopKElement;
 
 // 4-bit 饱和截断
+// Egor Izmaylov: Function `saturate_cast_int4` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline int8_t saturate_cast_int4(int64_t val) {
     if (val > 7) return 7;
     if (val < -8) return -8;
@@ -82,6 +86,7 @@ static inline int8_t saturate_cast_int4(int64_t val) {
 }
 
 // 8-bit 饱和截断
+// Egor Izmaylov: Function `saturate_cast_int8` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline int8_t saturate_cast_int8(int64_t val) {
     if (val > 127) return 127;
     if (val < -128) return -128;
@@ -89,6 +94,7 @@ static inline int8_t saturate_cast_int8(int64_t val) {
 }
 
 // 8-bit 无符号饱和截断 (0 ~ 255)
+// Egor Izmaylov: Function `saturate_cast_uint8` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline uint8_t saturate_cast_uint8(int64_t val) {
     if (val > 255) return 255;
     if (val < 0) return 0;
@@ -96,6 +102,7 @@ static inline uint8_t saturate_cast_uint8(int64_t val) {
 }
 
 // 16-bit 饱和截断
+// Egor Izmaylov: Function `saturate_cast_int16` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline int16_t saturate_cast_int16(int64_t val) {
     if (val > 32767) return 32767;
     if (val < -32768) return -32768;
@@ -103,6 +110,7 @@ static inline int16_t saturate_cast_int16(int64_t val) {
 }
 
 // 32-bit 饱和截断
+// Egor Izmaylov: Function `saturate_cast_int32` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline int32_t saturate_cast_int32(int64_t val) {
     if (val > 2147483647) return 2147483647;
     if (val < -2147483648) return -2147483648;
@@ -115,6 +123,7 @@ static inline int32_t saturate_cast_int32(int64_t val) {
  * @param value 32位浮点数
  * @return 16位浮点数
  */
+// Egor Izmaylov: Function `float_to_float16` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline uint16_t float_to_float16(float value) {
     uint32_t bits = float_to_bits(value);
     uint16_t sign = (bits >> 16) & 0x8000;
@@ -171,6 +180,7 @@ static inline uint16_t float_to_float16(float value) {
  * @param value 16位浮点数
  * @return 32位浮点数
  */
+// Egor Izmaylov: Function `float16_to_float` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline float float16_to_float(uint16_t value) {
     uint32_t sign = ((uint32_t)value & 0x8000) << 16;
     uint32_t exp  = (value >> 10) & 0x1F;
@@ -203,6 +213,7 @@ static inline float float16_to_float(uint16_t value) {
  * @param value 32位浮点数
  * @return 16位bfloat16格式数据
  */
+// Egor Izmaylov: Function `float_to_bfloat16` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline uint16_t float_to_bfloat16(float value) {
     uint32_t bits = float_to_bits(value);
 
@@ -229,6 +240,7 @@ static inline uint16_t float_to_bfloat16(float value) {
  * @param value 16位bfloat16格式数据
  * @return 32位浮点数
  */
+// Egor Izmaylov: Function `bfloat16_to_float` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline float bfloat16_to_float(uint16_t value) {
     // 提取符号位
     uint32_t sign = (value & 0x8000) << 16;
@@ -247,6 +259,7 @@ static inline float bfloat16_to_float(uint16_t value) {
  * @param value 8位float8_e4m3格式数据
  * @return 32位浮点数
  */
+// Egor Izmaylov: Function `fp8_e4m3_to_float` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline float fp8_e4m3_to_float(uint8_t val) {
     uint32_t sign = ((uint32_t)val & 0x80) << 24;
     uint32_t exp  = (val & 0x78) >> 3;
@@ -269,6 +282,7 @@ static inline float fp8_e4m3_to_float(uint8_t val) {
     return bits_to_float(sign | (new_exp << 23) | (mant << 20));
 }
 
+// Egor Izmaylov: Function `float_to_fp8_e4m3` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline uint8_t float_to_fp8_e4m3(float f) {
     uint32_t bits = float_to_bits(f);
     uint32_t sign = (bits & 0x80000000) >> 24; 
@@ -306,6 +320,7 @@ static inline uint8_t float_to_fp8_e4m3(float f) {
  * @param value 8位float8_e5m2格式数据
  * @return 32位浮点数
  */
+// Egor Izmaylov: Function `fp8_e5m2_to_float` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline float fp8_e5m2_to_float(uint8_t val) {
     uint32_t sign = ((uint32_t)val & 0x80) << 24;
     uint32_t exp  = (val & 0x7C) >> 2;
@@ -329,6 +344,7 @@ static inline float fp8_e5m2_to_float(uint8_t val) {
     return bits_to_float(sign | (new_exp << 23) | (mant << 21));
 }
 
+// Egor Izmaylov: Function `float_to_fp8_e5m2` implements numeric conversion or saturation rules, keeping low-precision storage compatible with ONNX dtype expectations.
 static inline uint8_t float_to_fp8_e5m2(float f) {
     uint32_t bits = float_to_bits(f);
     uint32_t sign = (bits & 0x80000000) >> 24;
@@ -368,6 +384,7 @@ static inline uint8_t float_to_fp8_e5m2(float f) {
  * @param dtype 数据类型
  * @return 创建的张量指针
  */
+// Egor Izmaylov: Function `create_tensor` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
     if (ndim < 0) {
         return NULL;
@@ -468,6 +485,7 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
  * 
  * @param tensor 要释放的张量指针
  */
+// Egor Izmaylov: Function `free_tensor` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 void free_tensor(Tensor* tensor) {
     // 检查张量指针是否有效
     if (tensor) {
@@ -484,6 +502,7 @@ void free_tensor(Tensor* tensor) {
  *
  * 从张量获取值，并作为 float 返回
  */
+// Egor Izmaylov: Function `get_value_as_float` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline float get_value_as_float(const Tensor* tensor, size_t index) {
     switch (tensor->dtype) {
         case DTYPE_FLOAT8_E4M3: return fp8_e4m3_to_float(((uint8_t*)tensor->data)[index]);
@@ -516,6 +535,7 @@ static inline float get_value_as_float(const Tensor* tensor, size_t index) {
  *
  * 从张量获取值，并作为 double 返回
  */
+// Egor Izmaylov: Function `get_value_as_double` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline double get_value_as_double(const Tensor* tensor, size_t index) {
     switch (tensor->dtype) {
         case DTYPE_FLOAT8_E4M3: return (double)fp8_e4m3_to_float(((uint8_t*)tensor->data)[index]);
@@ -548,6 +568,7 @@ static inline double get_value_as_double(const Tensor* tensor, size_t index) {
  *
  * 从张量获取值，并作为 int64_t 返回
  */
+// Egor Izmaylov: Function `get_value_as_int64` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
     switch (tensor->dtype) {
         case DTYPE_FLOAT32: return (int64_t)rintf(((float*)tensor->data)[index]);
@@ -580,6 +601,7 @@ static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
  * 通用写入函数
  * 负责将计算结果安全地写入输出张量
  */
+// Egor Izmaylov: Function `set_tensor_value_from_int` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline void set_tensor_value_from_int(Tensor* tensor, size_t index, int64_t value) {
     switch (tensor->dtype) {
         case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = saturate_cast_int4(value); break;
@@ -599,6 +621,7 @@ static inline void set_tensor_value_from_int(Tensor* tensor, size_t index, int64
     }
 }
 
+// Egor Izmaylov: Function `set_tensor_value_from_float` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, double value) {
     switch (tensor->dtype) {
         case DTYPE_FLOAT8_E4M3: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3((float)value); break;
@@ -618,6 +641,7 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
     }
 }
 
+// Egor Izmaylov: Function `copy_tensor_element` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline void copy_tensor_element(Tensor* dst, size_t dst_index, const Tensor* src, size_t src_index) {
     if (!dst || !src || !dst->data || !src->data) return;
 
@@ -638,6 +662,7 @@ static inline void copy_tensor_element(Tensor* dst, size_t dst_index, const Tens
 
 // --- 通用一元算子宏模板 ---
 #ifndef UNARY_OP_IMPL
+// Egor Izmaylov: Macro `UNARY_OP_IMPL` expands repeated C function implementations for related operators; it keeps generated entry points aligned with the ctypes ABI while avoiding duplicated loop code.
 #define UNARY_OP_IMPL(FUNC_NAME, MATH_LOGIC) \
 void FUNC_NAME(const Tensor* input, Tensor* output) { \
     if (!input || !output || !input->data || !output->data || input->size != output->size) return; \
@@ -653,6 +678,7 @@ void FUNC_NAME(const Tensor* input, Tensor* output) { \
 /* 
    OP_FUNC: 执行计算的逻辑 (a + b, a - b 等)
 */
+// Egor Izmaylov: Macro `BINARY_OP_INT_LOGIC` expands repeated C function implementations for related operators; it keeps generated entry points aligned with the ctypes ABI while avoiding duplicated loop code.
 #define BINARY_OP_INT_LOGIC(OP_FUNC) \
     switch (O->dtype) { \
         case DTYPE_INT32: { \
@@ -724,12 +750,17 @@ void FUNC_NAME(const Tensor* input, Tensor* output) { \
     }
 
 // 简单的运算包装器，用于宏
+// Egor Izmaylov: Function `op_add` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_add(int64_t a, int64_t b) { return a + b; }
+// Egor Izmaylov: Function `op_sub` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_sub(int64_t a, int64_t b) { return a - b; }
+// Egor Izmaylov: Function `op_mul` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_mul(int64_t a, int64_t b) { return a * b; }
+// Egor Izmaylov: Function `op_div` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_div(int64_t a, int64_t b) { return b == 0 ? (a >= 0 ? INT64_MAX : INT64_MIN) : a / b; }
 
 // 安全获取4D张量的值
+// Egor Izmaylov: Function `get_val_4d_with_padding` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline double get_val_4d_with_padding(const Tensor* T, int n, int c, int h, int w, double pad_val) {
     int N = T->shape[0];
     int C = T->shape[1];
@@ -751,6 +782,7 @@ static inline double get_val_4d_with_padding(const Tensor* T, int n, int c, int 
  * @param input 输入张量
  * @param output 输出张量
  */
+// Egor Izmaylov: Function `relu_forward` is the C backend entry point for the relu operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void relu_forward(const Tensor* input, Tensor* output) {
     // 检查输入参数是否有效
     if (!input || !output || !input->data || !output->data || input->size != output->size) {
@@ -779,6 +811,7 @@ void relu_forward(const Tensor* input, Tensor* output) {
  * @param input 输入张量
  * @param output 输出张量
  */
+// Egor Izmaylov: Function `abs_forward` is the C backend entry point for the abs operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void abs_forward(const Tensor* input, Tensor* output) {
     // 检查输入参数是否有效
     if (!input || !output || !input->data || !output->data || input->size != output->size) {
@@ -806,6 +839,7 @@ void abs_forward(const Tensor* input, Tensor* output) {
  * 初始化余弦查找表
  * 使用泰勒级数展开计算余弦值并存储在查找表中
  */
+// Egor Izmaylov: Function `init_cos_lut` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 void init_cos_lut(void) {
     pthread_mutex_lock(&cos_lut_mutex);
     if (!cos_lut_initialized) {
@@ -858,6 +892,7 @@ void init_cos_lut(void) {
  * @param x 输入角度（弧度）
  * @return 余弦值
  */
+// Egor Izmaylov: Function `cos_lut_lookup` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double cos_lut_lookup(double x) {
     // 如果查找表未初始化，则先初始化
     if (!cos_lut_initialized) {
@@ -883,6 +918,7 @@ static double cos_lut_lookup(double x) {
  * * @param input 输入张量
  * @param output 输出张量
  */
+// Egor Izmaylov: Function `cos_forward` is the C backend entry point for the cos operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void cos_forward(const Tensor* input, Tensor* output) {
     // 检查输入参数是否有效
     if (!input || !output || !input->data || !output->data || input->size != output->size) {
@@ -907,6 +943,7 @@ void cos_forward(const Tensor* input, Tensor* output) {
  * @param B 输入张量B
  * @param O 输出张量 (决定了计算精度)
  */
+// Egor Izmaylov: Function `add_forward` is the C backend entry point for the add operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     // 检查输入参数是否有效
     if (!A || !B || !O || !A->data || !B->data || !O->data || A->size != B->size || A->size != O->size) {
@@ -943,6 +980,7 @@ void add_forward(const Tensor* A, const Tensor* B, Tensor* O) {
  * @param B 输入张量B
  * @param O 输出张量 (决定了计算精度)
  */
+// Egor Izmaylov: Function `sub_forward` is the C backend entry point for the sub operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     // 检查输入参数是否有效
     if (!A || !B || !O || !A->data || !B->data || !O->data || A->size != B->size || A->size != O->size) {
@@ -978,6 +1016,7 @@ void sub_forward(const Tensor* A, const Tensor* B, Tensor* O) {
  * @param B 输入张量B
  * @param O 输出张量 (决定了计算精度)
  */
+// Egor Izmaylov: Function `mul_forward` is the C backend entry point for the mul operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     // 检查输入参数是否有效
     if (!A || !B || !O || !A->data || !B->data || !O->data || A->size != B->size || A->size != O->size) {
@@ -1013,6 +1052,7 @@ void mul_forward(const Tensor* A, const Tensor* B, Tensor* O) {
  * @param B 输入张量B
  * @param O 输出张量 (决定了计算精度)
  */
+// Egor Izmaylov: Function `div_forward` is the C backend entry point for the div operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     // 检查输入参数是否有效
     if (!A || !B || !O || !A->data || !B->data || !O->data || A->size != B->size || A->size != O->size) {
@@ -1042,6 +1082,7 @@ void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     }
 }
 
+// Egor Izmaylov: Function `quantize_linear_forward` is the C backend entry point for the quantize linear operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y) {
     if (!X || !Scale || !ZeroPoint || !Y) return;
     
@@ -1061,6 +1102,7 @@ void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor*
     }
 }
 
+// Egor Izmaylov: Function `dequantize_linear_forward` is the C backend entry point for the dequantize linear operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void dequantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y) {
     if (!X || !Scale || !ZeroPoint || !Y) return;
 
@@ -1079,6 +1121,7 @@ void dequantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tenso
     }
 }
 
+// Egor Izmaylov: Function `conv2d_forward` is the C backend entry point for the conv2d operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params) {
     // 形状解析
     // X: [Batch, InChannel, InH, InW]
@@ -1159,6 +1202,7 @@ void conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y
     }
 }
 
+// Egor Izmaylov: Function `conv_transpose2d_forward` is the C backend entry point for the conv transpose2d operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void conv_transpose2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params) {
     if (!X || !W || !Y || !params || X->ndim != 4 || W->ndim != 4 || Y->ndim != 4) return;
 
@@ -1231,6 +1275,7 @@ void conv_transpose2d_forward(const Tensor* X, const Tensor* W, const Tensor* B,
     }
 }
 
+// Egor Izmaylov: Function `conv_integer_forward` is the C backend entry point for the conv integer operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void conv_integer_forward(const Tensor* X, const Tensor* W,
                           const Tensor* XZeroPoint, const Tensor* WZeroPoint,
                           Tensor* Y, ConvParams* params) {
@@ -1303,6 +1348,7 @@ void conv_integer_forward(const Tensor* X, const Tensor* W,
     }
 }
 
+// Egor Izmaylov: Function `qlinear_conv_forward` is the C backend entry point for the qlinear conv operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void qlinear_conv_forward(const Tensor* X, const Tensor* XScale, const Tensor* XZeroPoint,
                           const Tensor* W, const Tensor* WScale, const Tensor* WZeroPoint,
                           const Tensor* YScale, const Tensor* YZeroPoint,
@@ -1381,6 +1427,7 @@ void qlinear_conv_forward(const Tensor* X, const Tensor* XScale, const Tensor* X
     }
 }
 
+// Egor Izmaylov: Function `max_pool_forward` is the C backend entry point for the max pool operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params) {
     int batch = X->shape[0];
     int channels = X->shape[1];
@@ -1432,6 +1479,7 @@ void max_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params) {
     }
 }
 
+// Egor Izmaylov: Function `max_unpool_forward` is the C backend entry point for the max unpool operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void max_unpool_forward(const Tensor* X, const Tensor* Indices, Tensor* Y, PoolParams* params) {
     if (!X || !Indices || !Y || !params || !X->data || !Indices->data || !Y->data) return;
     if (X->ndim != Indices->ndim || X->ndim != Y->ndim || X->ndim < 3 || X->ndim > MAX_NDIM) return;
@@ -1483,6 +1531,7 @@ void max_unpool_forward(const Tensor* X, const Tensor* Indices, Tensor* Y, PoolP
     }
 }
 
+// Egor Izmaylov: Function `max_roi_pool_forward` is the C backend entry point for the max roi pool operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void max_roi_pool_forward(const Tensor* X, const Tensor* rois, Tensor* Y,
                           int pooled_h, int pooled_w, float spatial_scale) {
     if (!X || !rois || !Y || !X->data || !rois->data || !Y->data) return;
@@ -1557,6 +1606,7 @@ void max_roi_pool_forward(const Tensor* X, const Tensor* rois, Tensor* Y,
     }
 }
 
+// Egor Izmaylov: Function `roi_align_bilinear_sample` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double roi_align_bilinear_sample(const Tensor* X, int batch, int channel, double y, double x) {
     int channels = X->shape[1];
     int height = X->shape[2];
@@ -1603,6 +1653,7 @@ static double roi_align_bilinear_sample(const Tensor* X, int batch, int channel,
     return total;
 }
 
+// Egor Izmaylov: Function `roi_align_max_weighted_term` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double roi_align_max_weighted_term(const Tensor* X, int batch, int channel, double y, double x) {
     int channels = X->shape[1];
     int height = X->shape[2];
@@ -1650,6 +1701,7 @@ static double roi_align_max_weighted_term(const Tensor* X, int batch, int channe
     return max_term;
 }
 
+// Egor Izmaylov: Function `roi_align_forward` is the C backend entry point for the roi align operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void roi_align_forward(const Tensor* X, const Tensor* rois, const Tensor* batch_indices, Tensor* Y,
                        int output_height, int output_width, int sampling_ratio,
                        float spatial_scale, int mode, int coordinate_transformation_mode) {
@@ -1722,6 +1774,7 @@ void roi_align_forward(const Tensor* X, const Tensor* rois, const Tensor* batch_
     }
 }
 
+// Egor Izmaylov: Function `gemm_forward` is the C backend entry point for the gemm operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y, 
                   float alpha, float beta, int transA, int transB) {
     // 假设 A, B 已经是 2D 矩阵 (前端已处理 reshape)
@@ -1786,6 +1839,7 @@ void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y,
 }
 
 // ================== Softmax 实现 ==================
+// Egor Izmaylov: Function `softmax_forward` is the C backend entry point for the softmax operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void softmax_forward(const Tensor* input, Tensor* output, int axis) {
     if (axis < 0) axis += input->ndim;
     
@@ -1844,6 +1898,7 @@ UNARY_OP_IMPL(sigmoid_forward, 1.0 / (1.0 + exp(-val)))
 UNARY_OP_IMPL(tanh_forward, tanh(val))
 
 // Flatten 实现
+// Egor Izmaylov: Function `flatten_forward` is the C backend entry point for the flatten operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void flatten_forward(const Tensor* input, Tensor* output) {
     if (!input || !output || input->size != output->size) return;
     size_t elem_size = get_dtype_size(input->dtype);
@@ -1852,11 +1907,13 @@ void flatten_forward(const Tensor* input, Tensor* output) {
 }
 
 // Reshape 实现
+// Egor Izmaylov: Function `reshape_forward` is the C backend entry point for the reshape operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void reshape_forward(const Tensor* input, Tensor* output) {
     flatten_forward(input, output);
 }
 
 // 从平坦索引反解 N 维坐标
+// Egor Izmaylov: Function `get_coords_from_index` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline void get_coords_from_index(size_t index, int* coords, int* shape, int ndim) {
     for (int i = ndim - 1; i >= 0; i--) {
         coords[i] = index % shape[i];
@@ -1865,6 +1922,7 @@ static inline void get_coords_from_index(size_t index, int* coords, int* shape, 
 }
 
 // 从 N 维坐标计算平坦索引
+// Egor Izmaylov: Function `get_index_from_coords` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static inline size_t get_index_from_coords(int* coords, int* shape, int ndim) {
     size_t index = 0;
     size_t stride = 1;
@@ -1876,6 +1934,7 @@ static inline size_t get_index_from_coords(int* coords, int* shape, int ndim) {
 }
 
 // Transpose 实现
+// Egor Izmaylov: Function `transpose_forward` is the C backend entry point for the transpose operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void transpose_forward(const Tensor* input, Tensor* output, int* perm) {
     if (!input || !output || !perm) return;
     int ndim = input->ndim;
@@ -1907,10 +1966,13 @@ void transpose_forward(const Tensor* input, Tensor* output, int* perm) {
 }
 
 // 整数辅助函数
+// Egor Izmaylov: Function `op_max` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_max(int64_t a, int64_t b) { return a > b ? a : b; }
+// Egor Izmaylov: Function `op_min` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_min(int64_t a, int64_t b) { return a < b ? a : b; }
 
 // Pow 实现
+// Egor Izmaylov: Function `pow_forward` is the C backend entry point for the pow operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void pow_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     if (!A || !B || !O) return;
     _Pragma("omp parallel for")
@@ -1923,6 +1985,7 @@ void pow_forward(const Tensor* A, const Tensor* B, Tensor* O) {
 }
 
 // Max 实现
+// Egor Izmaylov: Function `max_forward` is the C backend entry point for the max operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void max_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     if (!A || !B || !O) return;
 
@@ -1942,6 +2005,7 @@ void max_forward(const Tensor* A, const Tensor* B, Tensor* O) {
 }
 
 // Min 实现
+// Egor Izmaylov: Function `min_forward` is the C backend entry point for the min operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void min_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     if (!A || !B || !O) return;
 
@@ -1960,6 +2024,7 @@ void min_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     }
 }
 
+// Egor Izmaylov: Function `concat_forward` is the C backend entry point for the concat operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void concat_forward(const Tensor** inputs, int num_inputs, Tensor* output, int axis) {
     if (!inputs || !output || num_inputs < 1) return;
 
@@ -2009,6 +2074,7 @@ void concat_forward(const Tensor** inputs, int num_inputs, Tensor* output, int a
     }
 }
 
+// Egor Izmaylov: Function `slice_forward` is the C backend entry point for the slice operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void slice_forward(const Tensor* input, Tensor* output, int* starts, int* steps) {
     if (!input || !output || !starts || !steps) return;
     
@@ -2050,6 +2116,7 @@ UNARY_OP_IMPL(floor_forward, floor(val))
 
 // Cast
 // 读取时自动转 double，写入 set_tensor_value 时会自动转为 output->dtype
+// Egor Izmaylov: Function `cast_forward` is the C backend entry point for the cast operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void cast_forward(const Tensor* input, Tensor* output) {
     if (!input || !output || !input->data || !output->data || input->size != output->size) return;
 
@@ -2081,6 +2148,7 @@ void cast_forward(const Tensor* input, Tensor* output) {
     }
 }
 
+// Egor Izmaylov: Function `sum_forward` is the C backend entry point for the sum operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void sum_forward(const Tensor** inputs, int num_inputs, Tensor* output) {
     if (!inputs || !output || num_inputs < 1) return;
     for (int k = 0; k < num_inputs; k++) {
@@ -2097,6 +2165,7 @@ void sum_forward(const Tensor** inputs, int num_inputs, Tensor* output) {
     }
 }
 
+// Egor Izmaylov: Function `prelu_forward` is the C backend entry point for the prelu operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void prelu_forward(const Tensor* input, const Tensor* slope, Tensor* output) {
     if (!input || !slope || !output || input->size != output->size || slope->size != output->size) return;
 
@@ -2109,6 +2178,7 @@ void prelu_forward(const Tensor* input, const Tensor* slope, Tensor* output) {
     }
 }
 
+// Egor Izmaylov: Function `det_forward` is the C backend entry point for the det operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void det_forward(const Tensor* input, Tensor* output) {
     if (!input || !output || input->ndim < 2) return;
 
@@ -2172,6 +2242,7 @@ void det_forward(const Tensor* input, Tensor* output) {
     }
 }
 
+// Egor Izmaylov: Function `tensor_scalar_equal` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static int tensor_scalar_equal(const Tensor* tensor, size_t lhs, size_t rhs) {
     if (!tensor || !tensor->data) return 0;
     if (IS_INT_TYPE(tensor->dtype)) {
@@ -2183,6 +2254,7 @@ static int tensor_scalar_equal(const Tensor* tensor, size_t lhs, size_t rhs) {
     return a == b;
 }
 
+// Egor Izmaylov: Function `tensor_scalar_compare` is a qsort comparator used by ranking-style operators, preserving deterministic ordering for values and original indices.
 static int tensor_scalar_compare(const Tensor* tensor, size_t lhs, size_t rhs) {
     if (IS_INT_TYPE(tensor->dtype)) {
         int64_t a = get_value_as_int64(tensor, lhs);
@@ -2199,6 +2271,7 @@ static int tensor_scalar_compare(const Tensor* tensor, size_t lhs, size_t rhs) {
     return (a > b) - (a < b);
 }
 
+// Egor Izmaylov: Function `unique_forward` is the C backend entry point for the unique operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 int unique_forward(const Tensor* input, Tensor* values, Tensor* indices, Tensor* inverse, Tensor* counts, int sorted) {
     if (!input || !values || !indices || !inverse || !counts) return 0;
     if (!input->data || !values->data || !indices->data || !inverse->data || !counts->data) return 0;
@@ -2287,14 +2360,17 @@ int unique_forward(const Tensor* input, Tensor* values, Tensor* indices, Tensor*
     return unique_count;
 }
 
+// Egor Izmaylov: Function `hz_to_mel` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double hz_to_mel(double frequency) {
     return 2595.0 * log10(1.0 + frequency / 700.0);
 }
 
+// Egor Izmaylov: Function `mel_to_hz` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double mel_to_hz(double mel) {
     return 700.0 * (pow(10.0, mel / 2595.0) - 1.0);
 }
 
+// Egor Izmaylov: Function `mel_weight_matrix_forward` is the C backend entry point for the mel weight matrix operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void mel_weight_matrix_forward(const Tensor* num_mel_bins, const Tensor* dft_length,
                                const Tensor* sample_rate, const Tensor* lower_edge_hertz,
                                const Tensor* upper_edge_hertz, Tensor* output) {
@@ -2350,6 +2426,7 @@ void mel_weight_matrix_forward(const Tensor* num_mel_bins, const Tensor* dft_len
     }
 }
 
+// Egor Izmaylov: Function `complex_tensor_index` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static size_t complex_tensor_index(const Tensor* tensor, const int* coords, int component) {
     int complex_rank = tensor->ndim - 1;
     size_t idx = 0;
@@ -2359,6 +2436,7 @@ static size_t complex_tensor_index(const Tensor* tensor, const int* coords, int 
     return idx * (size_t)tensor->shape[complex_rank] + (size_t)component;
 }
 
+// Egor Izmaylov: Function `get_complex_value` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static void get_complex_value(const Tensor* tensor, const int* coords, double* real, double* imag) {
     *real = get_value_as_double(tensor, complex_tensor_index(tensor, coords, 0));
     *imag = 0.0;
@@ -2367,11 +2445,13 @@ static void get_complex_value(const Tensor* tensor, const int* coords, double* r
     }
 }
 
+// Egor Izmaylov: Function `normalize_complex_axis` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static int normalize_complex_axis(int axis, int complex_rank) {
     if (axis < 0) axis += complex_rank + 1;
     return axis;
 }
 
+// Egor Izmaylov: Function `dft_forward` is the C backend entry point for the dft operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void dft_forward(const Tensor* input, Tensor* output, int axis, int inverse, int onesided, int dft_length) {
     if (!input || !output || !input->data || !output->data) return;
     if (input->ndim < 2 || output->ndim != input->ndim || input->ndim > MAX_NDIM) return;
@@ -2457,6 +2537,7 @@ void dft_forward(const Tensor* input, Tensor* output, int axis, int inverse, int
     }
 }
 
+// Egor Izmaylov: Function `stft_forward` is the C backend entry point for the stft operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void stft_forward(const Tensor* signal, const Tensor* window, Tensor* output,
                   int frame_step, int frame_length, int onesided) {
     if (!signal || !output || !signal->data || !output->data) return;
@@ -2528,12 +2609,14 @@ void stft_forward(const Tensor* signal, const Tensor* window, Tensor* output,
     }
 }
 
+// Egor Izmaylov: Function `recurrent_alpha` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double recurrent_alpha(const float* values, int index, double default_value) {
     if (!values) return default_value;
     float value = values[index];
     return isnan(value) ? default_value : (double)value;
 }
 
+// Egor Izmaylov: Function `recurrent_clip` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double recurrent_clip(double value, float clip, int has_clip) {
     if (!has_clip) return value;
     if (value > (double)clip) return (double)clip;
@@ -2541,6 +2624,7 @@ static double recurrent_clip(double value, float clip, int has_clip) {
     return value;
 }
 
+// Egor Izmaylov: Function `recurrent_activation` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double recurrent_activation(double x, int code, const float* alphas, const float* betas, int index) {
     switch (code) {
         case 1:
@@ -2587,19 +2671,23 @@ static double recurrent_activation(double x, int code, const float* alphas, cons
     }
 }
 
+// Egor Izmaylov: Function `recurrent_activation_code` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static int recurrent_activation_code(const int* activations, int num_activations, int index, int default_code) {
     if (!activations || index >= num_activations) return default_code;
     return activations[index];
 }
 
+// Egor Izmaylov: Function `recurrent_num_dirs` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static int recurrent_num_dirs(int direction) {
     return direction == 2 ? 2 : 1;
 }
 
+// Egor Izmaylov: Function `recurrent_is_reverse` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static int recurrent_is_reverse(int direction, int dir_index) {
     return direction == 1 || (direction == 2 && dir_index == 1);
 }
 
+// Egor Izmaylov: Function `recurrent_x_index` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static size_t recurrent_x_index(const Tensor* X, int layout, int t, int b, int i) {
     if (layout == 1) {
         int seq_len = X->shape[1];
@@ -2611,6 +2699,7 @@ static size_t recurrent_x_index(const Tensor* X, int layout, int t, int b, int i
     return ((size_t)t * batch * input_size) + ((size_t)b * input_size) + (size_t)i;
 }
 
+// Egor Izmaylov: Function `recurrent_y_index` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static size_t recurrent_y_index(const Tensor* Y, int layout, int t, int d, int b, int h) {
     if (layout == 1) {
         int seq_len = Y->shape[1];
@@ -2630,11 +2719,13 @@ static size_t recurrent_y_index(const Tensor* Y, int layout, int t, int d, int b
          + (size_t)h;
 }
 
+// Egor Izmaylov: Function `recurrent_sequence_active` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static int recurrent_sequence_active(const Tensor* sequence_lens, int t, int b) {
     if (!sequence_lens || !sequence_lens->data) return 1;
     return get_value_as_int64(sequence_lens, (size_t)b) > t;
 }
 
+// Egor Izmaylov: Function `rnn_forward` is the C backend entry point for the rnn operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void rnn_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
                  const Tensor* sequence_lens, const Tensor* initial_h,
                  Tensor* Y, Tensor* Y_h, int hidden_size, int direction, int layout,
@@ -2717,6 +2808,7 @@ void rnn_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor
     free(h_new);
 }
 
+// Egor Izmaylov: Function `gru_forward` is the C backend entry point for the gru operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void gru_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
                  const Tensor* sequence_lens, const Tensor* initial_h,
                  Tensor* Y, Tensor* Y_h, int hidden_size, int direction, int layout,
@@ -2828,6 +2920,7 @@ void gru_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor
     free(h_state); free(z); free(reset); free(cand);
 }
 
+// Egor Izmaylov: Function `lstm_forward` is the C backend entry point for the lstm operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void lstm_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
                   const Tensor* sequence_lens, const Tensor* initial_h,
                   const Tensor* initial_c, const Tensor* P,
@@ -2926,6 +3019,7 @@ void lstm_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tenso
     free(h_state); free(c_state); free(h_next); free(c_next);
 }
 
+// Egor Izmaylov: Function `multinomial_forward` is the C backend entry point for the multinomial operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void multinomial_forward(const Tensor* input, Tensor* output, int sample_size, uint32_t seed) {
     if (!input || !output || input->ndim != 2 || output->ndim != 2 || sample_size < 0) return;
     int batch = input->shape[0];
@@ -2960,17 +3054,20 @@ void multinomial_forward(const Tensor* input, Tensor* output, int sample_size, u
     }
 }
 
+// Egor Izmaylov: Function `loss_spatial_size` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static size_t loss_spatial_size(const Tensor* input) {
     size_t spatial = 1;
     for (int i = 2; i < input->ndim; i++) spatial *= (size_t)input->shape[i];
     return spatial;
 }
 
+// Egor Izmaylov: Function `loss_target_weight` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double loss_target_weight(const Tensor* weight, int64_t cls) {
     if (!weight) return 1.0;
     return get_value_as_double(weight, (size_t)cls);
 }
 
+// Egor Izmaylov: Function `negative_log_likelihood_loss_forward` is the C backend entry point for the negative log likelihood loss operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void negative_log_likelihood_loss_forward(const Tensor* input, const Tensor* target, const Tensor* weight,
                                           Tensor* output, int reduction, int has_ignore_index, int64_t ignore_index) {
     if (!input || !target || !output || input->ndim < 2) return;
@@ -3009,6 +3106,7 @@ void negative_log_likelihood_loss_forward(const Tensor* input, const Tensor* tar
     }
 }
 
+// Egor Izmaylov: Function `softmax_cross_entropy_loss_forward` is the C backend entry point for the softmax cross entropy loss operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void softmax_cross_entropy_loss_forward(const Tensor* scores, const Tensor* labels, const Tensor* weights,
                                         Tensor* loss_output, Tensor* log_prob_output,
                                         int reduction, int has_ignore_index, int64_t ignore_index) {
@@ -3068,6 +3166,7 @@ void softmax_cross_entropy_loss_forward(const Tensor* scores, const Tensor* labe
     }
 }
 
+// Egor Izmaylov: Function `nms_box_corners` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static void nms_box_corners(const Tensor* boxes, int batch, int box_idx, int center_point_box,
                             double* y1, double* x1, double* y2, double* x2) {
     int num_boxes = boxes->shape[1];
@@ -3105,6 +3204,7 @@ static void nms_box_corners(const Tensor* boxes, int batch, int box_idx, int cen
     }
 }
 
+// Egor Izmaylov: Function `nms_iou` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double nms_iou(const Tensor* boxes, int batch, int lhs, int rhs, int center_point_box) {
     double ay1, ax1, ay2, ax2;
     double by1, bx1, by2, bx2;
@@ -3120,6 +3220,7 @@ static double nms_iou(const Tensor* boxes, int batch, int lhs, int rhs, int cent
     return union_area <= 0.0 ? 0.0 : inter / union_area;
 }
 
+// Egor Izmaylov: Function `non_max_suppression_forward` is the C backend entry point for the non max suppression operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 int non_max_suppression_forward(const Tensor* boxes, const Tensor* scores, Tensor* output,
                                 int max_output_boxes_per_class, float iou_threshold,
                                 float score_threshold, int center_point_box) {
@@ -3194,6 +3295,7 @@ int non_max_suppression_forward(const Tensor* boxes, const Tensor* scores, Tenso
     return out_rows;
 }
 
+// Egor Izmaylov: Function `grid_denormalize` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double grid_denormalize(double coord, int length, int align_corners) {
     if (align_corners) {
         return (coord + 1.0) * (double)(length - 1) / 2.0;
@@ -3201,6 +3303,7 @@ static double grid_denormalize(double coord, int length, int align_corners) {
     return ((coord + 1.0) * (double)length - 1.0) / 2.0;
 }
 
+// Egor Izmaylov: Function `grid_reflect_coordinate` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double grid_reflect_coordinate(double coord, double low, double high) {
     if (high <= low) return low;
     double span = high - low;
@@ -3209,6 +3312,7 @@ static double grid_reflect_coordinate(double coord, double low, double high) {
     return value + low;
 }
 
+// Egor Izmaylov: Function `grid_sample_coordinate` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double grid_sample_coordinate(double coord, int length, int padding_mode, int align_corners) {
     if (padding_mode == 1) {
         return fmin(fmax(coord, 0.0), (double)(length - 1));
@@ -3222,6 +3326,7 @@ static double grid_sample_coordinate(double coord, int length, int padding_mode,
     return coord;
 }
 
+// Egor Izmaylov: Function `grid_get_pixel_2d` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double grid_get_pixel_2d(const Tensor* input, int n, int c, double y, double x,
                                 int padding_mode, int align_corners) {
     int height = input->shape[2];
@@ -3240,6 +3345,7 @@ static double grid_get_pixel_2d(const Tensor* input, int n, int c, double y, dou
     return get_value_as_double(input, idx);
 }
 
+// Egor Izmaylov: Function `grid_bilinear_sample_2d` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double grid_bilinear_sample_2d(const Tensor* input, int n, int c, double y, double x,
                                       int padding_mode, int align_corners) {
     int y0 = (int)floor(y);
@@ -3256,6 +3362,7 @@ static double grid_bilinear_sample_2d(const Tensor* input, int n, int c, double 
          + grid_get_pixel_2d(input, n, c, y1, x1, padding_mode, align_corners) * ly * lx;
 }
 
+// Egor Izmaylov: Function `grid_cubic_coefficients` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static void grid_cubic_coefficients(double t, double coeffs[4]) {
     double alpha = -0.75;
     double x = fabs(t);
@@ -3265,6 +3372,7 @@ static void grid_cubic_coefficients(double t, double coeffs[4]) {
     coeffs[3] = ((alpha * (2.0 - x) - 5.0 * alpha) * (2.0 - x) + 8.0 * alpha) * (2.0 - x) - 4.0 * alpha;
 }
 
+// Egor Izmaylov: Function `grid_bicubic_sample_2d` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static double grid_bicubic_sample_2d(const Tensor* input, int n, int c, double y, double x,
                                      int padding_mode, int align_corners) {
     int y0 = (int)floor(y);
@@ -3284,6 +3392,7 @@ static double grid_bicubic_sample_2d(const Tensor* input, int n, int c, double y
     return total;
 }
 
+// Egor Izmaylov: Function `grid_sample_forward` is the C backend entry point for the grid sample operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void grid_sample_forward(const Tensor* input, const Tensor* grid, Tensor* output,
                          int mode, int padding_mode, int align_corners) {
     if (!input || !grid || !output) return;
@@ -3328,6 +3437,7 @@ void grid_sample_forward(const Tensor* input, const Tensor* grid, Tensor* output
     }
 }
 
+// Egor Izmaylov: Function `lrn_forward` is the C backend entry point for the lrn operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void lrn_forward(const Tensor* input, Tensor* output, int size, float alpha, float beta, float bias) {
     if (!input || !output || input->ndim < 3 || input->size != output->size || size <= 0) return;
 
@@ -3362,6 +3472,7 @@ void lrn_forward(const Tensor* input, Tensor* output, int size, float alpha, flo
     }
 }
 
+// Egor Izmaylov: Function `mean_variance_normalization_forward` is the C backend entry point for the mean variance normalization operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void mean_variance_normalization_forward(const Tensor* input, Tensor* output, ReduceParams* params) {
     if (!input || !output || !params || input->size != output->size) return;
 
@@ -3420,6 +3531,7 @@ void mean_variance_normalization_forward(const Tensor* input, Tensor* output, Re
     }
 }
 
+// Egor Izmaylov: Function `eye_like_forward` is the C backend entry point for the eye like operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void eye_like_forward(Tensor* output, int k) {
     if (!output || output->ndim != 2) return;
     int cols = output->shape[1];
@@ -3435,6 +3547,7 @@ void eye_like_forward(Tensor* output, int k) {
 
 // Clip：支持全广播
 // 调用此函数前，Python 端已将 input, min_t, max_t 广播为相同形状
+// Egor Izmaylov: Function `clip_forward` is the C backend entry point for the clip operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void clip_forward(const Tensor* input, Tensor* output, const Tensor* min_t, const Tensor* max_t) {
     if (!input || !output) return;
     
@@ -3458,6 +3571,7 @@ void clip_forward(const Tensor* input, Tensor* output, const Tensor* min_t, cons
 }
 
 // MatMul 实现 (无加速)
+// Egor Izmaylov: Function `matmul_forward` is the C backend entry point for the matmul operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
     if (!A || !B || !Y) return;
     int ndim = Y->ndim;
@@ -3518,6 +3632,7 @@ void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
     }
 }
 
+// Egor Izmaylov: Function `matmul_integer_forward` is the C backend entry point for the matmul integer operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void matmul_integer_forward(const Tensor* A, const Tensor* B,
                             const Tensor* AZeroPoint, const Tensor* BZeroPoint,
                             Tensor* Y) {
@@ -3582,6 +3697,7 @@ void matmul_integer_forward(const Tensor* A, const Tensor* B,
     }
 }
 
+// Egor Izmaylov: Function `qlinear_matmul_forward` is the C backend entry point for the qlinear matmul operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void qlinear_matmul_forward(const Tensor* A, const Tensor* AScale, const Tensor* AZeroPoint,
                             const Tensor* B, const Tensor* BScale, const Tensor* BZeroPoint,
                             const Tensor* YScale, const Tensor* YZeroPoint, Tensor* Y) {
@@ -3647,6 +3763,7 @@ void qlinear_matmul_forward(const Tensor* A, const Tensor* AScale, const Tensor*
 }
 
 // Gather 实现
+// Egor Izmaylov: Function `gather_forward` is the C backend entry point for the gather operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void gather_forward(const Tensor* data, const Tensor* indices, Tensor* output, int axis) {
     if (!data || !indices || !output) return;
     
@@ -3691,6 +3808,7 @@ void gather_forward(const Tensor* data, const Tensor* indices, Tensor* output, i
 }
 
 // Expand 实现
+// Egor Izmaylov: Function `expand_forward` is the C backend entry point for the expand operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void expand_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     
@@ -3724,6 +3842,7 @@ void expand_forward(const Tensor* input, Tensor* output) {
 }
 
 // Shape 实现
+// Egor Izmaylov: Function `shape_forward` is the C backend entry point for the shape operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void shape_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     // Output 应该是一个 1D int64 张量，长度等于 input->ndim
@@ -3734,6 +3853,7 @@ void shape_forward(const Tensor* input, Tensor* output) {
 }
 
 // 比较 A 和 B，结果存入 O (通常是 uint8)
+// Egor Izmaylov: Macro `BINARY_COMP_IMPL` expands repeated C function implementations for related operators; it keeps generated entry points aligned with the ctypes ABI while avoiding duplicated loop code.
 #define BINARY_COMP_IMPL(FUNC_NAME, OPERATOR) \
 void FUNC_NAME(const Tensor* A, const Tensor* B, Tensor* O) { \
     if (!A || !B || !O) return; \
@@ -3755,6 +3875,7 @@ BINARY_COMP_IMPL(greater_or_equal_forward, >=)
 BINARY_COMP_IMPL(less_or_equal_forward, <=)
 
 // Not: 按位取反 (bool/uint8) 或 逻辑非
+// Egor Izmaylov: Function `not_forward` is the C backend entry point for the not operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void not_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     _Pragma("omp parallel for")
@@ -3766,6 +3887,7 @@ void not_forward(const Tensor* input, Tensor* output) {
     }
 }
 
+// Egor Izmaylov: Function `isnan_forward` is the C backend entry point for the isnan operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void isnan_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     _Pragma("omp parallel for")
@@ -3777,6 +3899,7 @@ void isnan_forward(const Tensor* input, Tensor* output) {
 }
 
 // 输入已经被看作 boolean
+// Egor Izmaylov: Macro `BINARY_LOGIC_IMPL` expands repeated C function implementations for related operators; it keeps generated entry points aligned with the ctypes ABI while avoiding duplicated loop code.
 #define BINARY_LOGIC_IMPL(FUNC_NAME, OP_LOGIC) \
 void FUNC_NAME(const Tensor* A, const Tensor* B, Tensor* O) { \
     if (!A || !B || !O) return; \
@@ -3799,6 +3922,7 @@ UNARY_OP_IMPL(sin_forward, sin(val))
 UNARY_OP_IMPL(tan_forward, tan(val))
 UNARY_OP_IMPL(atan_forward, atan(val))
 
+// Egor Izmaylov: Function `sign_forward` is the C backend entry point for the sign operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void sign_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     _Pragma("omp parallel for")
@@ -3813,12 +3937,14 @@ void sign_forward(const Tensor* input, Tensor* output) {
     }
 }
 
+// Egor Izmaylov: Function `identity_forward` is the C backend entry point for the identity operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void identity_forward(const Tensor* input, Tensor* output) {
     if (!input || !output || input->size != output->size) return;
     size_t elem_size = get_dtype_size(input->dtype);
     memcpy(output->data, input->data, input->size * elem_size);
 }
 
+// Egor Izmaylov: Function `mod_forward` is the C backend entry point for the mod operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void mod_forward(const Tensor* A, const Tensor* B, Tensor* O, int fmod_mode) {
     if (!A || !B || !O) return;
     _Pragma("omp parallel for")
@@ -3839,6 +3965,7 @@ void mod_forward(const Tensor* A, const Tensor* B, Tensor* O, int fmod_mode) {
     }
 }
 
+// Egor Izmaylov: Function `where_forward` is the C backend entry point for the where operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor* O) {
     if (!Cond || !X || !Y || !O) return;
     _Pragma("omp parallel for")
@@ -3849,6 +3976,7 @@ void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor*
 }
 
 // ConstantOfShape
+// Egor Izmaylov: Function `constant_of_shape_forward` is the C backend entry point for the constant of shape operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void constant_of_shape_forward(Tensor* output, const Tensor* value) {
     if (!output) return;
 
@@ -3864,6 +3992,7 @@ void constant_of_shape_forward(Tensor* output, const Tensor* value) {
 }
 
 // Range
+// Egor Izmaylov: Function `range_forward` is the C backend entry point for the range operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void range_forward(const Tensor* start, const Tensor* limit, const Tensor* delta, Tensor* output) {
     if (!start || !limit || !delta || !output) return;
     
@@ -3880,6 +4009,7 @@ void range_forward(const Tensor* start, const Tensor* limit, const Tensor* delta
 
 // Tile
 // 输入坐标 = 输出坐标 % 输入维度
+// Egor Izmaylov: Function `tile_forward` is the C backend entry point for the tile operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void tile_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     
@@ -3903,6 +4033,7 @@ void tile_forward(const Tensor* input, Tensor* output) {
 
 // Pad
 // mode: 0=constant, 1=reflect, 2=edge
+// Egor Izmaylov: Function `pad_forward` is the C backend entry point for the pad operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const Tensor* constant_value, int mode) {
     if (!data || !output || !pads) return;
     
@@ -3982,6 +4113,7 @@ void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const T
 }
 
 // 检查某个轴是否在归约列表中
+// Egor Izmaylov: Function `is_axis_reduced` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int is_axis_reduced(int axis, int* axes, int num_axes) {
     for (int i = 0; i < num_axes; i++) {
         if (axes[i] == axis) return 1;
@@ -3994,6 +4126,7 @@ static inline int is_axis_reduced(int axis, int* axes, int num_axes) {
 // 根据 out_idx 反解出 "基准坐标" (base_coords)。
 // 对于被归约的轴，基准坐标暂时设为 0；对于保留的轴，就是输出的对应坐标。
 // 启动内层循环，遍历所有被归约维度的组合，更新 accumulator。
+// Egor Izmaylov: Macro `REDUCE_OP_IMPL` expands repeated C function implementations for related operators; it keeps generated entry points aligned with the ctypes ABI while avoiding duplicated loop code.
 #define REDUCE_OP_IMPL(FUNC_NAME, INIT_VAL, REDUCE_LOGIC, POST_PROC) \
 void FUNC_NAME(const Tensor* input, Tensor* output, ReduceParams* params) { \
     if (!input || !output || !params) return; \
@@ -4062,6 +4195,7 @@ REDUCE_OP_IMPL(reduce_max_forward, -DBL_MAX, if(val > acc) acc = val, (void)0)
 // ReduceMin: Init=+inf, Acc=min
 REDUCE_OP_IMPL(reduce_min_forward, DBL_MAX, if(val < acc) acc = val, (void)0)
 
+// Egor Izmaylov: Macro `ARG_OP_IMPL` expands repeated C function implementations for related operators; it keeps generated entry points aligned with the ctypes ABI while avoiding duplicated loop code.
 #define ARG_OP_IMPL(FUNC_NAME, INIT_VAL, CMP_OP) \
 void FUNC_NAME(const Tensor* input, Tensor* output, int axis, int select_last_index) { \
     if (!input || !output) return; \
@@ -4117,6 +4251,7 @@ ARG_OP_IMPL(argmax_forward, -DBL_MAX, >)
 
 ARG_OP_IMPL(argmin_forward, DBL_MAX, <)
 
+// Egor Izmaylov: Macro `OMP_ATOMIC_DISPATCH` expands repeated C function implementations for related operators; it keeps generated entry points aligned with the ctypes ABI while avoiding duplicated loop code.
 #define OMP_ATOMIC_DISPATCH(DTYPE_ENUM, C_TYPE, OP) \
     case DTYPE_ENUM: { \
         C_TYPE* ptr = (C_TYPE*)data->data; \
@@ -4128,6 +4263,7 @@ ARG_OP_IMPL(argmin_forward, DBL_MAX, <)
 
 // ScatterND
 // 遍历 updates，将其值写入 data 的指定位置
+// Egor Izmaylov: Function `scatter_nd_forward` is the C backend entry point for the scatter nd operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updates, int reduction) {
     if (!data || !indices || !updates) return;
     
@@ -4208,6 +4344,7 @@ void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updat
 
 // GatherND
 // 遍历 output，根据 indices 构造 data 坐标读取数据
+// Egor Izmaylov: Function `gather_nd_forward` is the C backend entry point for the gather nd operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void gather_nd_forward(const Tensor* data, const Tensor* indices, Tensor* output, int batch_dims) {
     if (!data || !indices || !output) return;
     
@@ -4261,6 +4398,7 @@ void gather_nd_forward(const Tensor* data, const Tensor* indices, Tensor* output
 }
 
 // GatherElements
+// Egor Izmaylov: Function `gather_elements_forward` is the C backend entry point for the gather elements operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void gather_elements_forward(const Tensor* data, const Tensor* indices, Tensor* output, int axis) {
     if (!data || !indices || !output) return;
     
@@ -4289,6 +4427,7 @@ void gather_elements_forward(const Tensor* data, const Tensor* indices, Tensor* 
 }
 
 // NonZero
+// Egor Izmaylov: Function `nonzero_forward` is the C backend entry point for the nonzero operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void nonzero_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     
@@ -4314,6 +4453,7 @@ void nonzero_forward(const Tensor* input, Tensor* output) {
 }
 
 // Resize
+// Egor Izmaylov: Function `resize_forward` is the C backend entry point for the resize operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void resize_forward(const Tensor* input, Tensor* output, float* scales, int coord_mode, int mode, int nearest_mode) {
     if (!input || !output || !scales) return;
     
@@ -4409,6 +4549,7 @@ void resize_forward(const Tensor* input, Tensor* output, float* scales, int coor
 }
 
 // 降序比较函数
+// Egor Izmaylov: Function `compare_desc` is a qsort comparator used by ranking-style operators, preserving deterministic ordering for values and original indices.
 int compare_desc(const void* a, const void* b) {
     TopKElement* e1 = (TopKElement*)a;
     TopKElement* e2 = (TopKElement*)b;
@@ -4426,6 +4567,7 @@ int compare_desc(const void* a, const void* b) {
 }
 
 // 升序比较函数
+// Egor Izmaylov: Function `compare_asc` is a qsort comparator used by ranking-style operators, preserving deterministic ordering for values and original indices.
 int compare_asc(const void* a, const void* b) {
     TopKElement* e1 = (TopKElement*)a;
     TopKElement* e2 = (TopKElement*)b;
@@ -4442,6 +4584,7 @@ int compare_asc(const void* a, const void* b) {
     return (e1->index < e2->index) ? -1 : 1;
 }
 
+// Egor Izmaylov: Function `topk_forward` is the C backend entry point for the topk operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis, int largest, int sorted, int K) {
     if (!input || !values || !indices) return;
     (void)sorted;
@@ -4495,6 +4638,7 @@ void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis
     }
 }
 
+// Egor Izmaylov: Function `cumsum_forward` is the C backend entry point for the cumsum operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void cumsum_forward(const Tensor* input, Tensor* output, int axis, int exclusive, int reverse) {
     if (!input || !output) return;
     
@@ -4534,11 +4678,13 @@ void cumsum_forward(const Tensor* input, Tensor* output, int axis, int exclusive
     }
 }
 
+// Egor Izmaylov: Function `simple_lcg` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static uint32_t simple_lcg(uint32_t* state) {
     *state = (*state * 1103515245 + 12345) & 0x7FFFFFFF;
     return *state;
 }
 
+// Egor Izmaylov: Function `random_uniform_like_forward` is the C backend entry point for the random uniform like operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void random_uniform_like_forward(Tensor* output, float low, float high, float seed) {
     if (!output) return;
     
@@ -4562,6 +4708,7 @@ void random_uniform_like_forward(Tensor* output, float low, float high, float se
     }
 }
 
+// Egor Izmaylov: Function `einsum_forward` is the C backend entry point for the einsum operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output, 
                     int iter_dims, int* loop_limits, 
                     int* input_strides, int* output_strides) {
@@ -4616,6 +4763,7 @@ void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output,
     }
 }
 
+// Egor Izmaylov: Macro `UNARY_OP_WITH_ALPHA_IMPL` expands repeated C function implementations for related operators; it keeps generated entry points aligned with the ctypes ABI while avoiding duplicated loop code.
 #define UNARY_OP_WITH_ALPHA_IMPL(FUNC_NAME, MATH_LOGIC) \
 void FUNC_NAME(const Tensor* input, Tensor* output, float alpha) { \
     if (!input || !output) return; \
@@ -4641,6 +4789,7 @@ UNARY_OP_WITH_ALPHA_IMPL(thresholded_relu_forward, (val > a) ? val : 0.0)
 UNARY_OP_WITH_ALPHA_IMPL(celu_forward, (val >= 0) ? val : a * (exp(val / a) - 1.0))
 
 // Selu: gamma * (x > 0 ? x : alpha * (exp(x) - 1))
+// Egor Izmaylov: Function `selu_forward` is the C backend entry point for the selu operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void selu_forward(const Tensor* input, Tensor* output, float alpha, float gamma) {
     if (!input || !output) return;
     double a = (double)alpha;
@@ -4654,6 +4803,7 @@ void selu_forward(const Tensor* input, Tensor* output, float alpha, float gamma)
 }
 
 // HardSigmoid: max(0, min(1, alpha * x + beta))
+// Egor Izmaylov: Function `hard_sigmoid_forward` is the C backend entry point for the hard sigmoid operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void hard_sigmoid_forward(const Tensor* input, Tensor* output, float alpha, float beta) {
     if (!input || !output) return;
     double a = (double)alpha;
@@ -4677,6 +4827,7 @@ UNARY_OP_IMPL(softsign_forward, val / (1.0 + fabs(val)))
 UNARY_OP_IMPL(hard_swish_forward, val * fmax(0.0, fmin(1.0, val / 6.0 + 0.5)))
 
 // Shrink: x < -lambd ? x + bias : (x > lambd ? x - bias : 0)
+// Egor Izmaylov: Function `shrink_forward` is the C backend entry point for the shrink operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void shrink_forward(const Tensor* input, Tensor* output, float bias, float lambd) {
     if (!input || !output) return;
     double b = (double)bias;
@@ -4714,31 +4865,40 @@ UNARY_OP_IMPL(acosh_forward, acosh(val))
 UNARY_OP_IMPL(atanh_forward, atanh(val))
 
 // 位运算逻辑
+// Egor Izmaylov: Function `op_bitwise_and` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_bitwise_and(int64_t a, int64_t b) { return a & b; }
+// Egor Izmaylov: Function `op_bitwise_or` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_bitwise_or(int64_t a, int64_t b) { return a | b; }
+// Egor Izmaylov: Function `op_bitwise_xor` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_bitwise_xor(int64_t a, int64_t b) { return a ^ b; }
+// Egor Izmaylov: Function `op_shift_left` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_shift_left(int64_t a, int64_t b) { return a << b; }
+// Egor Izmaylov: Function `op_shift_right` implements shared tensor-operator helper logic in the C backend, factoring indexing, shape, random, reduction, or math details away from Python.
 static inline int64_t op_shift_right(int64_t a, int64_t b) { return a >> b; }
 
 // BitwiseAnd
+// Egor Izmaylov: Function `bitwise_and_forward` is the C backend entry point for the bitwise and operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void bitwise_and_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     if (!A || !B || !O) return;
     BINARY_OP_INT_LOGIC(op_bitwise_and); 
 }
 
 // BitwiseOr
+// Egor Izmaylov: Function `bitwise_or_forward` is the C backend entry point for the bitwise or operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void bitwise_or_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     if (!A || !B || !O) return;
     BINARY_OP_INT_LOGIC(op_bitwise_or);
 }
 
 // BitwiseXor
+// Egor Izmaylov: Function `bitwise_xor_forward` is the C backend entry point for the bitwise xor operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void bitwise_xor_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     if (!A || !B || !O) return;
     BINARY_OP_INT_LOGIC(op_bitwise_xor);
 }
 
 // BitwiseNot
+// Egor Izmaylov: Function `bitwise_not_forward` is the C backend entry point for the bitwise not operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void bitwise_not_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     
@@ -4752,6 +4912,7 @@ void bitwise_not_forward(const Tensor* input, Tensor* output) {
 
 // BitShift
 // direction: 0=LEFT, 1=RIGHT
+// Egor Izmaylov: Function `bit_shift_forward` is the C backend entry point for the bit shift operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void bit_shift_forward(const Tensor* A, const Tensor* B, Tensor* O, int direction) {
     if (!A || !B || !O) return;
     
@@ -4780,6 +4941,7 @@ REDUCE_OP_IMPL(reduce_log_sum_exp_forward, 0.0, acc += exp(val), acc = log(acc))
 REDUCE_OP_IMPL(reduce_sum_square_forward, 0.0, acc += val * val, (void)0)
 
 // AveragePool
+// Egor Izmaylov: Function `average_pool_forward` is the C backend entry point for the average pool operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void average_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int count_include_pad) {
     if (!X || !Y || !params) return;
     int batch = X->shape[0];
@@ -4837,6 +4999,7 @@ void average_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int co
 }
 
 // LpPool
+// Egor Izmaylov: Function `lp_pool_forward` is the C backend entry point for the lp pool operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void lp_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int p) {
     if (!X || !Y || !params) return;
     int batch = X->shape[0];
@@ -4889,6 +5052,7 @@ void lp_pool_forward(const Tensor* X, Tensor* Y, PoolParams* params, int p) {
 
 // GlobalAveragePool
 // 假设输入是 NCHW (或至少后两维是空间维度)，如果不符合则不执行
+// Egor Izmaylov: Function `global_average_pool_forward` is the C backend entry point for the global average pool operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void global_average_pool_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     int ndim = input->ndim;
@@ -4910,6 +5074,7 @@ void global_average_pool_forward(const Tensor* input, Tensor* output) {
 }
 
 // GlobalMaxPool
+// Egor Izmaylov: Function `global_max_pool_forward` is the C backend entry point for the global max pool operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void global_max_pool_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     int ndim = input->ndim;
@@ -4932,6 +5097,7 @@ void global_max_pool_forward(const Tensor* input, Tensor* output) {
 }
 
 // GlobalLpPool
+// Egor Izmaylov: Function `global_lp_pool_forward` is the C backend entry point for the global lp pool operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void global_lp_pool_forward(const Tensor* input, Tensor* output, int p) {
     if (!input || !output) return;
     int ndim = input->ndim;
@@ -4957,6 +5123,7 @@ void global_lp_pool_forward(const Tensor* input, Tensor* output, int p) {
 }
 
 // Mean (Element-wise)
+// Egor Izmaylov: Function `mean_forward` is the C backend entry point for the mean operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void mean_forward(const Tensor** inputs, int num_inputs, Tensor* output) {
     if (!inputs || !output || num_inputs < 1) return;
     size_t size = output->size;
@@ -4971,6 +5138,7 @@ void mean_forward(const Tensor** inputs, int num_inputs, Tensor* output) {
     }
 }
 
+// Egor Izmaylov: Function `size_forward` is the C backend entry point for the size operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void size_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     int64_t total_elems = (int64_t)input->size;
@@ -4978,6 +5146,7 @@ void size_forward(const Tensor* input, Tensor* output) {
 }
 
 // IsInf
+// Egor Izmaylov: Function `isinf_forward` is the C backend entry point for the isinf operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void isinf_forward(const Tensor* input, Tensor* output, int detect_pos, int detect_neg) {
     if (!input || !output) return;
     _Pragma("omp parallel for")
@@ -4996,6 +5165,7 @@ void isinf_forward(const Tensor* input, Tensor* output, int detect_pos, int dete
 // indices: 输入索引
 // values: [off_value, on_value] (2 element tensor)
 // axis: 扩充的维度
+// Egor Izmaylov: Function `one_hot_forward` is the C backend entry point for the one hot operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void one_hot_forward(const Tensor* indices, const Tensor* values, Tensor* output, int axis) {
     if (!indices || !values || !output) return;
     
@@ -5029,6 +5199,7 @@ void one_hot_forward(const Tensor* indices, const Tensor* values, Tensor* output
 }
 
 // Tril / Triu
+// Egor Izmaylov: Function `triangular_forward` is the C backend entry point for the triangular operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void triangular_forward(const Tensor* input, Tensor* output, int k, int upper) {
     if (!input || !output) return;
     int ndim = input->ndim;
@@ -5068,6 +5239,7 @@ UNARY_OP_IMPL(erf_forward, erf(val))
 // Y = (X - mean) / sqrt(var + eps) * scale + B
 // 优化为: Y = X * A + K
 // 其中 A = scale / sqrt(var + eps), K = B - mean * A
+// Egor Izmaylov: Function `batch_norm_forward` is the C backend entry point for the batch norm operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void batch_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                         const Tensor* mean, const Tensor* var, Tensor* output, float epsilon) {
     if (!input || !scale || !B || !mean || !var || !output) return;
@@ -5114,6 +5286,7 @@ void batch_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
 
 // InstanceNormalization
 // 对每个 (n, c) 切片计算均值和方差，然后归一化
+// Egor Izmaylov: Function `instance_norm_forward` is the C backend entry point for the instance norm operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void instance_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                            Tensor* output, float epsilon) {
     if (!input || !scale || !B || !output) return;
@@ -5157,6 +5330,7 @@ void instance_norm_forward(const Tensor* input, const Tensor* scale, const Tenso
 
 // LayerNormalization
 // 沿着 axis 轴进行归一化 (通常 axis=-1)
+// Egor Izmaylov: Function `layer_norm_forward` is the C backend entry point for the layer norm operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                         Tensor* output, int axis, float epsilon) {
     if (!input || !output) return;
@@ -5203,12 +5377,14 @@ void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
 }
 
 // 获取窗函数大小
+// Egor Izmaylov: Function `get_window_size` is a tensor ABI helper that converts, reads, writes, or copies values while preserving the DataType enum contract shared with Python ctypes.
 static int64_t get_window_size(const Tensor* size_tensor) {
     if (!size_tensor) return 0;
     return get_value_as_int64(size_tensor, 0);
 }
 
 // Hann Window: 0.5 * (1 - cos(2*pi*n / (N-1)))
+// Egor Izmaylov: Function `hann_window_forward` is the C backend entry point for the hann window operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void hann_window_forward(const Tensor* size_tensor, Tensor* output, int periodic) {
     if (!size_tensor || !output) return;
     int64_t N = get_window_size(size_tensor);
@@ -5228,6 +5404,7 @@ void hann_window_forward(const Tensor* size_tensor, Tensor* output, int periodic
 }
 
 // Hamming Window: 0.54 - 0.46 * cos(2*pi*n / (N-1))
+// Egor Izmaylov: Function `hamming_window_forward` is the C backend entry point for the hamming window operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void hamming_window_forward(const Tensor* size_tensor, Tensor* output, int periodic) {
     if (!size_tensor || !output) return;
     int64_t N = get_window_size(size_tensor);
@@ -5247,6 +5424,7 @@ void hamming_window_forward(const Tensor* size_tensor, Tensor* output, int perio
 }
 
 // Blackman Window: 0.42 - 0.5*cos(...) + 0.08*cos(...)
+// Egor Izmaylov: Function `blackman_window_forward` is the C backend entry point for the blackman window operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void blackman_window_forward(const Tensor* size_tensor, Tensor* output, int periodic) {
     if (!size_tensor || !output) return;
     int64_t N = get_window_size(size_tensor);
@@ -5268,6 +5446,7 @@ void blackman_window_forward(const Tensor* size_tensor, Tensor* output, int peri
 }
 
 // RandomNormal: Box-Muller 变换
+// Egor Izmaylov: Function `random_normal_forward` is the C backend entry point for the random normal operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void random_normal_forward(Tensor* output, float mean, float scale, float seed) {
     if (!output) return;
     
@@ -5299,6 +5478,7 @@ void random_normal_forward(Tensor* output, float mean, float scale, float seed) 
 }
 
 // Bernoulli: 生成 0 或 1
+// Egor Izmaylov: Function `bernoulli_forward` is the C backend entry point for the bernoulli operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void bernoulli_forward(const Tensor* input, Tensor* output, float seed) {
     if (!input || !output) return;
     
@@ -5325,6 +5505,7 @@ void bernoulli_forward(const Tensor* input, Tensor* output, float seed) {
 }
 
 // Dropout (Inference Mode)
+// Egor Izmaylov: Function `dropout_forward` is the C backend entry point for the dropout operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void dropout_forward(const Tensor* input, Tensor* output, float ratio, int training_mode) {
     if (!input || !output) return;
     
@@ -5369,6 +5550,7 @@ void dropout_forward(const Tensor* input, Tensor* output, float ratio, int train
 // Gelu
 UNARY_OP_IMPL(gelu_forward, 0.5 * val * (1.0 + erf(val * M_SQRT1_2)))
 
+// Egor Izmaylov: Function `mish_forward` is the C backend entry point for the mish operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void mish_forward(const Tensor* input, Tensor* output) {
     if (!input || !output) return;
     _Pragma("omp parallel for")
@@ -5384,6 +5566,7 @@ void mish_forward(const Tensor* input, Tensor* output) {
 }
 
 // Hardmax
+// Egor Izmaylov: Function `hardmax_forward` is the C backend entry point for the hardmax operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void hardmax_forward(const Tensor* input, Tensor* output, int axis) {
     if (!input || !output) return;
     if (axis < 0) axis += input->ndim;
@@ -5420,6 +5603,7 @@ void hardmax_forward(const Tensor* input, Tensor* output, int axis) {
 }
 
 // LogSoftmax: x - max - log(sum(exp(x - max)))
+// Egor Izmaylov: Function `log_softmax_forward` is the C backend entry point for the log softmax operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void log_softmax_forward(const Tensor* input, Tensor* output, int axis) {
     if (!input || !output) return;
     if (axis < 0) axis += input->ndim;
@@ -5461,6 +5645,7 @@ void log_softmax_forward(const Tensor* input, Tensor* output, int axis) {
 
 // LpNormalization
 // y = x / ||x||_p
+// Egor Izmaylov: Function `lp_normalization_forward` is the C backend entry point for the lp normalization operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void lp_normalization_forward(const Tensor* input, Tensor* output, int axis, int p) {
     if (!input || !output) return;
     if (axis < 0) axis += input->ndim;
@@ -5493,6 +5678,7 @@ void lp_normalization_forward(const Tensor* input, Tensor* output, int axis, int
 }
 
 // DepthToSpace
+// Egor Izmaylov: Function `depth_to_space_forward` is the C backend entry point for the depth to space operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void depth_to_space_forward(const Tensor* input, Tensor* output, int blocksize, int mode) {
     if (!input || !output) return;
     
@@ -5536,6 +5722,7 @@ void depth_to_space_forward(const Tensor* input, Tensor* output, int blocksize, 
 }
 
 // SpaceToDepth
+// Egor Izmaylov: Function `space_to_depth_forward` is the C backend entry point for the space to depth operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void space_to_depth_forward(const Tensor* input, Tensor* output, int blocksize) {
     if (!input || !output) return;
     
@@ -5571,6 +5758,7 @@ void space_to_depth_forward(const Tensor* input, Tensor* output, int blocksize) 
 }
 
 // ReverseSequence
+// Egor Izmaylov: Function `reverse_sequence_forward` is the C backend entry point for the reverse sequence operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void reverse_sequence_forward(const Tensor* input, const Tensor* sequence_lens, Tensor* output, int time_axis, int batch_axis) {
     if (!input || !output || !sequence_lens) return;
     int ndim = input->ndim;
@@ -5606,6 +5794,7 @@ void reverse_sequence_forward(const Tensor* input, const Tensor* sequence_lens, 
 }
 
 // Compress
+// Egor Izmaylov: Function `compress_forward` is the C backend entry point for the compress operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void compress_forward(const Tensor* input, const Tensor* condition, Tensor* output, int axis) {
     if (!input || !condition || !output) return;
     int ndim = input->ndim;
@@ -5640,6 +5829,7 @@ void compress_forward(const Tensor* input, const Tensor* condition, Tensor* outp
 }
 
 // ScatterElements
+// Egor Izmaylov: Function `scatter_elements_forward` is the C backend entry point for the scatter elements operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void scatter_elements_forward(Tensor* data, const Tensor* indices, const Tensor* updates, int axis, int reduction) {
     if (!data || !indices || !updates) return;
     int ndim = data->ndim;
@@ -5696,6 +5886,7 @@ void scatter_elements_forward(Tensor* data, const Tensor* indices, const Tensor*
 }
 
 // GroupNormalization
+// Egor Izmaylov: Function `group_norm_forward` is the C backend entry point for the group norm operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void group_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                         Tensor* output, int num_groups, float epsilon) {
     if (!input || !scale || !B || !output) return;
@@ -5763,6 +5954,7 @@ void group_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
 }
 
 // Binarizer
+// Egor Izmaylov: Function `binarizer_forward` is the C backend entry point for the binarizer operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void binarizer_forward(const Tensor* input, Tensor* output, float threshold) {
     if (!input || !output) return;
     double t = (double)threshold;
@@ -5777,6 +5969,7 @@ void binarizer_forward(const Tensor* input, Tensor* output, float threshold) {
 
 // DynamicQuantizeLinear
 // 仅支持映射到 uint8 ([0, 255])
+// Egor Izmaylov: Function `dynamic_quantize_linear_forward` is the C backend entry point for the dynamic quantize linear operator; it validates tensor buffers, performs the numeric loop in C/OpenMP when applicable, and writes dtype-correct outputs.
 void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale, Tensor* y_zp) {
     if (!x || !y || !y_scale || !y_zp) return;
     double min_val = DBL_MAX;
