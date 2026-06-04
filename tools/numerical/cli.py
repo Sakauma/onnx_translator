@@ -29,6 +29,7 @@ from nn.Operators import (
     CumSum, Softmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
     Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, ConstantOfShape, EyeLike,
+    Mean, Sum,
 )
 
 from . import cuda as cuda_backend
@@ -94,6 +95,14 @@ def build_mixed_precision_plans():
         (LessOrEqual, "less_or_equal", [(32, 32), (32, 32)], ["bfloat16", "bfloat16"], "bool"),
         (LessOrEqual, "less_or_equal", [(32, 32), (32, 32)], ["float8_e4m3", "float8_e4m3"], "bool"),
         (LessOrEqual, "less_or_equal", [(32, 32), (32, 32)], ["float8_e5m2", "float8_e5m2"], "bool"),
+        (Mean, "mean", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["float16", "float16", "float16"], "float16"),
+        (Mean, "mean", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["bfloat16", "bfloat16", "bfloat16"], "bfloat16"),
+        (Mean, "mean", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["float8_e4m3", "float8_e4m3", "float8_e4m3"], "float8_e4m3"),
+        (Mean, "mean", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["float8_e5m2", "float8_e5m2", "float8_e5m2"], "float8_e5m2"),
+        (Sum, "sum", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["float16", "float16", "float16"], "float16"),
+        (Sum, "sum", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["bfloat16", "bfloat16", "bfloat16"], "bfloat16"),
+        (Sum, "sum", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["float8_e4m3", "float8_e4m3", "float8_e4m3"], "float8_e4m3"),
+        (Sum, "sum", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["float8_e5m2", "float8_e5m2", "float8_e5m2"], "float8_e5m2"),
 
         # ---- 混合精度矩阵、卷积、池化和 ROI ----
         (MatMul, "matmul", [(16, 32), (32, 8)], ["float16", "float16"], "float16"),
@@ -295,6 +304,8 @@ def build_default_plans():
     (Xor, "xor", [(256,256), (256,256)], ["bool", "bool"], "bool"),
     (GreaterOrEqual, "greater_or_equal", [(256,256), (256,256)], ["float32", "float32"], "bool"),
     (LessOrEqual, "less_or_equal", [(256,256), (256,256)], ["float32", "float32"], "bool"),
+    (Mean, "mean", [(16, 1, 8), (1, 4, 8), (16, 4, 1)], ["float32", "float32", "float32"], "float32"),
+    (Sum, "sum", [(16, 1, 8), (1, 4, 8), (16, 4, 1)], ["float32", "float32", "float32"], "float32"),
 
     # 索引
     (GatherElements, "gather_elements", [(64,64), (64,64)], ["float32", "int64"], "float32", {"axis":1}),
