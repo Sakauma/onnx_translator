@@ -23,6 +23,8 @@
   * @details     2026.06.05  V1.0.16  补充一元数学算子 CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.17  补充基础元素级算子 ONNX reference 语义记录
   * @details     2026.06.05  V1.0.18  修复 Reduce keepdims 坐标映射并补充语义记录
+  * @details     2026.06.05  V1.0.19  补充索引和排序类算子 ONNX reference 语义记录
+  * @details     2026.06.05  V1.0.20  补充当前工作收尾完整 numerical 复跑记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -232,6 +234,10 @@
 继续补充基础元素级算子的 ONNX reference pytest 语义覆盖，新增 `tests/test_operator_elementwise_semantics.py`，覆盖 `Add`、`Sub`、`Mul`、`Div`、`Pow`、`Max`、`Min`、比较算子、布尔逻辑算子、`Relu`、`Abs`、`Neg`、`Floor`、`Sign`、`IsNaN`、`Sin`、`Cos`、`Tan`、`Atan`、`Exp`、`Log`、`Sqrt`、`Sigmoid`、`Tanh` 与 `Softmax`。测试同时覆盖 ONNX 广播、variadic 输入、bool 输出、负 axis，以及 bfloat16 位存储读写路径。`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_elementwise_semantics.py` 与完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests` 均已通过。本轮后 ONNX reference pytest 语义/混合精度覆盖增至 101 个算子。
 
 继续补充基础 Reduce 算子的 ONNX reference pytest 语义覆盖，新增 `tests/test_operator_reduce_semantics.py`，覆盖 `ReduceMean`、`ReduceSum`、`ReduceMax`、`ReduceMin` 与 `ReduceProd` 的属性 axes、运行时 axes 输入、空 axes、`noop_with_empty_axes`、默认 `keepdims=1` 和 bfloat16 位存储路径。新增测试暴露并修复了 C 后端在 keepdims 输出布局下的归约坐标映射问题：保留维度时输出坐标需要与输入维度对齐，只有非 keepdims 输出才压缩非归约维度坐标。`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests`、Reduce 定向 numerical 和完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 均已通过。本轮后 ONNX reference pytest 语义/混合精度覆盖增至 106 个算子。
+
+继续补充索引、Arg、Scatter、TopK 与 CumSum 算子的 ONNX reference pytest 语义覆盖，新增 `tests/test_operator_index_semantics.py`，覆盖 `Gather`、`GatherElements`、`GatherND`、`ScatterND`、`NonZero`、`ArgMax`、`ArgMin`、`TopK` 与 `CumSum`。测试覆盖负 axis、负索引、`GatherND batch_dims=1`、`ScatterND reduction=none/add/mul`、`Arg* select_last_index`、`TopK largest=0 sorted=1`、`CumSum exclusive+reverse` 和 bfloat16 位存储路径。`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_index_semantics.py`、完整 pytest 和索引组定向 numerical 均已通过。本轮后 ONNX reference pytest 语义/混合精度覆盖增至 115 个算子。
+
+按当前收尾要求再次执行完整 numerical：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`。本次复跑覆盖默认 active numerical plan 中的 float32、float16、bfloat16、float8_e4m3、float8_e5m2、量化、索引和布尔类型路径，所有计划均通过，无失败算子；MaxRoiPool、RoiAlign、RNN、GRU、LSTM、DFT、STFT 等高风险算子也在本次完整一轮中通过。
 
 ### 剩余风险
 
