@@ -578,6 +578,10 @@ void nonzero_forward(const Tensor* input, Tensor* output);
 // coord_mode: 0=half_pixel, 1=asymmetric, 2=pytorch_half_pixel, 3=tf_half_pixel_for_nn, 4=align_corners, 5=half_pixel_symmetric
 void resize_forward(const Tensor* input, Tensor* output, float* scales, int coord_mode, int mode, int nearest_mode);
 
+// AffineGrid
+// 根据 theta 和 size 生成 2D/3D 规范化采样网格
+void affine_grid_forward(const Tensor* theta, const Tensor* size, Tensor* output, int align_corners);
+
 // TopK
 // sorted: 1=True
 void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis, int largest, int sorted, int K);

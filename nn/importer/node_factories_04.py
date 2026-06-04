@@ -85,3 +85,14 @@ def _factory_143_dynamicquantizelinear(node, import_context):
     return onnx_graph_list[-1]
 
 
+@register_factory("AffineGrid")
+def _factory_144_affinegrid(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    align_corners = 0
+    for attr in node.attribute:
+        if attr.name == "align_corners": align_corners = attr.i
+    elem_type = get_dtype(node.output[0])
+    onnx_graph_list.append(nn.Operators.AffineGrid(node.input, node.output, align_corners=align_corners, dtype=onnx_dtype_mapping[elem_type], version="20"))
+    return onnx_graph_list[-1]
+

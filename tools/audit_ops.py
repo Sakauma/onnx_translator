@@ -46,6 +46,7 @@ class OperatorInfo:
 MANUAL_ALIASES = {
     "ABS": {"abs"},
     "ADD": {"add"},
+    "AffineGrid": {"affine_grid"},
     "COS": {"cos"},
     "DIV": {"div"},
     "EXP": {"exp"},
@@ -202,6 +203,7 @@ REFERENCE_PARITY_PYTEST_COVERAGE = {
     "ADD",
     "Acos",
     "Acosh",
+    "AffineGrid",
     "And",
     "Asin",
     "Asinh",

@@ -15,6 +15,7 @@ from onnx.reference import ReferenceEvaluator
 from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import (
+    AffineGrid,
     Compress,
     Constant,
     ConstantOfShape,
@@ -45,7 +46,7 @@ def _tensor(data, dtype):
 
 
 # 调用 ONNX reference evaluator，返回指定节点的参考输出。
-def _onnx_reference(op_name, inputs, protos, attrs, output_shapes, output_protos=None):
+def _onnx_reference(op_name, inputs, protos, attrs, output_shapes, output_protos=None, opset=17):
     output_protos = output_protos or [protos[0]] * len(output_shapes)
     input_names = [f"i{i}" for i in range(len(inputs))]
     output_names = [f"o{i}" for i in range(len(output_shapes))]
@@ -61,7 +62,7 @@ def _onnx_reference(op_name, inputs, protos, attrs, output_shapes, output_protos
             for name, proto, shape in zip(output_names, output_protos, output_shapes)
         ],
     )
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
     return ReferenceEvaluator(model).run(None, dict(zip(input_names, inputs)))
 
 
@@ -88,6 +89,14 @@ def _bf16_bits(values):
 def _bf16_to_float32(values):
     bits = np.asarray(values, dtype=np.uint16).astype(np.uint32) << 16
     return bits.view(np.float32)
+
+
+# 复用 ONNX reference 的 AffineGrid 网格构造函数，避免测试中重新手写一套坐标规则。
+def _affine_grid_reference(theta, size, align_corners):
+    from onnx.reference.ops.op_affine_grid import apply_affine_transform, construct_original_grid
+
+    original_grid = construct_original_grid(list(map(int, size[2:])), align_corners)
+    return apply_affine_transform(theta, original_grid)
 
 
 # 验证 Range 的 Python fallback 会解码 bfloat16 起止和步长，并按 bfloat16 位模式写回。
@@ -135,6 +144,107 @@ def test_c_backend_shape_transform_ops_float16_match_onnx_reference():
         Unsqueeze(["x", "axes"], ["y"], dtype="float16").forward(_tensor(unsqueeze_input, "float16"), _tensor(unsqueeze_axes, "int64"))["tensor"],
         _onnx_reference("Unsqueeze", [unsqueeze_input, unsqueeze_axes], [TensorProto.FLOAT16, TensorProto.INT64], {}, [(1, 2, 1, 3)])[0],
     )
+
+
+# 验证 AffineGrid 的 2D 采样网格生成与 ONNX reference 对齐。
+def test_c_backend_affine_grid_2d_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    theta = np.array(
+        [
+            [[1.0, 0.0, 0.1], [0.0, 1.0, -0.2]],
+            [[0.8, 0.1, 0.0], [-0.1, 0.9, 0.2]],
+        ],
+        dtype=np.float32,
+    )
+    size = np.array([2, 1, 3, 4], dtype=np.int64)
+    expected = _onnx_reference(
+        "AffineGrid",
+        [theta, size],
+        [TensorProto.FLOAT, TensorProto.INT64],
+        {"align_corners": 0},
+        [(2, 3, 4, 2)],
+        [TensorProto.FLOAT],
+        opset=20,
+    )[0]
+    actual = AffineGrid(["theta", "size"], ["grid"], align_corners=0, dtype="float32").forward(
+        _tensor(theta, "float32"),
+        _tensor(size, "int64"),
+    )["tensor"]
+    _assert_tensor_matches(actual, expected)
+
+
+# 验证 AffineGrid 的 3D align_corners 路径与 ONNX reference 对齐。
+def test_c_backend_affine_grid_3d_align_corners_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    theta = np.array(
+        [[[1.0, 0.0, 0.0, 0.1], [0.0, 1.0, 0.0, -0.2], [0.0, 0.0, 1.0, 0.3]]],
+        dtype=np.float32,
+    )
+    size = np.array([1, 1, 2, 3, 2], dtype=np.int64)
+    expected = _onnx_reference(
+        "AffineGrid",
+        [theta, size],
+        [TensorProto.FLOAT, TensorProto.INT64],
+        {"align_corners": 1},
+        [(1, 2, 3, 2, 3)],
+        [TensorProto.FLOAT],
+        opset=20,
+    )[0]
+    actual = AffineGrid(["theta", "size"], ["grid"], align_corners=1, dtype="float32").forward(
+        _tensor(theta, "float32"),
+        _tensor(size, "int64"),
+    )["tensor"]
+    _assert_tensor_matches(actual, expected)
+
+
+# 验证 AffineGrid 的 bfloat16 路径会解码 theta 位模式并按位写回网格结果。
+def test_c_backend_affine_grid_bfloat16_decodes_and_writes_bit_storage():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    theta_values = np.array(
+        [
+            [[1.0, 0.0, 0.125], [0.0, 1.0, -0.25]],
+            [[0.75, 0.125, 0.0], [-0.125, 0.875, 0.25]],
+        ],
+        dtype=np.float32,
+    )
+    size = np.array([2, 1, 3, 4], dtype=np.int64)
+    theta_bits = _bf16_bits(theta_values)
+    decoded_theta = _bf16_to_float32(theta_bits)
+    expected = _affine_grid_reference(decoded_theta, size, 0)
+    expected_bits = _bf16_bits(expected)
+
+    actual = AffineGrid(["theta", "size"], ["grid"], align_corners=0, dtype="bfloat16").forward(
+        _tensor(theta_bits, "bfloat16"),
+        _tensor(size, "int64"),
+    )["tensor"]
+    np.testing.assert_array_equal(actual.data, expected_bits)
+    np.testing.assert_allclose(_bf16_to_float32(actual.data), _bf16_to_float32(expected_bits), rtol=1e-2, atol=1e-2)
+
+
+# 验证 AffineGrid 导入时保留 align_corners 属性。
+def test_onnx_import_affine_grid_preserves_align_corners(tmp_path):
+    graph = helper.make_graph(
+        [helper.make_node("AffineGrid", ["theta", "size"], ["grid"], align_corners=1)],
+        "affine_grid_import",
+        [
+            helper.make_tensor_value_info("theta", TensorProto.FLOAT, [1, 2, 3]),
+            helper.make_tensor_value_info("size", TensorProto.INT64, [4]),
+        ],
+        [helper.make_tensor_value_info("grid", TensorProto.FLOAT, [1, 2, 3, 2])],
+    )
+    model_path = tmp_path / "affine_grid.onnx"
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 20)]), model_path)
+
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, AffineGrid)]
+    assert len(imported) == 1
+    assert imported[0].align_corners == 1
+    assert imported[0].version == "20"
 
 
 # 验证广播、重复、填充和切片类张量变换与 ONNX reference 对齐。

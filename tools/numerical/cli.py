@@ -27,7 +27,7 @@ from nn.Operators import (
     Equal, Greater, Less, GreaterOrEqual, LessOrEqual,
     Gather, GatherElements, GatherND, COS, LOG, EXP, SIGMOID, TANH,
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min, Not, And, Or, Xor, IsNaN,
-    CumSum, CumProd, Softmax, Hardmax, LogSoftmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
+    CumSum, CumProd, Softmax, Hardmax, LogSoftmax, NonZero, TopK, ArgMin, ArgMax, Resize, AffineGrid, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
     Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, ConstantOfShape, EyeLike,
     Mean, Sum, RMSNormalization, Cast, CastLike, Ceil, Reciprocal, Softplus, Softsign, HardSigmoid,
@@ -317,6 +317,10 @@ def build_mixed_precision_plans():
         (Resize, "resize", [(1, 2, 4, 4), (0,), (0,), (4,)], ["bfloat16", "bfloat16", "bfloat16", "int64"], "bfloat16", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1, 2, 8, 8]}),
         (Resize, "resize", [(1, 2, 4, 4), (0,), (0,), (4,)], ["float8_e4m3", "float8_e4m3", "float8_e4m3", "int64"], "float8_e4m3", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1, 2, 8, 8]}),
         (Resize, "resize", [(1, 2, 4, 4), (0,), (0,), (4,)], ["float8_e5m2", "float8_e5m2", "float8_e5m2", "int64"], "float8_e5m2", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1, 2, 8, 8]}),
+        (AffineGrid, "affine_grid", [(2, 2, 3), (4,)], ["float16", "int64"], "float16", {"size_value": [2, 1, 3, 4], "align_corners": 0}),
+        (AffineGrid, "affine_grid", [(2, 2, 3), (4,)], ["bfloat16", "int64"], "bfloat16", {"size_value": [2, 1, 3, 4], "align_corners": 0}),
+        (AffineGrid, "affine_grid", [(2, 2, 3), (4,)], ["float8_e4m3", "int64"], "float8_e4m3", {"size_value": [2, 1, 3, 4], "align_corners": 0}),
+        (AffineGrid, "affine_grid", [(2, 2, 3), (4,)], ["float8_e5m2", "int64"], "float8_e5m2", {"size_value": [2, 1, 3, 4], "align_corners": 0}),
         (Expand, "expand", [(2, 1, 3), (3,)], ["float16", "int64"], "float16", {"target_shape": [2, 4, 3]}),
         (Expand, "expand", [(2, 1, 3), (3,)], ["bfloat16", "int64"], "bfloat16", {"target_shape": [2, 4, 3]}),
         (Expand, "expand", [(2, 1, 3), (3,)], ["float8_e4m3", "int64"], "float8_e4m3", {"target_shape": [2, 4, 3]}),
@@ -518,6 +522,7 @@ def build_default_plans():
     # Resize: x, roi, scales, sizes
     (Resize, "resize", [(1,3,8,8), (0,), (0,), (4,)], ["float32", "float32", "float32", "int64"], "float32", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1,3,16,16]}),
 
+    (AffineGrid, "affine_grid", [(2, 2, 3), (4,)], ["float32", "int64"], "float32", {"size_value": [2, 1, 3, 4], "align_corners": 0}),
     (Expand, "expand", [(2, 1, 3), (3,)], ["float32", "int64"], "float32", {"target_shape": [2, 4, 3]}),
     (ConstantOfShape, "constant_of_shape", [(3,)], ["int64"], "float32", {"shape_value": [2, 3, 4], "fill_value": -1.5}),
     (EyeLike, "eye_like", [(4, 5)], ["float32"], "float32", {"k": 1}),

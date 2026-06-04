@@ -11,6 +11,67 @@
 
 from .common import *
 
+class AffineGrid(Ops):
+    # 初始化 `AffineGrid` 的构造参数，保存 align_corners、dtype 和版本信息。
+    def __init__(self, inputs, outputs, align_corners=0, dtype="float32", version="20"):
+        super().__init__(inputs, outputs)
+        self.align_corners = align_corners
+        self.dtype = dtype
+        self.version = version
+        self._has_affine_grid_c_backend = False
+        if self.lib:
+            try:
+                self.lib.affine_grid_forward.argtypes = [
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int
+                ]
+                self._has_affine_grid_c_backend = True
+            except AttributeError:
+                self._has_affine_grid_c_backend = False
+
+    # 根据 size 输入解析 AffineGrid 的输出形状。
+    def _output_shape(self, theta, size_tensor):
+        size_values = np.asarray(size_tensor.data, dtype=np.int64).reshape(-1).tolist()
+        if len(size_values) not in (4, 5):
+            raise ValueError(f"AffineGrid size must be rank 4 or 5, got {size_values}")
+        batch = int(size_values[0])
+        spatial = tuple(int(v) for v in size_values[2:])
+        coord_dim = len(spatial)
+        expected_theta = (batch, coord_dim, coord_dim + 1)
+        if tuple(theta.size) != expected_theta:
+            raise ValueError(f"AffineGrid theta shape must be {expected_theta}, got {theta.size}")
+        return (batch,) + spatial + (coord_dim,)
+
+    # 执行 `AffineGrid` 的真实张量计算路径，生成 2D/3D 规范化采样网格。
+    def forward(self, theta, size):
+        out_shape = self._output_shape(theta, size)
+        if self._has_affine_grid_c_backend and theta.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            theta_c = self._numpy_to_ctensor(np.ascontiguousarray(theta.data), theta.dtype)
+            size_c = self._numpy_to_ctensor(np.ascontiguousarray(size.data), size.dtype)
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            out_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+            self.lib.affine_grid_forward(theta_c, size_c, out_c, ctypes.c_int(self.align_corners))
+            out_data = self._ctensor_to_numpy(out_c, self.dtype)
+            self.lib.free_tensor(theta_c)
+            self.lib.free_tensor(size_c)
+            self.lib.free_tensor(out_c)
+        else:
+            from onnx.reference.ops.op_affine_grid import apply_affine_transform, construct_original_grid
+
+            size_values = np.asarray(size.data, dtype=np.int64).reshape(-1).tolist()
+            original_grid = construct_original_grid(size_values[2:], self.align_corners)
+            out_data = apply_affine_transform(_tensor_data_as_numeric(theta), original_grid)
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+    # 执行 `AffineGrid` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
+    def forward_(self, theta, size):
+        if hasattr(size, "data") and size.data is not None:
+            return {"tensor": Tensor_(*self._output_shape(theta, size), dtype=self.dtype), "parameters": None, "graph": None}
+        rank = len(theta.size) - 1
+        coord_dim = theta.size[1] if len(theta.size) == 3 else 2
+        return {"tensor": Tensor_(*((theta.size[0],) + (1,) * coord_dim + (coord_dim,)), dtype=self.dtype), "parameters": None, "graph": None}
+
+
 class Expand(Ops):
     # 初始化 `Expand` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):

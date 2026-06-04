@@ -134,6 +134,30 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[2] = np.array([], dtype=np.float32)   # scales
             inputs_np[3] = np.array(target_sizes, dtype=np.int64)
 
+        if op_name == "affine_grid":
+            # AffineGrid 使用稳定的仿射矩阵样本，避免随机低精度位模式生成 NaN 或极端网格。
+            size_value = list(map(int, init_args.get("size_value", [2, 1, 3, 4])))
+            inputs_np[1] = np.array(size_value, dtype=np.int64)
+            if len(size_value) == 4:
+                theta_values = np.array(
+                    [
+                        [[1.0, 0.0, 0.1], [0.0, 1.0, -0.2]],
+                        [[0.8, 0.1, 0.0], [-0.1, 0.9, 0.2]],
+                    ],
+                    dtype=np.float32,
+                )
+            elif len(size_value) == 5:
+                theta_values = np.array(
+                    [
+                        [[1.0, 0.0, 0.0, 0.1], [0.0, 1.0, 0.0, -0.2], [0.0, 0.0, 1.0, 0.3]],
+                        [[0.8, 0.1, 0.0, 0.0], [-0.1, 0.9, 0.1, 0.2], [0.0, 0.2, 0.7, -0.1]],
+                    ],
+                    dtype=np.float32,
+                )
+            else:
+                raise ValueError(f"AffineGrid size_value must have rank 4 or 5, got {size_value}")
+            inputs_np[0] = from_float32(theta_values[: size_value[0]], dtypes[0])
+
         if op_name in {"expand", "flatten", "reshape", "transpose", "pad"}:
             # 形状变换类算子使用有限且可量化的固定样本，避免随机 float8 NaN 干扰位模式验证。
             total = int(np.prod(shapes[0]))
@@ -346,6 +370,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         try:
             op_init_args = dict(init_args)
             sizes_value = op_init_args.pop("sizes_value", None)
+            op_init_args.pop("size_value", None)
             k_value = op_init_args.pop("k_value", None)
             op_init_args.pop("dft_length_value", None)
             op_init_args.pop("frame_step_value", None)
@@ -696,6 +721,21 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             OH, OW = init_args["sizes_value"][2], init_args["sizes_value"][3]
             params_bin = np.array([N, C, IH, IW, OH, OW], dtype=np.int32).tobytes()
 
+        elif op_name == "affine_grid":
+            size_value = list(map(int, init_args.get("size_value", list(inputs_np[1]))))
+            spatial_rank = len(size_value) - 2
+            if spatial_rank == 2:
+                n, _, h, w = size_value
+                d = 1
+            elif spatial_rank == 3:
+                n, _, d, h, w = size_value
+            else:
+                raise ValueError(f"AffineGrid size_value must have rank 4 or 5, got {size_value}")
+            params_bin = np.array(
+                [spatial_rank, n, d, h, w, int(init_args.get("align_corners", 0))],
+                dtype=np.int32,
+            ).tobytes()
+
         elif op_name == "expand":
             input_shape = list(shapes[0])
             target_shape = list(map(int, init_args.get("target_shape", input_shape)))
@@ -830,7 +870,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             if inp is None:
                 cuda_inputs.append(None)
             else:
-                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk", "max_unpool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "tile", "expand", "pad", "constant_of_shape"] and d == "int64":
+                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "affine_grid", "topk", "max_unpool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "tile", "expand", "pad", "constant_of_shape"] and d == "int64":
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int64)))
                     continue
 
@@ -838,7 +878,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
-                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "constant_of_shape", "eye_like"]):
+                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "affine_grid", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "constant_of_shape", "eye_like"]):
                     try:
                         if val_f32.shape != expected_shape:
                             val_f32 = np.broadcast_to(val_f32, expected_shape)
@@ -960,7 +1000,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd","nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "constant_of_shape", "eye_like"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd","nonzero", "argmin", "argmax", "resize", "affine_grid", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "constant_of_shape", "eye_like"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:

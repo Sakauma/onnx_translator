@@ -22,6 +22,7 @@ from nn.ONNXImport import ONNXImport
 from nn.Operators import (
     ABS,
     ADD,
+    AffineGrid,
     And,
     CastLike,
     BitShift,
