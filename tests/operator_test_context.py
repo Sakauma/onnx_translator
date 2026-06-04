@@ -108,6 +108,7 @@ from nn.Operators import (
     ReduceSum,
     Resize,
     RoiAlign,
+    RMSNormalization,
     RNN,
     Loop,
     ReduceL1,

@@ -31,6 +31,7 @@
   * @details     2026.06.05  V1.0.24  补充 AveragePool 覆盖登记和最新 ONNX schema 风险审计记录
   * @details     2026.06.05  V1.0.25  补充 Swish opset 24 官方语义和混合精度验证记录
   * @details     2026.06.05  V1.0.26  补充 CumProd opset 26 和完整 numerical 收尾记录
+  * @details     2026.06.05  V1.0.27  补充 RMSNormalization opset 23 和完整 numerical 收尾记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -257,10 +258,12 @@
 
 继续处理当前安装 ONNX 最新 schema 缺口，补齐 `CumProd` opset 26：导入器复用扫描类 factory 并保留 `exclusive`、`reverse` 属性，Python runtime 调用 C 后端新增 `cumprod_forward`，C 后端支持负 axis、exclusive、reverse、整数 wrap 写回和低精度 dtype 写回，CUDA verifier 使用 `[N, exclusive, reverse]` 参数布局作为一维累计乘积 reference。默认 numerical plan 新增 float32、float16、bfloat16、float8_e4m3、float8_e5m2 五条计划，pytest 使用 ONNX `ReferenceEvaluator` 校验二维负轴、exclusive+reverse、导入器属性保留和 bfloat16 位存储路径。验证命令：`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_index_semantics.py`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op cumprod --iterations 3 --skip-plots` 均已通过；随后完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests` 结果为 243 passed、1 skipped。按当前收尾要求执行完整一轮 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`，默认 active numerical plan 的 121 个唯一算子、440 条默认计划、314 条混合精度计划全部通过。本轮后当前安装 ONNX 最新官方名称级覆盖从 186/200 提升到 187/200，最新 schema 缺口从 14 个降至 13 个。
 
+继续处理当前安装 ONNX 最新 schema 缺口，补齐 `RMSNormalization` opset 23：导入器读取 `axis`、`epsilon`、`stash_type` 属性并构造 `RMSNormalization` 算子，Python runtime 调用 C 后端新增 `rms_normalization_forward`，C 后端支持任意合法 axis 后缀 RMS、scale 单向广播、float32/double stash 计算和低精度 dtype 写回，CUDA verifier 以已广播 scale 和 `[row_count, normalized_size, epsilon]` 参数作为 reference。默认 numerical plan 新增 float32、float16、bfloat16、float8_e4m3、float8_e5m2 五条计划，pytest 使用 ONNX `ReferenceEvaluator` 校验 axis=-1、axis=1、scale 广播、导入器属性保留和 bfloat16 位存储路径。验证命令：`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_normalization_semantics.py`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op rms_normalization --iterations 3 --skip-plots` 均已通过；随后完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests` 结果为 246 passed、1 skipped。按当前收尾要求执行完整一轮 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`，默认 active numerical plan 的 122 个唯一算子、445 条默认计划、318 条混合精度计划全部通过。本轮后当前安装 ONNX 最新官方名称级覆盖从 187/200 提升到 188/200，最新 schema 缺口从 13 个降至 12 个。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
-- 当前安装 ONNX 最新默认 domain schema 仍有 13 个名称级缺口：AffineGrid、Attention、BitCast、CenterCropPad、Col2Im、DeformConv、ImageDecoder、RegexFullMatch、RMSNormalization、RotaryEmbedding、StringConcat、StringSplit、TensorScatter。
+- 当前安装 ONNX 最新默认 domain schema 仍有 12 个名称级缺口：AffineGrid、Attention、BitCast、CenterCropPad、Col2Im、DeformConv、ImageDecoder、RegexFullMatch、RotaryEmbedding、StringConcat、StringSplit、TensorScatter。
 - QuantizeLinear/DequantizeLinear 的新版属性，例如 block quantization、output_dtype、precision、saturate 等，仍需结合目标 opset 再决定是否扩展。
 - `Gelu` 的 exact erf 与 `approximate="tanh"` 已接入导入器、Python/C 后端、CUDA verifier、pytest 和默认 mixed precision numerical；后续风险主要在更多极端输入分布和跨 opset 兼容性穷尽。
 - ROI、序列和谱算子已进入默认门禁，但仍建议后续继续补充更多 corner case，例如多方向序列、不同布局、异常轴、空张量和边界 window 参数。

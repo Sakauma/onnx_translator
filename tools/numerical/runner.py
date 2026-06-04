@@ -147,6 +147,15 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             values.reshape(-1)[total // 2] = 0.0
             inputs_np[0] = from_float32(values, dtypes[0])
 
+        if op_name == "rms_normalization":
+            # RMSNormalization 使用稳定有限样本，覆盖 scale 单向广播和低精度 stash_type=FLOAT 主路径。
+            total = int(np.prod(shapes[0]))
+            x_values = np.linspace(-2.0, 2.0, total, dtype=np.float32).reshape(shapes[0])
+            scale_total = int(np.prod(shapes[1]))
+            scale_values = np.linspace(0.5, 1.5, scale_total, dtype=np.float32).reshape(shapes[1])
+            inputs_np[0] = from_float32(x_values, dtypes[0])
+            inputs_np[1] = from_float32(scale_values, dtypes[1])
+
         if op_name in {"softmax", "hardmax", "log_softmax"}:
             # Softmax 族算子使用有限样本，覆盖 axis 分段并避免低精度随机 NaN 干扰验证。
             total = int(np.prod(shapes[0]))
@@ -753,6 +762,18 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 [float(init_args.get("alpha", 0.2)), float(init_args.get("beta", 0.5))],
                 dtype=np.float32,
             ).tobytes()
+
+        elif op_name == "rms_normalization":
+            input_shape = list(shapes[0])
+            axis = int(init_args.get("axis", -1))
+            if axis < 0:
+                axis += len(input_shape)
+            normalized_size = int(np.prod(input_shape[axis:]))
+            row_count = int(np.prod(input_shape[:axis])) if axis > 0 else 1
+            params_bin = (
+                np.array([row_count, normalized_size], dtype=np.int32).tobytes()
+                + np.array([float(init_args.get("epsilon", 1e-5))], dtype=np.float32).tobytes()
+            )
 
         elif op_name in {"elu", "leaky_relu", "celu", "thresholded_relu"}:
             params_bin = np.array([float(init_args.get("alpha", 1.0))], dtype=np.float32).tobytes()

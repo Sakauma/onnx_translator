@@ -154,6 +154,70 @@ class MeanVarianceNormalization(Ops):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None, "graph": None}
 
 
+class RMSNormalization(Ops):
+    # 初始化 `RMSNormalization` 的构造参数，保存 axis、epsilon、stash_type 和输出 dtype。
+    def __init__(self, inputs, outputs, axis=-1, epsilon=1e-5, stash_type=1, dtype="float32", version="23"):
+        super().__init__(inputs, outputs)
+        self.axis = axis
+        self.epsilon = epsilon
+        self.stash_type = stash_type
+        self.stash_dtype = nn.onnx_dtype_mapping.get(stash_type, "float32")
+        self.dtype = dtype
+        self.version = version
+        if self.lib:
+            self.lib.rms_normalization_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                ctypes.c_int, ctypes.c_float, ctypes.c_int
+            ]
+
+    # 规范化 axis 并校验 scale 是否可按 ONNX 单向广播规则广播到输入张量。
+    def _resolve_axis_and_scale(self, x_shape, scale_shape):
+        rank = len(x_shape)
+        axis = self.axis if self.axis >= 0 else self.axis + rank
+        if axis < 0 or axis >= rank:
+            raise ValueError(f"RMSNormalization axis {self.axis} is out of bounds for rank {rank}")
+        if len(scale_shape) > rank:
+            raise ValueError(f"RMSNormalization scale rank {len(scale_shape)} exceeds input rank {rank}")
+        try:
+            np.broadcast_shapes(tuple(x_shape), tuple(scale_shape))
+        except ValueError as exc:
+            raise ValueError(f"RMSNormalization scale shape {scale_shape} is not broadcastable to {x_shape}") from exc
+        return axis
+
+    # 执行 `RMSNormalization` 的真实张量计算路径，按后缀维度计算 RMS 并应用 scale。
+    def forward(self, x, scale):
+        x_data = _tensor_data_as_numeric(x)
+        scale_data = _tensor_data_as_numeric(scale)
+        axis = self._resolve_axis_and_scale(x_data.shape, scale_data.shape)
+        if self.lib is not None and x.dtype in nn.DTYPE_MAP and scale.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
+            scale_c = self._numpy_to_ctensor(np.ascontiguousarray(scale.data), scale.dtype)
+            output_shape_c = (ctypes.c_int * len(x.size))(*x.size)
+            out_c = self.lib.create_tensor(output_shape_c, len(x.size), nn.DTYPE_MAP[self.dtype])
+            self.lib.rms_normalization_forward(
+                x_c, scale_c, out_c, ctypes.c_int(axis), ctypes.c_float(self.epsilon), ctypes.c_int(self.stash_type)
+            )
+            out_data = self._ctensor_to_numpy(out_c, self.dtype)
+            self.lib.free_tensor(x_c)
+            self.lib.free_tensor(scale_c)
+            self.lib.free_tensor(out_c)
+            return {"tensor": Tensor(*x.size, dtype=self.dtype, data=out_data), "parameters": None}
+
+        work_dtype = np.float64 if self.stash_dtype == "float64" else np.float32
+        work = x_data.astype(work_dtype, copy=False)
+        rms_axes = tuple(range(axis, work.ndim))
+        mean_square = np.mean(work * work, axis=rms_axes, keepdims=True)
+        normalized = work / np.sqrt(mean_square + self.epsilon)
+        out_data = normalized * np.asarray(scale_data, dtype=work_dtype)
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
+        return {"tensor": Tensor(*x.size, dtype=self.dtype, data=out_data), "parameters": None}
+
+    # 执行 `RMSNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
+    def forward_(self, x, scale):
+        self._resolve_axis_and_scale(x.size, scale.size)
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+
 class Mean(Ops):
     # 初始化 `Mean` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):

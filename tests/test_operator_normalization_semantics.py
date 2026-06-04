@@ -13,7 +13,7 @@ from onnx.reference import ReferenceEvaluator
 
 from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
-from nn.Operators import BatchNormalization, InstanceNormalization, LayerNormalization, LpNormalization, LRN, MeanVarianceNormalization
+from nn.Operators import BatchNormalization, InstanceNormalization, LayerNormalization, LpNormalization, LRN, MeanVarianceNormalization, RMSNormalization
 
 
 # 将 float32 数值转换为 bfloat16 的 uint16 位模式，匹配 Tensor 内部存储。
@@ -40,16 +40,17 @@ def _tensor(data, dtype):
 
 
 # 调用 ONNX reference evaluator，获得指定归一化 op 的官方参考输出。
-def _onnx_reference(op_name, inputs, protos, attrs, output_shapes):
+def _onnx_reference(op_name, inputs, protos, attrs, output_shapes, opset=17, output_protos=None):
     names = [f"i{i}" for i in range(len(inputs))]
     outputs = [f"o{i}" for i in range(len(output_shapes))]
+    output_protos = output_protos or [protos[0]] * len(output_shapes)
     graph = helper.make_graph(
         [helper.make_node(op_name, names, outputs, **attrs)],
         f"{op_name}_reference",
         [helper.make_tensor_value_info(name, proto, list(value.shape)) for name, proto, value in zip(names, protos, inputs)],
-        [helper.make_tensor_value_info(name, protos[0], list(shape)) for name, shape in zip(outputs, output_shapes)],
+        [helper.make_tensor_value_info(name, proto, list(shape)) for name, proto, shape in zip(outputs, output_protos, output_shapes)],
     )
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
     return ReferenceEvaluator(model).run(None, dict(zip(names, inputs)))
 
 
@@ -64,6 +65,13 @@ def _mvn_formula(x, axes):
     mean = np.mean(x, axis=tuple(axes), keepdims=True)
     variance = np.mean((x - mean) ** 2, axis=tuple(axes), keepdims=True)
     return (x - mean) / np.sqrt(variance)
+
+
+# 按 ONNX RMSNormalization 公式独立计算输出。
+def _rms_norm_formula(x, scale, axis, epsilon):
+    axes = tuple(range(axis if axis >= 0 else axis + x.ndim, x.ndim))
+    mean_square = np.mean(x * x, axis=axes, keepdims=True)
+    return x / np.sqrt(mean_square + epsilon) * scale
 
 
 # 按 ONNX LRN schema 公式独立计算输出，避免依赖本地 reference 中的通道循环缺陷。
@@ -159,6 +167,54 @@ def test_c_backend_lrn_and_mvn_match_independent_onnx_formulas():
     np.testing.assert_allclose(mvn_actual.data, mvn_expected, rtol=1e-2, atol=1e-2)
 
 
+# 验证 RMSNormalization 的官方 axis、epsilon、stash_type 和 scale 广播语义。
+@pytest.mark.parametrize(
+    "axis,scale_shape",
+    [(-1, (4,)), (1, (3, 4))],
+)
+def test_c_backend_rms_normalization_matches_onnx_reference(axis, scale_shape):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = (np.linspace(-1.5, 1.5, 24, dtype=np.float32).reshape(2, 3, 4))
+    scale = np.linspace(0.5, 1.5, int(np.prod(scale_shape)), dtype=np.float32).reshape(scale_shape)
+    expected = _onnx_reference(
+        "RMSNormalization",
+        [x, scale],
+        [TensorProto.FLOAT, TensorProto.FLOAT],
+        {"axis": axis, "epsilon": 1e-4, "stash_type": 1},
+        [x.shape],
+        opset=23,
+    )[0]
+    actual = RMSNormalization(["x", "scale"], ["y"], axis=axis, epsilon=1e-4, stash_type=1, dtype="float32").forward(
+        _tensor(x, "float32"),
+        _tensor(scale, "float32"),
+    )["tensor"]
+    np.testing.assert_allclose(actual.data, expected, rtol=1e-6, atol=1e-6)
+
+
+# 验证 RMSNormalization 导入时保留 axis、epsilon 和 stash_type 属性。
+def test_onnx_import_rms_normalization_preserves_attributes(tmp_path):
+    graph = helper.make_graph(
+        [helper.make_node("RMSNormalization", ["x", "scale"], ["y"], axis=1, epsilon=1e-4, stash_type=1)],
+        "rms_norm_import",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3, 4]),
+            helper.make_tensor_value_info("scale", TensorProto.FLOAT, [3, 4]),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 3, 4])],
+    )
+    model_path = tmp_path / "rms_norm.onnx"
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 23)]), model_path)
+
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, RMSNormalization)]
+    assert len(imported) == 1
+    assert imported[0].axis == 1
+    assert imported[0].epsilon == pytest.approx(1e-4)
+    assert imported[0].stash_type == 1
+    assert imported[0].version == "23"
+
+
 # 验证官方支持 bfloat16 的归一化算子正确读写低精度位模式。
 def test_c_backend_bfloat16_normalization_ops_decode_and_write_bit_storage():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
@@ -185,6 +241,20 @@ def test_c_backend_bfloat16_normalization_ops_decode_and_write_bit_storage():
 
     lrn = LRN(["x"], ["y"], size=3, alpha=0.3, beta=0.5, bias=1.0, dtype="bfloat16").forward(bf16_x)["tensor"]
     np.testing.assert_allclose(_bf16_to_float32(lrn.data), _lrn_formula(x_values, 3, 0.3, 0.5, 1.0), rtol=2e-2, atol=2e-2)
+
+    rms_scale_values = np.linspace(0.5, 1.5, 2, dtype=np.float32)
+    rms = RMSNormalization(["x", "scale"], ["y"], axis=-1, epsilon=1e-4, stash_type=1, dtype="bfloat16").forward(
+        bf16_x,
+        _tensor(_bf16_bits(rms_scale_values), "bfloat16"),
+    )["tensor"]
+    decoded_x = _bf16_to_float32(_bf16_bits(x_values))
+    decoded_scale = _bf16_to_float32(_bf16_bits(rms_scale_values))
+    np.testing.assert_allclose(
+        _bf16_to_float32(rms.data),
+        _rms_norm_formula(decoded_x, decoded_scale, axis=-1, epsilon=1e-4),
+        rtol=2e-2,
+        atol=2e-2,
+    )
 
 
 # 验证 Python fallback 归一化路径同样按 bfloat16 位模式解码输入并写回位模式。
@@ -219,6 +289,20 @@ def test_python_normalization_fallback_bfloat16_decodes_bit_storage(monkeypatch)
     lp_norm = np.linalg.norm(x_values, ord=2, axis=1, keepdims=True)
     lp_expected = np.where(lp_norm == 0, 0, x_values / lp_norm)
     np.testing.assert_allclose(_bf16_to_float32(lp.data), lp_expected, rtol=2e-2, atol=2e-2)
+
+    rms_scale_values = np.linspace(0.5, 1.5, 2, dtype=np.float32)
+    rms = RMSNormalization(["x", "scale"], ["y"], axis=-1, epsilon=1e-4, stash_type=1, dtype="bfloat16").forward(
+        bf16_x,
+        _tensor(_bf16_bits(rms_scale_values), "bfloat16"),
+    )["tensor"]
+    decoded_x = _bf16_to_float32(_bf16_bits(x_values))
+    decoded_scale = _bf16_to_float32(_bf16_bits(rms_scale_values))
+    np.testing.assert_allclose(
+        _bf16_to_float32(rms.data),
+        _rms_norm_formula(decoded_x, decoded_scale, axis=-1, epsilon=1e-4),
+        rtol=2e-2,
+        atol=2e-2,
+    )
 
     mean_out = Mean(["a", "b"], ["y"], dtype="bfloat16").forward(
         bf16_x,

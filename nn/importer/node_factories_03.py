@@ -421,10 +421,24 @@ def _factory_125_layernormalization(node, import_context):
     return onnx_graph_list[-1]
 
 
+@register_factory("RMSNormalization")
+def _factory_126_rmsnormalization(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    epsilon, axis, stash_type = 1e-5, -1, 1
+    for attr in node.attribute:
+        if attr.name == "epsilon": epsilon = attr.f
+        elif attr.name == "axis": axis = attr.i
+        elif attr.name == "stash_type": stash_type = attr.i
+    elem_type = get_dtype(node.output[0])
+    onnx_graph_list.append(nn.Operators.RMSNormalization(node.input, node.output, axis=axis, epsilon=epsilon, stash_type=stash_type, dtype=onnx_dtype_mapping[elem_type], version="23"))
+    return onnx_graph_list[-1]
+
+
 @register_factory("HannWindow")
 @register_factory("HammingWindow")
 @register_factory("BlackmanWindow")
-def _factory_126_hannwindow_hammingwindow_blackmanwindow(node, import_context):
+def _factory_127_hannwindow_hammingwindow_blackmanwindow(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
     onnx_graph_list = []
     periodic, output_datatype = 1, 1
@@ -624,5 +638,4 @@ def _factory_140_stringnormalizer(node, import_context):
         version="17",
     ))
     return onnx_graph_list[-1]
-
 

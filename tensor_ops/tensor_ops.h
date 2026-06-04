@@ -660,6 +660,11 @@ void instance_norm_forward(const Tensor* input, const Tensor* scale, const Tenso
 void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                         Tensor* output, int axis, float epsilon);
 
+// RMSNormalization
+// axis: 从该轴到最后一维计算 root mean square；scale 按 ONNX 单向广播规则映射。
+void rms_normalization_forward(const Tensor* input, const Tensor* scale, Tensor* output,
+                               int axis, float epsilon, int stash_type);
+
 void round_forward(const Tensor* input, Tensor* output);
 void erf_forward(const Tensor* input, Tensor* output);
 
