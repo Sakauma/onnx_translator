@@ -60,6 +60,34 @@ def bfloat16_bits_to_float32(arr_u16):
     arr_u32 = arr_u16.astype(np.uint32) << 16
     return arr_u32.view(np.float32)
 
+def from_float32(data, dtype):
+    """
+    将 float32 数值编码为数值验证输入需要的 dtype 存储格式。
+    """
+    arr = np.asarray(data, dtype=np.float32)
+    if dtype == "float8_e4m3":
+        return vec_encode_e4m3(arr).astype(np.uint8)
+    if dtype == "float8_e5m2":
+        return vec_encode_e5m2(arr).astype(np.uint8)
+    if dtype == "bfloat16":
+        return float32_to_bfloat16_bits(arr)
+    if dtype == "float16":
+        with np.errstate(over="ignore", invalid="ignore"):
+            return arr.astype(np.float16)
+    if dtype == "float64":
+        return arr.astype(np.float64)
+    if dtype == "float32":
+        return arr.astype(np.float32)
+    return arr.astype(np.float32)
+
+def quantize_to_dtype_float32(data, dtype):
+    """
+    将参考结果按目标 dtype 量化后再解码成 float32，匹配 C 后端写回后的可观测数值。
+    """
+    if dtype in {"float8_e4m3", "float8_e5m2", "float16", "bfloat16"}:
+        return to_float32(from_float32(data, dtype), dtype)
+    return np.asarray(data)
+
 def decode_float8_e4m3(val_uint8):
     val_uint8 = int(val_uint8)
     s = (val_uint8 & 0x80) >> 7
@@ -67,7 +95,7 @@ def decode_float8_e4m3(val_uint8):
     m = (val_uint8 & 0x07)
     sign = -1.0 if s else 1.0
     if e == 0:
-        return sign * (m / 8.0) * (2.0 ** -6) if m != 0 else 0.0
+        return sign * (m / 8.0) * (2.0 ** -6) if m != 0 else np.copysign(np.float32(0.0), sign)
     elif e == 0xF and m == 0x7:
         return np.nan
     return sign * (1.0 + m / 8.0) * (2.0 ** (e - 7))
@@ -79,13 +107,75 @@ def decode_float8_e5m2(val_uint8):
     m = (val_uint8 & 0x03)
     sign = -1.0 if s else 1.0
     if e == 0:
-        return sign * (m / 4.0) * (2.0 ** -14) if m != 0 else 0.0
+        return sign * (m / 4.0) * (2.0 ** -14) if m != 0 else np.copysign(np.float32(0.0), sign)
     elif e == 0x1F:
         return (sign * np.inf) if m == 0 else np.nan
     return sign * (1.0 + m / 4.0) * (2.0 ** (e - 15))
 
-vec_decode_e4m3 = np.vectorize(decode_float8_e4m3)
-vec_decode_e5m2 = np.vectorize(decode_float8_e5m2)
+def encode_float8_e4m3(value):
+    bits = np.asarray(value, dtype=np.float32).view(np.uint32).item()
+    sign = (bits & 0x80000000) >> 24
+    exp = (bits & 0x7F800000) >> 23
+    mant = bits & 0x007FFFFF
+
+    if exp == 255 and mant != 0:
+        return np.uint8(0x7F | sign)
+    if exp == 0:
+        return np.uint8(sign)
+
+    exp = int(exp) - 127 + 7
+    if exp < 1:
+        return np.uint8(sign)
+    if exp > 15:
+        return np.uint8(0x7E | sign)
+
+    mant_3 = (mant >> 20) & 0x7
+    guard = (mant >> 19) & 1
+    sticky = (mant & 0x7FFFF) != 0
+    lsb = mant_3 & 1
+    if guard and (sticky or lsb):
+        mant_3 += 1
+        if mant_3 > 7:
+            mant_3 = 0
+            exp += 1
+    if exp > 15 or (exp == 15 and mant_3 == 7):
+        return np.uint8(0x7E | sign)
+    return np.uint8(sign | (exp << 3) | mant_3)
+
+def encode_float8_e5m2(value):
+    bits = np.asarray(value, dtype=np.float32).view(np.uint32).item()
+    sign = (bits & 0x80000000) >> 24
+    exp = (bits & 0x7F800000) >> 23
+    mant = bits & 0x007FFFFF
+
+    if exp == 255:
+        return np.uint8(sign | 0x7C | (1 if mant else 0))
+    if exp == 0:
+        return np.uint8(sign)
+
+    exp = int(exp) - 127 + 15
+    if exp < 1:
+        return np.uint8(sign)
+    if exp >= 31:
+        return np.uint8(sign | 0x7C)
+
+    mant_2 = (mant >> 21) & 0x3
+    guard = (mant >> 20) & 1
+    sticky = (mant & 0xFFFFF) != 0
+    lsb = mant_2 & 1
+    if guard and (sticky or lsb):
+        mant_2 += 1
+        if mant_2 > 3:
+            mant_2 = 0
+            exp += 1
+    if exp >= 31:
+        return np.uint8(sign | 0x7C)
+    return np.uint8(sign | (exp << 2) | mant_2)
+
+vec_decode_e4m3 = np.vectorize(decode_float8_e4m3, otypes=[np.float32])
+vec_decode_e5m2 = np.vectorize(decode_float8_e5m2, otypes=[np.float32])
+vec_encode_e4m3 = np.vectorize(encode_float8_e4m3, otypes=[np.uint8])
+vec_encode_e5m2 = np.vectorize(encode_float8_e5m2, otypes=[np.uint8])
 
 def to_float32(data, dtype):
     """

@@ -125,12 +125,15 @@ class Range(Ops):
     # 执行 `Range` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, start, limit, delta):
         # max(ceil((limit - start) / delta), 0)
-        s = start.data.item()
-        l = limit.data.item()
-        d = delta.data.item()
+        s = _tensor_data_as_numeric(start).item()
+        l = _tensor_data_as_numeric(limit).item()
+        d = _tensor_data_as_numeric(delta).item()
         length = max(int(np.ceil((l - s) / d)), 0)
         
         out_shape = (length,)
+        if self.lib is None or self.dtype not in nn.DTYPE_MAP:
+            out_data = _cast_numeric_to_dtype(np.arange(s, l, d), self.dtype)
+            return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
         start_c = self._numpy_to_ctensor(start.data, start.dtype)
         limit_c = self._numpy_to_ctensor(limit.data, limit.dtype)
         delta_c = self._numpy_to_ctensor(delta.data, delta.dtype)
@@ -144,9 +147,9 @@ class Range(Ops):
     # 执行 `Range` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, start, limit, delta):
         if all(hasattr(t, "data") and t.data is not None for t in (start, limit, delta)):
-            s = start.data.item()
-            l = limit.data.item()
-            d = delta.data.item()
+            s = _tensor_data_as_numeric(start).item()
+            l = _tensor_data_as_numeric(limit).item()
+            d = _tensor_data_as_numeric(delta).item()
             length = max(int(np.ceil((l - s) / d)), 0)
             return {"tensor": Tensor_(length, dtype=self.dtype), "parameters": None}
         return {"tensor": Tensor_(1, dtype=self.dtype), "parameters": None}

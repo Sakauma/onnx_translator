@@ -72,9 +72,9 @@ class DequantizeLinear(Ops):
             if zp_tensor.data.size == x_scale.data.size:
                 zp_tensor = Tensor(*new_shape, dtype=zp_tensor.dtype, data=zp_tensor.data.reshape(new_shape))
         if self.lib is None:
-            x_bc, scale_bc, zp_bc = np.broadcast_arrays(x.data, scale_tensor.data, zp_tensor.data)
+            x_bc, scale_bc, zp_bc = np.broadcast_arrays(x.data, _tensor_data_as_numeric(scale_tensor), zp_tensor.data)
             out_data = (x_bc.astype(np.float64) - zp_bc.astype(np.float64)) * scale_bc.astype(np.float64)
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, np.float32))
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
             out_tensor = Tensor(*out_data.shape, dtype=self.dtype, data=out_data)
             values = {"tensor": out_tensor, "parameters": None, "graph": None}
             self.parameters = {"values": values}

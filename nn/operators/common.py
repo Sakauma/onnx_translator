@@ -19,6 +19,34 @@ import os
 import unicodedata
 
 
+def _float32_to_bfloat16_bits(values):
+    data = np.asarray(values, dtype=np.float32)
+    bits = data.view(np.uint32)
+    lsb = (bits >> 16) & 1
+    guard = (bits >> 15) & 1
+    sticky = (bits & 0x7FFF) != 0
+    rounded = bits + ((guard & (sticky | lsb)).astype(np.uint32) << 16)
+    rounded = np.where(np.isnan(data), bits, rounded)
+    return (rounded >> 16).astype(np.uint16)
+
+
+def _bfloat16_bits_to_float32(values):
+    bits = np.asarray(values, dtype=np.uint16).astype(np.uint32) << 16
+    return bits.view(np.float32)
+
+
+def _tensor_data_as_numeric(tensor):
+    if getattr(tensor, "dtype", None) == "bfloat16":
+        return _bfloat16_bits_to_float32(tensor.data)
+    return np.asarray(tensor.data)
+
+
+def _cast_numeric_to_dtype(values, dtype):
+    if dtype == "bfloat16":
+        return _float32_to_bfloat16_bits(values)
+    return np.asarray(values, dtype=nn.DTYPE_TO_NUMPY.get(dtype, np.asarray(values).dtype))
+
+
 def _conv_attr(values, spatial_rank, default):
     if values is None:
         return [default] * spatial_rank
@@ -109,7 +137,7 @@ def _conv_nd_numpy(x, w, bias=None, pads=None, strides=None, dilations=None, gro
 def _reshape_channel_param(param, target, axis, dtype):
     if param is None:
         return np.array(0, dtype=dtype)
-    arr = np.asarray(param.data, dtype=dtype)
+    arr = np.asarray(_tensor_data_as_numeric(param), dtype=dtype)
     if arr.ndim == 0 or arr.size == 1:
         return arr.reshape(())
     if arr.ndim == 1 and arr.shape[0] == target.shape[axis]:
@@ -147,7 +175,7 @@ def _broadcast_conv_param(param, target_shape, dtype, axis=None):
     return np.broadcast_to(arr, target_shape).copy()
 
 def _reshape_output_channel_param(param, out_channels, spatial_rank, dtype):
-    arr = np.asarray(param.data, dtype=dtype)
+    arr = np.asarray(_tensor_data_as_numeric(param), dtype=dtype)
     if arr.ndim == 0 or arr.size == 1:
         return arr.reshape(())
     if arr.ndim == 1 and arr.shape[0] == out_channels:
@@ -486,12 +514,13 @@ def _prepare_matmul_c_shapes(input_a: Tensor, input_b: Tensor):
         final_shape.pop(-1 if is_b_1d else -2)
     return data_a, data_b, out_shape_for_c, tuple(final_shape)
 
-def _broadcast_matmul_param(param, target_shape, dtype, role):
-    np_dtype = nn.DTYPE_TO_NUMPY[dtype]
+def _broadcast_matmul_param(param, target_shape, dtype, role, numeric_dtype=None):
+    np_dtype = numeric_dtype if numeric_dtype is not None else nn.DTYPE_TO_NUMPY[dtype]
     if param is None:
         return np.zeros(target_shape, dtype=np_dtype)
 
-    arr = np.asarray(param.data, dtype=np_dtype)
+    values = _tensor_data_as_numeric(param) if numeric_dtype is not None else param.data
+    arr = np.asarray(values, dtype=np_dtype)
     if arr.shape == target_shape:
         return np.ascontiguousarray(arr)
     if arr.shape == ():
@@ -504,8 +533,10 @@ def _broadcast_matmul_param(param, target_shape, dtype, role):
             return np.broadcast_to(arr.reshape(shape), target_shape).copy()
     return np.broadcast_to(arr, target_shape).copy()
 
-def _broadcast_output_param(param, target_shape, dtype):
-    arr = np.asarray(param.data, dtype=nn.DTYPE_TO_NUMPY[dtype])
+def _broadcast_output_param(param, target_shape, dtype, numeric_dtype=None):
+    np_dtype = numeric_dtype if numeric_dtype is not None else nn.DTYPE_TO_NUMPY[dtype]
+    values = _tensor_data_as_numeric(param) if numeric_dtype is not None else param.data
+    arr = np.asarray(values, dtype=np_dtype)
     if arr.shape == target_shape:
         return np.ascontiguousarray(arr)
     return np.broadcast_to(arr, target_shape).copy()

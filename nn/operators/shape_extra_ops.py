@@ -157,7 +157,7 @@ class Resize(Ops):
         if scales is not None and getattr(scales, "data", np.array([])).size > 0:
             inputs.append("scales")
             graph_inputs.append(helper.make_tensor_value_info("scales", dtype_to_onnx.get(scales.dtype, 1), list(scales.data.shape)))
-            feeds["scales"] = scales.data.astype(np.float32, copy=False)
+            feeds["scales"] = _tensor_data_as_numeric(scales).astype(np.float32, copy=False)
         elif sizes is None:
             inputs.append("scales")
             graph_inputs.append(helper.make_tensor_value_info("scales", 1, list(scales_data.shape)))
@@ -195,7 +195,7 @@ class Resize(Ops):
         
         # 参数解析逻辑
         if scales is not None and scales.data.size > 0:
-            s = scales.data.flatten()
+            s = _tensor_data_as_numeric(scales).flatten()
             out_shape = tuple((in_shape * s).astype(int).tolist())
             scales_data = s.astype(np.float32)
         elif sizes is not None and sizes.data.size > 0:
@@ -236,7 +236,7 @@ class Resize(Ops):
             out_shape = tuple(sizes.data.astype(np.int64).flatten().tolist())
             return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
         if scales is not None and hasattr(scales, "data") and scales.data is not None and scales.data.size > 0:
-            out_shape = tuple((in_shape * scales.data.astype(np.float64).flatten()).astype(np.int64).tolist())
+            out_shape = tuple((in_shape * _tensor_data_as_numeric(scales).astype(np.float64).flatten()).astype(np.int64).tolist())
             return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 

@@ -13,8 +13,11 @@ import math
 
 from onnx.reference import ReferenceEvaluator
 
+from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import (
+    ArgMax,
+    ArgMin,
     Binarizer,
     BitShift,
     BitwiseAnd,
@@ -120,7 +123,12 @@ def _reduce_formula(op_name, x, axes):
     if op_name == "ReduceLogSum":
         return np.log(np.sum(data, axis=axis))
     if op_name == "ReduceLogSumExp":
-        return np.log(np.sum(np.exp(data), axis=axis))
+        data_max = data.copy()
+        data_max[np.isinf(data_max)] = -np.inf
+        max_values = np.max(data_max, axis=axis, keepdims=True)
+        shifted = np.subtract(data, max_values)
+        summed = np.sum(np.exp(shifted), axis=axis, keepdims=True, dtype=data.dtype)
+        return np.squeeze(np.log(summed) + max_values, axis=axis)
     if op_name == "ReduceSumSquare":
         return np.sum(data * data, axis=axis)
     raise AssertionError(f"unsupported reduce op {op_name}")
@@ -313,6 +321,31 @@ def test_cast_ops_cover_bfloat16_bit_storage_and_unsigned_dtypes():
     np.testing.assert_array_equal(cast_uint32.data, uint_values)
 
 
+# 验证 Cast/CastLike 与 ArgMax/ArgMin 的 Python fallback 会按数值解释 bfloat16 位模式。
+def test_python_cast_and_arg_fallback_bfloat16_decode_bit_storage(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    values = np.array([-2.25, -0.5, 0.0, 1.5, 3.75], dtype=np.float32)
+    bf16_values = _tensor(_bf16_bits(values), "bfloat16")
+
+    cast_float = Cast(["x"], ["y"], dtype="float32").forward(bf16_values)["tensor"]
+    np.testing.assert_allclose(cast_float.data, _bf16_to_float32(_bf16_bits(values)), rtol=0.0, atol=0.0)
+
+    cast_int = Cast(["x"], ["y"], dtype="int32").forward(bf16_values)["tensor"]
+    np.testing.assert_array_equal(cast_int.data, _bf16_to_float32(_bf16_bits(values)).astype(np.int32))
+
+    target = _tensor(_bf16_bits(np.array([0.0], dtype=np.float32)), "bfloat16")
+    cast_like = CastLike(["x", "target"], ["y"]).forward(_tensor(values, "float32"), target)["tensor"]
+    np.testing.assert_array_equal(cast_like.data, _bf16_bits(values))
+
+    arg_values = np.array([[-1.0, 0.5, -2.0], [3.0, -4.0, 1.0]], dtype=np.float32)
+    bf16_arg = _tensor(_bf16_bits(arg_values), "bfloat16")
+    argmax = ArgMax(["x"], ["y"], axis=1, keepdims=0, dtype="int64").forward(bf16_arg)["tensor"]
+    argmin = ArgMin(["x"], ["y"], axis=1, keepdims=0, dtype="int64").forward(bf16_arg)["tensor"]
+    np.testing.assert_array_equal(argmax.data, np.array([1, 0], dtype=np.int64))
+    np.testing.assert_array_equal(argmin.data, np.array([2, 1], dtype=np.int64))
+
+
 # 验证 Dropout 推理模式的输出和 mask 与 ONNX reference 对齐。
 def test_c_backend_dropout_inference_mode_matches_onnx_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
@@ -377,6 +410,22 @@ def test_c_backend_reduce_formula_ops_float16_match_onnx_schema(op_cls, op_name)
     actual = op_cls(["x", "axes"], ["y"], keepdims=0, dtype="float16").forward(_tensor(x, "float16"), _tensor(axes, "int64"))["tensor"]
     expected = _reduce_formula(op_name, x, axes).astype(np.float16)
     _assert_tensor_matches(actual, expected, rtol=2e-3, atol=2e-3)
+
+
+def test_c_backend_reduce_log_sum_exp_uses_stable_reference_formula():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.array([[1000.0, 1001.0], [120.0, 121.0]], dtype=np.float32)
+    axes = np.array([1], dtype=np.int64)
+    actual = ReduceLogSumExp(["x", "axes"], ["y"], keepdims=1, dtype="float32").forward(
+        _tensor(x, "float32"),
+        _tensor(axes, "int64"),
+    )["tensor"]
+
+    max_values = np.max(x, axis=1, keepdims=True)
+    expected = np.log(np.sum(np.exp(x - max_values), axis=1, keepdims=True, dtype=np.float32)) + max_values
+    _assert_tensor_matches(actual, expected, rtol=1e-6, atol=1e-6)
 
 
 # 验证 bitwise/bitshift 整数语义与 NumPy 等价公式一致。
@@ -454,6 +503,21 @@ def test_c_backend_matrix_unique_and_triangular_ops_match_reference_formulas():
         _assert_tensor_matches(actual_tensor, expected_value)
 
 
+# 验证 Unique fallback 对 bfloat16 使用数值排序，而不是 uint16 位模式排序。
+def test_python_unique_fallback_bfloat16_uses_numeric_order(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    values = np.array([-1.0, 0.5, -2.0, 0.5], dtype=np.float32)
+    unique_y, indices, inverse, counts = Unique(
+        ["x"], ["y", "indices", "inverse", "counts"], sorted=1, dtype="bfloat16"
+    ).forward(_tensor(_bf16_bits(values), "bfloat16"))["tensor"]
+
+    np.testing.assert_array_equal(unique_y.data, _bf16_bits(np.array([-2.0, -1.0, 0.5], dtype=np.float32)))
+    np.testing.assert_array_equal(indices.data, np.array([2, 0, 1], dtype=np.int64))
+    np.testing.assert_array_equal(inverse.data, np.array([1, 2, 0, 2], dtype=np.int64))
+    np.testing.assert_array_equal(counts.data, np.array([1, 1, 2], dtype=np.int64))
+
+
 # 验证 NonMaxSuppression、loss 和 MelWeightMatrix 与 ONNX reference 对齐。
 def test_c_backend_ranking_loss_and_mel_ops_match_onnx_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
@@ -517,6 +581,64 @@ def test_c_backend_ranking_loss_and_mel_ops_match_onnx_reference():
     )
     _assert_tensor_matches(sce_loss, sce_expected[0])
     _assert_tensor_matches(log_prob, sce_expected[1])
+
+
+# 验证概率损失算子的 Python fallback 会解码 bfloat16 输入和权重，并按 bfloat16 位模式写回输出。
+def test_python_loss_fallback_bfloat16_decodes_inputs_and_weights(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    log_probs = np.array([[-0.25, -1.5, -2.0], [-1.0, -0.5, -3.0]], dtype=np.float32)
+    labels = np.array([1, 2], dtype=np.int64)
+    weights = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    expected_nll = np.array((1.5 * 2.0 + 3.0 * 3.0) / (2.0 + 3.0), dtype=np.float32)
+
+    nll = NegativeLogLikelihoodLoss(["x", "target", "weights"], ["loss"], reduction="mean", dtype="bfloat16").forward(
+        _tensor(_bf16_bits(log_probs), "bfloat16"),
+        _tensor(labels, "int64"),
+        _tensor(_bf16_bits(weights), "bfloat16"),
+    )["tensor"]
+    assert nll.dtype == "bfloat16"
+    assert nll.data.dtype == np.uint16
+    np.testing.assert_array_equal(nll.data, _bf16_bits(expected_nll))
+
+    scores = np.array([[1.0, 2.0, 4.0], [0.5, 0.0, -1.0]], dtype=np.float32)
+    sce_labels = np.array([2, 0], dtype=np.int64)
+    shifted = scores - np.max(scores, axis=1, keepdims=True)
+    expected_log_prob = shifted - np.log(np.sum(np.exp(shifted), axis=1, keepdims=True))
+    expected_loss = -expected_log_prob[np.arange(2), sce_labels] * weights[sce_labels]
+
+    sce_loss, sce_log_prob = SoftmaxCrossEntropyLoss(
+        ["scores", "labels", "weights"], ["loss", "log_prob"], reduction="none", dtype="bfloat16"
+    ).forward(
+        _tensor(_bf16_bits(scores), "bfloat16"),
+        _tensor(sce_labels, "int64"),
+        _tensor(_bf16_bits(weights), "bfloat16"),
+    )["tensor"]
+
+    assert sce_loss.dtype == "bfloat16"
+    assert sce_log_prob.dtype == "bfloat16"
+    assert sce_loss.data.dtype == np.uint16
+    assert sce_log_prob.data.dtype == np.uint16
+    np.testing.assert_allclose(_bf16_to_float32(sce_loss.data), expected_loss, rtol=2e-2, atol=2e-2)
+    np.testing.assert_allclose(_bf16_to_float32(sce_log_prob.data), expected_log_prob, rtol=2e-2, atol=2e-2)
+
+
+# 验证 NonMaxSuppression fallback 会解码 bfloat16 框、分数和阈值，尤其覆盖负坐标位模式。
+def test_python_non_max_suppression_fallback_bfloat16_decodes_inputs(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    boxes = np.array([[[-1.0, -1.0, 1.0, 1.0], [-0.9, -0.9, 1.1, 1.1], [3.0, 3.0, 4.0, 4.0]]], dtype=np.float32)
+    scores = np.array([[[0.95, 0.90, 0.80]]], dtype=np.float32)
+    selected = NonMaxSuppression(["boxes", "scores", "max", "iou", "score"], ["selected"], center_point_box=0).forward(
+        _tensor(_bf16_bits(boxes), "bfloat16"),
+        _tensor(_bf16_bits(scores), "bfloat16"),
+        _tensor(np.array(3, dtype=np.int64), "int64"),
+        _tensor(_bf16_bits(np.array(0.5, dtype=np.float32)), "bfloat16"),
+        _tensor(_bf16_bits(np.array(0.85, dtype=np.float32)), "bfloat16"),
+    )["tensor"]
+
+    np.testing.assert_array_equal(selected.data, np.array([[0, 0, 0]], dtype=np.int64))
+
 
     mel_inputs = [
         np.array(3, dtype=np.int64),

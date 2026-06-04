@@ -72,6 +72,7 @@ static inline size_t get_dtype_size(DataType dtype) {
     switch (dtype) {
         case DTYPE_FLOAT8_E4M3:
         case DTYPE_FLOAT8_E5M2:
+        case DTYPE_BOOL:
         case DTYPE_INT4:
         case DTYPE_INT8:
         case DTYPE_UINT8:
@@ -79,21 +80,102 @@ static inline size_t get_dtype_size(DataType dtype) {
         case DTYPE_FLOAT16:
         case DTYPE_BFLOAT16:
         case DTYPE_INT16:
+        case DTYPE_UINT16:
             return 2;
         case DTYPE_FLOAT32:
         case DTYPE_INT32:
+        case DTYPE_UINT32:
             return 4;
         case DTYPE_FLOAT64:
         case DTYPE_INT64:
+        case DTYPE_UINT64:
             return 8;
         default:
             return 4;
     }
 }
 
+// 判断 dtype 是否属于整数族，包含 ONNX 支持的有符号和无符号整数。
+static inline int is_integer_dtype(DataType dtype) {
+    return dtype == DTYPE_INT4 ||
+           dtype == DTYPE_INT8 ||
+           dtype == DTYPE_UINT8 ||
+           dtype == DTYPE_INT16 ||
+           dtype == DTYPE_UINT16 ||
+           dtype == DTYPE_INT32 ||
+           dtype == DTYPE_UINT32 ||
+           dtype == DTYPE_INT64 ||
+           dtype == DTYPE_UINT64;
+}
+
+// 判断 dtype 是否属于无符号整数族，供比较、排序和回绕写回路径选择。
+static inline int is_unsigned_integer_dtype(DataType dtype) {
+    return dtype == DTYPE_UINT8 ||
+           dtype == DTYPE_UINT16 ||
+           dtype == DTYPE_UINT32 ||
+           dtype == DTYPE_UINT64;
+}
+
+// 返回整数 dtype 的有效位宽，int4 按 4 位二补码整数处理。
+static inline int integer_dtype_bits(DataType dtype) {
+    switch (dtype) {
+        case DTYPE_INT4: return 4;
+        case DTYPE_INT8:
+        case DTYPE_UINT8: return 8;
+        case DTYPE_INT16:
+        case DTYPE_UINT16: return 16;
+        case DTYPE_INT32:
+        case DTYPE_UINT32: return 32;
+        case DTYPE_INT64:
+        case DTYPE_UINT64: return 64;
+        default: return 0;
+    }
+}
+
+// 将无符号位模式按目标有符号位宽解释，匹配 NumPy/ONNX Cast 的二补码 wrap 行为。
+static inline int64_t sign_extend_integer_bits(uint64_t value, int bits) {
+    if (bits >= 64) {
+        int64_t result;
+        memcpy(&result, &value, sizeof(result));
+        return result;
+    }
+    uint64_t mask = (1ULL << bits) - 1ULL;
+    uint64_t sign_bit = 1ULL << (bits - 1);
+    value &= mask;
+    if (value & sign_bit) {
+        value |= ~mask;
+    }
+    return (int64_t)value;
+}
+
+// 将浮点数按“向零截断后按位宽取模”的规则转成无符号位模式，供 Cast 专用。
+static inline uint64_t wrap_float_to_unsigned_bits(double value, int bits) {
+    if (!isfinite(value) || bits <= 0) {
+        return 0;
+    }
+
+    long double truncated = value < 0.0 ? ceill((long double)value) : floorl((long double)value);
+    long double modulus = ldexpl(1.0L, bits);
+    long double wrapped = fmodl(truncated, modulus);
+    if (wrapped < 0.0L) {
+        wrapped += modulus;
+    }
+
+    if (bits < 64) {
+        uint64_t mask = (1ULL << bits) - 1ULL;
+        return ((uint64_t)wrapped) & mask;
+    }
+    if (wrapped >= (long double)UINT64_MAX) {
+        return UINT64_MAX;
+    }
+    return (uint64_t)wrapped;
+}
+
 // 用于排序
 typedef struct {
     double value;
+    uint64_t raw_value;
+    int64_t signed_value;
     int64_t index;
 } TopKElement;
 
@@ -119,6 +201,29 @@ static inline uint8_t saturate_cast_uint8(int64_t val) {
     if (val > 255) return 255;
     if (val < 0) return 0;
     return (uint8_t)val;
+}
+
+// 16-bit 无符号饱和截断 (0 ~ 65535)
+// 实现 `saturate_cast_uint16` 的数值格式转换或饱和裁剪，保证低精度存储符合 ONNX dtype 语义。
+static inline uint16_t saturate_cast_uint16(int64_t val) {
+    if (val > 65535) return 65535;
+    if (val < 0) return 0;
+    return (uint16_t)val;
+}
+
+// 32-bit 无符号饱和截断 (0 ~ 4294967295)
+// 实现 `saturate_cast_uint32` 的数值格式转换或饱和裁剪，保证低精度存储符合 ONNX dtype 语义。
+static inline uint32_t saturate_cast_uint32(int64_t val) {
+    if (val < 0) return 0;
+    if ((uint64_t)val > UINT32_MAX) return UINT32_MAX;
+    return (uint32_t)val;
+}
+
+// 64-bit 无符号饱和截断，主要服务非 Cast 数值写回路径。
+// 实现 `saturate_cast_uint64` 的数值格式转换或饱和裁剪，保证低精度存储符合 ONNX dtype 语义。
+static inline uint64_t saturate_cast_uint64(int64_t val) {
+    if (val < 0) return 0;
+    return (uint64_t)val;
 }
 
 // 16-bit 饱和截断
@@ -439,9 +544,13 @@ static inline float get_value_as_float(const Tensor* tensor, size_t index) {
         }
         case DTYPE_INT8: return (float)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (float)((uint8_t*)tensor->data)[index];
+        case DTYPE_BOOL: return ((uint8_t*)tensor->data)[index] ? 1.0f : 0.0f;
         case DTYPE_INT16: return (float)((int16_t*)tensor->data)[index];
+        case DTYPE_UINT16: return (float)((uint16_t*)tensor->data)[index];
         case DTYPE_INT32: return (float)((int32_t*)tensor->data)[index];
+        case DTYPE_UINT32: return (float)((uint32_t*)tensor->data)[index];
         case DTYPE_INT64: return (float)((int64_t*)tensor->data)[index];
+        case DTYPE_UINT64: return (float)((uint64_t*)tensor->data)[index];
         default: return 0.0f;
     }
 }
@@ -471,9 +580,13 @@ static inline double get_value_as_double(const Tensor* tensor, size_t index) {
         }
         case DTYPE_INT8: return (double)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (double)((uint8_t*)tensor->data)[index];
+        case DTYPE_BOOL: return ((uint8_t*)tensor->data)[index] ? 1.0 : 0.0;
         case DTYPE_INT16: return (double)((int16_t*)tensor->data)[index];
+        case DTYPE_UINT16: return (double)((uint16_t*)tensor->data)[index];
         case DTYPE_INT32: return (double)((int32_t*)tensor->data)[index];
+        case DTYPE_UINT32: return (double)((uint32_t*)tensor->data)[index];
         case DTYPE_INT64: return (double)((int64_t*)tensor->data)[index];
+        case DTYPE_UINT64: return (double)((uint64_t*)tensor->data)[index];
         case DTYPE_FLOAT64: return ((double*)tensor->data)[index];
         default: return 0.0;
     }
@@ -504,11 +617,126 @@ static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
         }
         case DTYPE_INT8: return (int64_t)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (int64_t)((uint8_t*)tensor->data)[index];
+        case DTYPE_BOOL: return ((uint8_t*)tensor->data)[index] ? 1 : 0;
         case DTYPE_INT16: return (int64_t)((int16_t*)tensor->data)[index];
+        case DTYPE_UINT16: return (int64_t)((uint16_t*)tensor->data)[index];
         case DTYPE_INT32: return (int64_t)((int32_t*)tensor->data)[index];
+        case DTYPE_UINT32: return (int64_t)((uint32_t*)tensor->data)[index];
         case DTYPE_INT64: return ((int64_t*)tensor->data)[index];
+        case DTYPE_UINT64: {
+            uint64_t value = ((uint64_t*)tensor->data)[index];
+            return value > (uint64_t)INT64_MAX ? INT64_MAX : (int64_t)value;
+        }
         case DTYPE_FLOAT64: return (int64_t)rint(((double*)tensor->data)[index]);
         default: return 0;
+    }
+}
+
+// 按整数 Cast 语义读取源元素的底层无符号位模式；有符号负数会自然映射到二补码表示。
+static inline uint64_t get_integer_value_as_uint64(const Tensor* tensor, size_t index) {
+    switch (tensor->dtype) {
+        case DTYPE_INT4: {
+            int8_t val = ((int8_t*)tensor->data)[index];
+            if (val & 0x08) {
+                val |= 0xF0;
+            } else {
+                val &= 0x0F;
+            }
+            return (uint64_t)(int64_t)val;
+        }
+        case DTYPE_INT8: return (uint64_t)(int64_t)((int8_t*)tensor->data)[index];
+        case DTYPE_UINT8: return (uint64_t)((uint8_t*)tensor->data)[index];
+        case DTYPE_BOOL: return ((uint8_t*)tensor->data)[index] ? 1ULL : 0ULL;
+        case DTYPE_INT16: return (uint64_t)(int64_t)((int16_t*)tensor->data)[index];
+        case DTYPE_UINT16: return (uint64_t)((uint16_t*)tensor->data)[index];
+        case DTYPE_INT32: return (uint64_t)(int64_t)((int32_t*)tensor->data)[index];
+        case DTYPE_UINT32: return (uint64_t)((uint32_t*)tensor->data)[index];
+        case DTYPE_INT64: return (uint64_t)((int64_t*)tensor->data)[index];
+        case DTYPE_UINT64: return ((uint64_t*)tensor->data)[index];
+        default: return wrap_float_to_unsigned_bits(get_value_as_double(tensor, index), 64);
+    }
+}
+
+typedef enum {
+    TENSOR_COMPARE_EQ = 0,
+    TENSOR_COMPARE_GT = 1,
+    TENSOR_COMPARE_LT = 2,
+    TENSOR_COMPARE_GE = 3,
+    TENSOR_COMPARE_LE = 4,
+} TensorCompareOp;
+
+// 精确比较两个整数元素，避免 int64/uint64 在 double 路径中丢失相邻大整数的低位。
+static inline int compare_integer_values_exact(const Tensor* A, size_t a_index, const Tensor* B, size_t b_index) {
+    int a_unsigned = is_unsigned_integer_dtype(A->dtype);
+    int b_unsigned = is_unsigned_integer_dtype(B->dtype);
+
+    if (a_unsigned && b_unsigned) {
+        uint64_t a = get_integer_value_as_uint64(A, a_index);
+        uint64_t b = get_integer_value_as_uint64(B, b_index);
+        return (a > b) - (a < b);
+    }
+
+    if (!a_unsigned && !b_unsigned) {
+        int64_t a = get_value_as_int64(A, a_index);
+        int64_t b = get_value_as_int64(B, b_index);
+        return (a > b) - (a < b);
+    }
+
+    if (a_unsigned) {
+        uint64_t a = get_integer_value_as_uint64(A, a_index);
+        int64_t b = get_value_as_int64(B, b_index);
+        if (b < 0) return 1;
+        uint64_t b_u = (uint64_t)b;
+        return (a > b_u) - (a < b_u);
+    }
+
+    int64_t a = get_value_as_int64(A, a_index);
+    uint64_t b = get_integer_value_as_uint64(B, b_index);
+    if (a < 0) return -1;
+    uint64_t a_u = (uint64_t)a;
+    return (a_u > b) - (a_u < b);
+}
+
+// 根据比较关系返回布尔结果，整数路径使用精确比较，其他 dtype 保持原有 double 语义。
+static inline int compare_tensor_values(const Tensor* A, size_t a_index, const Tensor* B, size_t b_index, TensorCompareOp op) {
+    if (is_integer_dtype(A->dtype) && is_integer_dtype(B->dtype)) {
+        int cmp = compare_integer_values_exact(A, a_index, B, b_index);
+        switch (op) {
+            case TENSOR_COMPARE_EQ: return cmp == 0;
+            case TENSOR_COMPARE_GT: return cmp > 0;
+            case TENSOR_COMPARE_LT: return cmp < 0;
+            case TENSOR_COMPARE_GE: return cmp >= 0;
+            case TENSOR_COMPARE_LE: return cmp <= 0;
+            default: return 0;
+        }
+    }
+
+    double a = get_value_as_double(A, a_index);
+    double b = get_value_as_double(B, b_index);
+    switch (op) {
+        case TENSOR_COMPARE_EQ: return a == b;
+        case TENSOR_COMPARE_GT: return a > b;
+        case TENSOR_COMPARE_LT: return a < b;
+        case TENSOR_COMPARE_GE: return a >= b;
+        case TENSOR_COMPARE_LE: return a <= b;
+        default: return 0;
+    }
+}
+
+// 按目标整数 dtype 的位宽写入底层位模式；signed 目标按二补码解释，unsigned 目标自然截断。
+static inline void set_integer_value_wrapped(Tensor* tensor, size_t index, uint64_t raw_value) {
+    switch (tensor->dtype) {
+        case DTYPE_INT4:   ((int8_t*)tensor->data)[index] = (int8_t)sign_extend_integer_bits(raw_value, 4); break;
+        case DTYPE_INT8:   ((int8_t*)tensor->data)[index] = (int8_t)sign_extend_integer_bits(raw_value, 8); break;
+        case DTYPE_UINT8:  ((uint8_t*)tensor->data)[index] = (uint8_t)raw_value; break;
+        case DTYPE_BOOL:   ((uint8_t*)tensor->data)[index] = raw_value != 0; break;
+        case DTYPE_INT16:  ((int16_t*)tensor->data)[index] = (int16_t)sign_extend_integer_bits(raw_value, 16); break;
+        case DTYPE_UINT16: ((uint16_t*)tensor->data)[index] = (uint16_t)raw_value; break;
+        case DTYPE_INT32:  ((int32_t*)tensor->data)[index] = (int32_t)sign_extend_integer_bits(raw_value, 32); break;
+        case DTYPE_UINT32: ((uint32_t*)tensor->data)[index] = (uint32_t)raw_value; break;
+        case DTYPE_INT64:  ((int64_t*)tensor->data)[index] = sign_extend_integer_bits(raw_value, 64); break;
+        case DTYPE_UINT64: ((uint64_t*)tensor->data)[index] = raw_value; break;
+        default: break;
     }
 }
 
@@ -522,9 +750,13 @@ static inline void set_tensor_value_from_int(Tensor* tensor, size_t index, int64
         case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = saturate_cast_int4(value); break;
         case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = saturate_cast_int8(value); break;
         case DTYPE_UINT8: ((uint8_t*)tensor->data)[index] = saturate_cast_uint8(value); break;
+        case DTYPE_BOOL:    ((uint8_t*)tensor->data)[index] = value != 0; break;
         case DTYPE_INT16:   ((int16_t*)tensor->data)[index] = saturate_cast_int16(value); break;
+        case DTYPE_UINT16:  ((uint16_t*)tensor->data)[index] = saturate_cast_uint16(value); break;
         case DTYPE_INT32:   ((int32_t*)tensor->data)[index] = saturate_cast_int32(value); break;
+        case DTYPE_UINT32:  ((uint32_t*)tensor->data)[index] = saturate_cast_uint32(value); break;
         case DTYPE_INT64:   ((int64_t*)tensor->data)[index] = value; break;
+        case DTYPE_UINT64:  ((uint64_t*)tensor->data)[index] = saturate_cast_uint64(value); break;
         // 如果目标是浮点，进行转换
         case DTYPE_FLOAT8_E4M3: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3((float)value); break;
         case DTYPE_FLOAT8_E5M2: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2((float)value); break;
@@ -549,11 +781,37 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
         case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = saturate_cast_int4((int64_t)rint(value)); break; 
         case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = saturate_cast_int8((int64_t)rint(value)); break;
         case DTYPE_UINT8: ((uint8_t*)tensor->data)[index] = saturate_cast_uint8((int64_t)rint(value)); break;
+        case DTYPE_BOOL:    ((uint8_t*)tensor->data)[index] = value != 0.0; break;
         case DTYPE_INT16:   ((int16_t*)tensor->data)[index] = saturate_cast_int16((int64_t)rint(value)); break;
+        case DTYPE_UINT16:  ((uint16_t*)tensor->data)[index] = saturate_cast_uint16((int64_t)rint(value)); break;
         case DTYPE_INT32:   ((int32_t*)tensor->data)[index] = saturate_cast_int32((int64_t)rint(value)); break;
+        case DTYPE_UINT32:  ((uint32_t*)tensor->data)[index] = saturate_cast_uint32((int64_t)rint(value)); break;
         case DTYPE_INT64:   ((int64_t*)tensor->data)[index] = (int64_t)rint(value); break;
+        case DTYPE_UINT64:  ((uint64_t*)tensor->data)[index] = saturate_cast_uint64((int64_t)rint(value)); break;
         default: break;
     }
+}
+
+// 按 Cast 语义写入整数目标：整数间转换使用 modulo/wrap，区别于量化和普通算子的饱和写回。
+static inline void set_tensor_value_for_cast(Tensor* tensor, size_t index, const Tensor* input, size_t input_index) {
+    if (!tensor || !input || !tensor->data || !input->data) return;
+
+    if (tensor->dtype == DTYPE_BOOL) {
+        set_tensor_value_from_int(tensor, index, get_value_as_double(input, input_index) != 0.0);
+        return;
+    }
+
+    if (!is_integer_dtype(tensor->dtype)) {
+        set_tensor_value_from_float(tensor, index, get_value_as_double(input, input_index));
+        return;
+    }
+
+    int bits = integer_dtype_bits(tensor->dtype);
+    uint64_t raw_value = is_integer_dtype(input->dtype)
+        ? get_integer_value_as_uint64(input, input_index)
+        : wrap_float_to_unsigned_bits(get_value_as_double(input, input_index), bits);
+
+    set_integer_value_wrapped(tensor, index, raw_value);
 }
 
 // 封装 `copy_tensor_element` 的 Tensor ABI 读写或复制逻辑，统一 Python ctypes 与 C 后端的数据解释方式。
@@ -572,8 +830,31 @@ static inline void copy_tensor_element(Tensor* dst, size_t dst_index, const Tens
     set_tensor_value_from_float(dst, dst_index, get_value_as_double(src, src_index));
 }
 
+// Scatter 类算子共用的写入逻辑：none 直接复制元素，整数 reduction 保持 dtype 位宽回绕。
+static inline void apply_scatter_update(Tensor* data, size_t data_index, const Tensor* updates, size_t update_index, int reduction) {
+    if (!data || !updates || !data->data || !updates->data) return;
+
+    if (reduction == 0) {
+        copy_tensor_element(data, data_index, updates, update_index);
+        return;
+    }
+
+    if (is_integer_dtype(data->dtype) && is_integer_dtype(updates->dtype)) {
+        uint64_t old_value = get_integer_value_as_uint64(data, data_index);
+        uint64_t update_value = get_integer_value_as_uint64(updates, update_index);
+        uint64_t result = reduction == 1 ? old_value + update_value : old_value * update_value;
+        set_integer_value_wrapped(data, data_index, result);
+        return;
+    }
+
+    double old_value = get_value_as_double(data, data_index);
+    double update_value = get_value_as_double(updates, update_index);
+    double result = reduction == 1 ? old_value + update_value : old_value * update_value;
+    set_tensor_value_from_float(data, data_index, result);
+}
+
 /* 判断是否为整数类型 */
-#define IS_INT_TYPE(d) (d == DTYPE_INT8 || d == DTYPE_UINT8 || d == DTYPE_INT16 || d == DTYPE_INT32 || d == DTYPE_INT64 || d == DTYPE_INT4)
+#define IS_INT_TYPE(d) is_integer_dtype(d)
 
 // --- 通用一元算子宏模板 ---
 #ifndef UNARY_OP_IMPL
@@ -597,67 +878,74 @@ void FUNC_NAME(const Tensor* input, Tensor* output) { \
 #define BINARY_OP_INT_LOGIC(OP_FUNC) \
     switch (O->dtype) { \
         case DTYPE_INT32: { \
-            int32_t* out_data = (int32_t*)O->data; \
             _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
                 int64_t res = OP_FUNC(val_a, val_b); \
-                out_data[i] = saturate_cast_int32(res); \
+                set_integer_value_wrapped(O, i, (uint64_t)res); \
             } \
             break; \
         } \
         case DTYPE_INT16: { \
-            int16_t* out_data = (int16_t*)O->data; \
             _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
                 int64_t res = OP_FUNC(val_a, val_b); \
-                out_data[i] = saturate_cast_int16(res); \
+                set_integer_value_wrapped(O, i, (uint64_t)res); \
             } \
             break; \
         } \
         case DTYPE_INT8: { \
-            int8_t* out_data = (int8_t*)O->data; \
             _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
                 int64_t res = OP_FUNC(val_a, val_b); \
-                out_data[i] = saturate_cast_int8(res); \
+                set_integer_value_wrapped(O, i, (uint64_t)res); \
             } \
             break; \
         } \
-        case DTYPE_UINT8: { \
-            uint8_t* out_data = (uint8_t*)O->data; \
+        case DTYPE_UINT8: \
+        case DTYPE_UINT16: { \
             _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
-                int64_t val_a = get_value_as_int64(A, i); \
-                int64_t val_b = get_value_as_int64(B, i); \
-                int64_t res = OP_FUNC(val_a, val_b); \
-                out_data[i] = saturate_cast_uint8(res); \
+                uint64_t val_a = get_integer_value_as_uint64(A, i); \
+                uint64_t val_b = get_integer_value_as_uint64(B, i); \
+                uint64_t res = OP_FUNC##_u(val_a, val_b); \
+                set_integer_value_wrapped(O, i, res); \
+            } \
+            break; \
+        } \
+        case DTYPE_UINT32: \
+        case DTYPE_UINT64: { \
+            _Pragma("omp parallel for") \
+            for (size_t i = 0; i < O->size; i++) { \
+                uint64_t val_a = get_integer_value_as_uint64(A, i); \
+                uint64_t val_b = get_integer_value_as_uint64(B, i); \
+                uint64_t res = OP_FUNC##_u(val_a, val_b); \
+                set_integer_value_wrapped(O, i, res); \
             } \
             break; \
         } \
         case DTYPE_INT4: { \
-            int8_t* out_data = (int8_t*)O->data; \
             _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
                 int64_t res = OP_FUNC(val_a, val_b); \
-                out_data[i] = saturate_cast_int4(res); \
+                set_integer_value_wrapped(O, i, (uint64_t)res); \
             } \
             break; \
         } \
         case DTYPE_INT64: { \
-            int64_t* out_data = (int64_t*)O->data; \
             _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
                 int64_t val_a = get_value_as_int64(A, i); \
                 int64_t val_b = get_value_as_int64(B, i); \
-                out_data[i] = OP_FUNC(val_a, val_b); \
+                int64_t res = OP_FUNC(val_a, val_b); \
+                set_integer_value_wrapped(O, i, (uint64_t)res); \
             } \
             break; \
         } \
@@ -666,13 +954,25 @@ void FUNC_NAME(const Tensor* input, Tensor* output) { \
 
 // 简单的运算包装器，用于宏
 // 实现 `op_add` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static inline int64_t op_add(int64_t a, int64_t b) { return a + b; }
+static inline int64_t op_add(int64_t a, int64_t b) { return sign_extend_integer_bits((uint64_t)a + (uint64_t)b, 64); }
+// 实现 `op_add_u` 的无符号整数版本，输出由目标 dtype 位宽自然回绕。
+static inline uint64_t op_add_u(uint64_t a, uint64_t b) { return a + b; }
 // 实现 `op_sub` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static inline int64_t op_sub(int64_t a, int64_t b) { return a - b; }
+static inline int64_t op_sub(int64_t a, int64_t b) { return sign_extend_integer_bits((uint64_t)a - (uint64_t)b, 64); }
+// 实现 `op_sub_u` 的无符号整数版本，输出由目标 dtype 位宽自然回绕。
+static inline uint64_t op_sub_u(uint64_t a, uint64_t b) { return a - b; }
 // 实现 `op_mul` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static inline int64_t op_mul(int64_t a, int64_t b) { return a * b; }
+static inline int64_t op_mul(int64_t a, int64_t b) { return sign_extend_integer_bits((uint64_t)a * (uint64_t)b, 64); }
+// 实现 `op_mul_u` 的无符号整数版本，输出由目标 dtype 位宽自然回绕。
+static inline uint64_t op_mul_u(uint64_t a, uint64_t b) { return a * b; }
 // 实现 `op_div` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static inline int64_t op_div(int64_t a, int64_t b) { return b == 0 ? (a >= 0 ? INT64_MAX : INT64_MIN) : a / b; }
+static inline int64_t op_div(int64_t a, int64_t b) {
+    if (b == 0) return a >= 0 ? INT64_MAX : INT64_MIN;
+    if (a == INT64_MIN && b == -1) return INT64_MIN;
+    return a / b;
+}
+// 实现 `op_div_u` 的无符号整数版本；除零保持既有保护策略，避免 C 未定义行为。
+static inline uint64_t op_div_u(uint64_t a, uint64_t b) { return b == 0 ? UINT64_MAX : a / b; }
 
 // 安全获取4D张量的值
 // 封装 `get_val_4d_with_padding` 的 Tensor ABI 读写或复制逻辑，统一 Python ctypes 与 C 后端的数据解释方式。
@@ -951,8 +1251,12 @@ static inline size_t get_index_from_coords(int* coords, int* shape, int ndim) {
 // 整数辅助函数
 // 实现 `op_max` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
 static inline int64_t op_max(int64_t a, int64_t b) { return a > b ? a : b; }
+// 实现 `op_max_u` 的无符号整数版本，按无符号大小关系比较。
+static inline uint64_t op_max_u(uint64_t a, uint64_t b) { return a > b ? a : b; }
 // 实现 `op_min` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
 static inline int64_t op_min(int64_t a, int64_t b) { return a < b ? a : b; }
+// 实现 `op_min_u` 的无符号整数版本，按无符号大小关系比较。
+static inline uint64_t op_min_u(uint64_t a, uint64_t b) { return a < b ? a : b; }
 
 // Pow 实现
 // 实现 `pow` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
@@ -1381,17 +1685,15 @@ static double grid_bicubic_sample_2d(const Tensor* input, int n, int c, double y
 
 // 比较 A 和 B，结果存入 O (通常是 uint8)
 // 展开 `BINARY_COMP_IMPL` 相关的重复 C 实现，保持多个算子入口与 ctypes ABI 的循环逻辑一致。
-#define BINARY_COMP_IMPL(FUNC_NAME, OPERATOR) \
+#define BINARY_COMP_IMPL(FUNC_NAME, COMPARE_OP) \
 void FUNC_NAME(const Tensor* A, const Tensor* B, Tensor* O) { \
     if (!A || !B || !O) return; \
     size_t loop_size = O->size; \
     _Pragma("omp parallel for") \
     for (size_t i = 0; i < loop_size; i++) { \
-        double val_a = get_value_as_double(A, i); \
-        double val_b = get_value_as_double(B, i); \
         /* ONNX 规范：True 为 1, False 为 0 */ \
-        uint8_t res = (val_a OPERATOR val_b) ? 1 : 0; \
-        ((uint8_t*)O->data)[i] = res; \
+        uint8_t res = compare_tensor_values(A, i, B, i, COMPARE_OP) ? 1 : 0; \
+        set_tensor_value_from_int(O, i, res); \
     } \
 }
 
@@ -1413,7 +1715,7 @@ void FUNC_NAME(const Tensor* A, const Tensor* B, Tensor* O) { \
         int bool_a = (val_a != 0); \
         int bool_b = (val_b != 0); \
         uint8_t res = (OP_LOGIC) ? 1 : 0; \
-        ((uint8_t*)O->data)[i] = res; \
+        set_tensor_value_from_int(O, i, res); \
     } \
 }
 
@@ -1520,7 +1822,7 @@ void FUNC_NAME(const Tensor* input, Tensor* output, ReduceParams* params) { \
 // ReduceMin: Init=+inf, Acc=min
 
 // 展开 `ARG_OP_IMPL` 相关的重复 C 实现，保持多个算子入口与 ctypes ABI 的循环逻辑一致。
-#define ARG_OP_IMPL(FUNC_NAME, INIT_VAL, CMP_OP) \
+#define ARG_OP_IMPL(FUNC_NAME, INIT_VAL, CMP_OP, COMPARE_OP) \
 void FUNC_NAME(const Tensor* input, Tensor* output, int axis, int select_last_index) { \
     if (!input || !output) return; \
     int ndim = input->ndim; \
@@ -1545,25 +1847,39 @@ void FUNC_NAME(const Tensor* input, Tensor* output, int axis, int select_last_in
         } \
         \
         /* 搜索最值 */ \
-        double best_val = INIT_VAL; \
         int64_t best_idx = 0; \
-        \
-        for (int k = 0; k < axis_dim; k++) { \
-            coords[axis] = k; \
-            size_t in_idx = get_index_from_coords(coords, input->shape, ndim); \
-            double val = get_value_as_double(input, in_idx); \
-            \
-            /* 根据 select_last_index 决定相等时的行为 */ \
-            int update = 0; \
-            if (select_last_index) { \
-                if (val CMP_OP best_val || val == best_val) update = 1; /* >= 或 <= */ \
-            } else { \
-                if (val CMP_OP best_val) update = 1; /* > 或 < */ \
+        if (is_integer_dtype(input->dtype)) { \
+            coords[axis] = 0; \
+            size_t best_input_idx = get_index_from_coords(coords, input->shape, ndim); \
+            for (int k = 1; k < axis_dim; k++) { \
+                coords[axis] = k; \
+                size_t in_idx = get_index_from_coords(coords, input->shape, ndim); \
+                int better = compare_tensor_values(input, in_idx, input, best_input_idx, COMPARE_OP); \
+                int equal = compare_tensor_values(input, in_idx, input, best_input_idx, TENSOR_COMPARE_EQ); \
+                if (better || (select_last_index && equal)) { \
+                    best_input_idx = in_idx; \
+                    best_idx = k; \
+                } \
             } \
-            \
-            if (update) { \
-                best_val = val; \
-                best_idx = k; \
+        } else { \
+            double best_val = INIT_VAL; \
+            for (int k = 0; k < axis_dim; k++) { \
+                coords[axis] = k; \
+                size_t in_idx = get_index_from_coords(coords, input->shape, ndim); \
+                double val = get_value_as_double(input, in_idx); \
+                \
+                /* 根据 select_last_index 决定相等时的行为 */ \
+                int update = 0; \
+                if (select_last_index) { \
+                    if (val CMP_OP best_val || val == best_val) update = 1; /* >= 或 <= */ \
+                } else { \
+                    if (val CMP_OP best_val) update = 1; /* > 或 < */ \
+                } \
+                \
+                if (update) { \
+                    best_val = val; \
+                    best_idx = k; \
+                } \
             } \
         } \
         set_tensor_value_from_int(output, i, best_idx); \
@@ -1673,15 +1989,25 @@ void FUNC_NAME(const Tensor* input, Tensor* output, float alpha) { \
 
 // 位运算逻辑
 // 实现 `op_bitwise_and` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static inline int64_t op_bitwise_and(int64_t a, int64_t b) { return a & b; }
+static inline int64_t op_bitwise_and(int64_t a, int64_t b) { return sign_extend_integer_bits((uint64_t)a & (uint64_t)b, 64); }
+// 实现 `op_bitwise_and_u` 的无符号整数版本，保持底层位模式语义。
+static inline uint64_t op_bitwise_and_u(uint64_t a, uint64_t b) { return a & b; }
 // 实现 `op_bitwise_or` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static inline int64_t op_bitwise_or(int64_t a, int64_t b) { return a | b; }
+static inline int64_t op_bitwise_or(int64_t a, int64_t b) { return sign_extend_integer_bits((uint64_t)a | (uint64_t)b, 64); }
+// 实现 `op_bitwise_or_u` 的无符号整数版本，保持底层位模式语义。
+static inline uint64_t op_bitwise_or_u(uint64_t a, uint64_t b) { return a | b; }
 // 实现 `op_bitwise_xor` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static inline int64_t op_bitwise_xor(int64_t a, int64_t b) { return a ^ b; }
+static inline int64_t op_bitwise_xor(int64_t a, int64_t b) { return sign_extend_integer_bits((uint64_t)a ^ (uint64_t)b, 64); }
+// 实现 `op_bitwise_xor_u` 的无符号整数版本，保持底层位模式语义。
+static inline uint64_t op_bitwise_xor_u(uint64_t a, uint64_t b) { return a ^ b; }
 // 实现 `op_shift_left` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static inline int64_t op_shift_left(int64_t a, int64_t b) { return a << b; }
+static inline int64_t op_shift_left(int64_t a, int64_t b) { return b < 0 || b >= 64 ? 0 : sign_extend_integer_bits((uint64_t)a << (uint64_t)b, 64); }
+// 实现 `op_shift_left_u` 的无符号整数版本，避免大位移触发 C 未定义行为。
+static inline uint64_t op_shift_left_u(uint64_t a, uint64_t b) { return b >= 64 ? 0 : (a << b); }
 // 实现 `op_shift_right` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static inline int64_t op_shift_right(int64_t a, int64_t b) { return a >> b; }
+static inline int64_t op_shift_right(int64_t a, int64_t b) { return b < 0 || b >= 64 ? 0 : a >> b; }
+// 实现 `op_shift_right_u` 的无符号整数版本，使用逻辑右移。
+static inline uint64_t op_shift_right_u(uint64_t a, uint64_t b) { return b >= 64 ? 0 : (a >> b); }
 
 // BitwiseAnd
 // 实现 `bitwise and` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。

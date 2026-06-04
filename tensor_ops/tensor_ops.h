@@ -31,6 +31,10 @@ typedef enum {
     DTYPE_INT16,       // 16位整数
     DTYPE_INT32,       // 32位整数
     DTYPE_INT64,       // 64位整数
+    DTYPE_UINT16,      // 16位无符号整数
+    DTYPE_UINT32,      // 32位无符号整数
+    DTYPE_UINT64,      // 64位无符号整数
+    DTYPE_BOOL,        // 布尔值
 } DataType;
 
 /**

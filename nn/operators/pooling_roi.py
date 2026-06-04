@@ -53,8 +53,8 @@ class GridSample(Ops):
 
     # 执行 `GridSample` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, grid):
-        data = np.asarray(x.data)
-        grid_data = np.asarray(grid.data)
+        data = _tensor_data_as_numeric(x)
+        grid_data = _tensor_data_as_numeric(grid)
         if data.ndim != 4 or grid_data.ndim != 4 or grid_data.shape[-1] != 2:
             raise ValueError(f"GridSample expects X [N,C,H,W] and grid [N,Hout,Wout,2], got {data.shape}, {grid_data.shape}")
         n_batches, channels, height, width = data.shape
@@ -102,7 +102,7 @@ class GridSample(Ops):
                             out[n, c, oy, ox] = _bicubic_sample_2d(data[n, c], in_y, in_x, self.padding_mode, self.align_corners)
                     else:
                         raise ValueError(f"Unsupported GridSample mode {self.mode!r}")
-        out_data = out.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype), copy=False)
+        out_data = _cast_numeric_to_dtype(out, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `GridSample` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -170,9 +170,9 @@ class MaxPool(Ops):
             return values
 
         out_data, indices_data = _max_pool_nd(
-            x.data, self.kernel_shape, self.pads, self.strides, self.dilations, self.ceil_mode, self.storage_order, self.auto_pad
+            _tensor_data_as_numeric(x), self.kernel_shape, self.pads, self.strides, self.dilations, self.ceil_mode, self.storage_order, self.auto_pad
         )
-        out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         out_shape = out_data.shape
         out_tensor = Tensor(*out_shape, dtype=self.dtype, data=out_data)
         if len(self.outputs) > 1 and self.outputs[1]:
@@ -260,16 +260,17 @@ class MaxUnpool(Ops):
             self.lib.free_tensor(out_c)
             return {"tensor": Tensor(*shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-        flat = np.zeros((int(np.prod(inferred_shape)),), dtype=x.data.dtype)
-        x_flat = x.data.reshape(-1)
+        decoded_x = _tensor_data_as_numeric(x)
+        flat = np.zeros((int(np.prod(inferred_shape)),), dtype=decoded_x.dtype)
+        x_flat = decoded_x.reshape(-1)
         idx_flat = indices.data.reshape(-1).astype(np.int64)
         for pos, value in zip(idx_flat, x_flat):
             flat[pos] = value
         inferred = flat.reshape(inferred_shape)
-        out_data = np.zeros(shape, dtype=x.data.dtype)
+        out_data = np.zeros(shape, dtype=decoded_x.dtype)
         slices = tuple(slice(0, dim) for dim in inferred_shape)
         out_data[slices] = inferred
-        out_data = out_data.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype), copy=False)
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `MaxUnpool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -303,8 +304,8 @@ class MaxRoiPool(Ops):
 
     # 执行 `MaxRoiPool` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, rois):
-        data = np.asarray(x.data)
-        roi_data = np.asarray(rois.data)
+        data = _tensor_data_as_numeric(x)
+        roi_data = _tensor_data_as_numeric(rois)
         if data.ndim != 4 or roi_data.ndim != 2 or roi_data.shape[1] != 5:
             raise ValueError(f"MaxRoiPool expects X [N,C,H,W] and rois [num_rois,5], got {data.shape}, {roi_data.shape}")
         pooled_h, pooled_w = self.pooled_shape
@@ -353,7 +354,7 @@ class MaxRoiPool(Ops):
                         out[roi_idx, :, ph, pw] = 0
                     else:
                         out[roi_idx, :, ph, pw] = np.max(data[batch, :, hstart:hend, wstart:wend], axis=(1, 2))
-        out = out.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, out.dtype), copy=False)
+        out = _cast_numeric_to_dtype(out, self.dtype)
         return {"tensor": Tensor(*out.shape, dtype=self.dtype, data=out), "parameters": None}
 
     # 执行 `MaxRoiPool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -419,8 +420,8 @@ class RoiAlign(Ops):
 
     # 执行 `RoiAlign` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, rois, batch_indices):
-        data = np.asarray(x.data)
-        roi_data = np.asarray(rois.data)
+        data = _tensor_data_as_numeric(x)
+        roi_data = _tensor_data_as_numeric(rois)
         batches = np.asarray(batch_indices.data, dtype=np.int64).reshape(-1)
         if data.ndim != 4 or roi_data.ndim != 2 or roi_data.shape[1] != 4:
             raise ValueError(f"RoiAlign expects X [N,C,H,W] and rois [num_rois,4], got {data.shape}, {roi_data.shape}")
@@ -499,7 +500,7 @@ class RoiAlign(Ops):
                             out[roi_idx, c, ph, pw] = sum(values) / count
                         else:
                             raise ValueError(f"Unsupported RoiAlign mode {self.mode!r}")
-        out = out.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype), copy=False)
+        out = _cast_numeric_to_dtype(out, self.dtype)
         return {"tensor": Tensor(*out.shape, dtype=self.dtype, data=out), "parameters": None}
 
     # 执行 `RoiAlign` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -563,9 +564,9 @@ class AveragePool(Ops):
             return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
         out_data = _average_pool_nd(
-            x.data, self.kernel_shape, self.pads, self.strides, self.dilations, self.count_include_pad, self.ceil_mode, self.auto_pad
+            _tensor_data_as_numeric(x), self.kernel_shape, self.pads, self.strides, self.dilations, self.count_include_pad, self.ceil_mode, self.auto_pad
         )
-        out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `AveragePool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -629,8 +630,8 @@ class LpPool(Ops):
             self.lib.free_tensor(out_c)
             return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-        out_data = _lp_pool_nd(x.data, self.kernel_shape, self.pads, self.strides, self.dilations, self.p, self.ceil_mode, self.auto_pad)
-        out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+        out_data = _lp_pool_nd(_tensor_data_as_numeric(x), self.kernel_shape, self.pads, self.strides, self.dilations, self.p, self.ceil_mode, self.auto_pad)
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `LpPool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -665,8 +666,9 @@ class GlobalAveragePool(Ops):
             self.lib.free_tensor(out_c)
         else:
             spatial_axes = tuple(range(2, len(x.size)))
-            out_data = np.mean(x.data, axis=spatial_axes, keepdims=True) if spatial_axes else x.data.copy()
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+            data = _tensor_data_as_numeric(x)
+            out_data = np.mean(data, axis=spatial_axes, keepdims=True) if spatial_axes else data.copy()
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `GlobalAveragePool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -703,8 +705,9 @@ class GlobalMaxPool(Ops):
             self.lib.free_tensor(out_c)
         else:
             spatial_axes = tuple(range(2, len(x.size)))
-            out_data = np.max(x.data, axis=spatial_axes, keepdims=True) if spatial_axes else x.data.copy()
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+            data = _tensor_data_as_numeric(x)
+            out_data = np.max(data, axis=spatial_axes, keepdims=True) if spatial_axes else data.copy()
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `GlobalMaxPool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -742,11 +745,12 @@ class GlobalLpPool(Ops):
             self.lib.free_tensor(out_c)
         else:
             spatial_axes = tuple(range(2, len(x.size)))
+            data = _tensor_data_as_numeric(x)
             if spatial_axes:
-                out_data = np.sum(np.abs(x.data) ** self.p, axis=spatial_axes, keepdims=True) ** (1.0 / self.p)
+                out_data = np.sum(np.abs(data) ** self.p, axis=spatial_axes, keepdims=True) ** (1.0 / self.p)
             else:
-                out_data = np.abs(x.data)
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+                out_data = np.abs(data)
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `GlobalLpPool` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。

@@ -49,7 +49,10 @@ DTYPE_MAP = {
     "int16": 9,
     "int32": 10,
     "int64": 11,
-    "bool": 8,
+    "uint16": 12,
+    "uint32": 13,
+    "uint64": 14,
+    "bool": 15,
 }
 
 # 数据类型映射到NumPy类型

@@ -466,26 +466,63 @@ def parse_cuda_verifiers() -> set[str]:
     return {path.stem.replace("verify_", "") for path in (ROOT / "cuda").glob("verify_*.cu")}
 
 
-# 实现 `parse_numerical_plans` 步骤，规范化输入并返回下游期望的数据或元信息。
-def parse_numerical_plans() -> set[str]:
+# 实现 `parse_numerical_plan_details` 步骤，统计默认数值计划的唯一算子、总计划数和低精度计划数。
+def parse_numerical_plan_details() -> tuple[set[str], int, int]:
     source_paths = [
         ROOT / "tools" / "commands" / "numerical_correctness.py",
         ROOT / "tools" / "numerical" / "cli.py",
     ]
     source = "\n".join(path.read_text(encoding="utf-8") for path in source_paths if path.exists())
     module = ast.parse(source)
-    plans: list[str] = []
+    function_plans: dict[str, list[ast.Tuple]] = {}
+    plans: list[ast.Tuple] = []
 
-    # 从计划列表字面量中抽取第二列 op_name，兼容旧的 `plans = [...]`
+    # 从计划列表字面量、列表拼接和 helper 调用中抽取计划元组。
+    def extract_plan_nodes(value: ast.AST) -> list[ast.Tuple]:
+        if isinstance(value, ast.List):
+            return [item for item in value.elts if isinstance(item, ast.Tuple) and len(item.elts) >= 5]
+        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Add):
+            return extract_plan_nodes(value.left) + extract_plan_nodes(value.right)
+        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+            return list(function_plans.get(value.func.id, []))
+        return []
+
+    for _ in range(4):
+        changed = False
+        for node in module.body:
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            extracted: list[ast.Tuple] = []
+            for child in ast.walk(node):
+                if isinstance(child, ast.Return) and child.value is not None:
+                    extracted.extend(extract_plan_nodes(child.value))
+            if extracted and function_plans.get(node.name) != extracted:
+                function_plans[node.name] = extracted
+                changed = True
+        if not changed:
+            break
+
+    # 判断单条计划是否覆盖低精度 dtype，便于报告混合精度门禁覆盖规模。
+    def is_mixed_precision_plan(plan: ast.Tuple) -> bool:
+        low_precision = {"float16", "bfloat16", "float8_e4m3", "float8_e5m2"}
+        dtypes = []
+        if len(plan.elts) > 3 and isinstance(plan.elts[3], ast.List):
+            dtypes.extend(
+                item.value
+                for item in plan.elts[3].elts
+                if isinstance(item, ast.Constant) and isinstance(item.value, str)
+            )
+        if len(plan.elts) > 4 and isinstance(plan.elts[4], ast.Constant) and isinstance(plan.elts[4].value, str):
+            dtypes.append(plan.elts[4].value)
+        return any(dtype in low_precision for dtype in dtypes)
+
+    # 从计划元组中抽取第二列 op_name，兼容旧的 `plans = [...]`
     # 和新拆分后的 `build_default_plans()` 返回值。
-    def extract_plan_names(value: ast.AST) -> list[str]:
-        if not isinstance(value, ast.List):
-            return []
+    def extract_plan_names(plan_nodes: list[ast.Tuple]) -> list[str]:
         extracted = []
-        for item in value.elts:
+        for item in plan_nodes:
             if (
-                isinstance(item, ast.Tuple)
-                and len(item.elts) >= 2
+                len(item.elts) >= 2
                 and isinstance(item.elts[1], ast.Constant)
                 and isinstance(item.elts[1].value, str)
             ):
@@ -493,27 +530,36 @@ def parse_numerical_plans() -> set[str]:
         return extracted
 
     class Visitor(ast.NodeVisitor):
-        # 处理 AST 访问节点 `visit_Assign`，收集后续审计分类所需的结构信息。
+        # 处理 AST 访问节点 `visit_Assign`，收集后续审计分类所需的计划列表。
         def visit_Assign(self, node: ast.Assign) -> None:
             nonlocal plans
             if not any(isinstance(target, ast.Name) and target.id == "plans" for target in node.targets):
                 self.generic_visit(node)
                 return
-            extracted = extract_plan_names(node.value)
+            extracted = extract_plan_nodes(node.value)
             if extracted:
                 plans = extracted
             self.generic_visit(node)
 
-        # 处理 AST 访问节点 `visit_Return`，识别 `build_default_plans()` 中直接返回的计划列表。
+        # 处理 AST 访问节点 `visit_Return`，识别 `build_default_plans()` 中的计划列表或列表拼接。
         def visit_Return(self, node: ast.Return) -> None:
             nonlocal plans
-            extracted = extract_plan_names(node.value)
+            if node.value is None:
+                self.generic_visit(node)
+                return
+            extracted = extract_plan_nodes(node.value)
             if extracted:
                 plans = extracted
             self.generic_visit(node)
 
     Visitor().visit(module)
-    return set(plans)
+    names = extract_plan_names(plans)
+    return set(names), len(plans), sum(1 for plan in plans if is_mixed_precision_plan(plan))
+
+
+# 实现 `parse_numerical_plans` 步骤，规范化输入并返回下游期望的数据或元信息。
+def parse_numerical_plans() -> set[str]:
+    return parse_numerical_plan_details()[0]
 
 
 # 实现 `classify` 步骤，规范化输入并返回下游期望的数据或元信息。
@@ -587,7 +633,7 @@ def audit() -> tuple[list[OperatorInfo], dict[str, object]]:
     import_supported_raw = parse_import_supported_raw_ops()
     c_declared, c_implemented = parse_c_functions()
     cuda_verifiers = parse_cuda_verifiers()
-    numerical_plans = parse_numerical_plans()
+    numerical_plans, numerical_plan_total_count, mixed_precision_plan_count = parse_numerical_plan_details()
     official_onnx17, official_error = parse_onnx17_official_ops()
     normalized_import_raw = {normalize_name(op): op for op in import_supported_raw}
 
@@ -632,6 +678,8 @@ def audit() -> tuple[list[OperatorInfo], dict[str, object]]:
         "c_impl_missing_decl": sorted(c_implemented - c_declared),
         "cuda_verifier_count": len(cuda_verifiers),
         "numerical_plan_count": len(numerical_plans),
+        "numerical_plan_total_count": numerical_plan_total_count,
+        "mixed_precision_plan_count": mixed_precision_plan_count,
         "cuda_not_planned": sorted(cuda_verifiers - numerical_plans),
         "plan_without_cuda": sorted(numerical_plans - cuda_verifiers),
         "official_onnx17_count": len(official_onnx17),
@@ -732,7 +780,8 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
             f"除暂缓项外待后端化：{metadata['active_python_only_runtime_count']} 个。"
         ),
         f"- CUDA verifier：{metadata['cuda_verifier_count']} 个。",
-            f"- active numerical plan 覆盖：{metadata['numerical_plan_count']} 个唯一算子名称。",
+        f"- active numerical plan 覆盖：{metadata['numerical_plan_count']} 个唯一算子名称，{metadata['numerical_plan_total_count']} 条默认计划。",
+        f"- active numerical plan 混合精度覆盖：{metadata['mixed_precision_plan_count']} 条默认计划。",
         (
             f"- 独立 pytest 深度语义/混合精度覆盖：{len(metadata['deep_semantic_pytest_coverage'])} 个；"
             + ", ".join(f"`{name}`" for name in metadata["deep_semantic_pytest_coverage"])

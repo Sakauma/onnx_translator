@@ -19,7 +19,7 @@ from nn import Tensor
 from .compare import check_accuracy
 from .cuda import run_cuda_ground_truth
 from .data import generate_random_data, random_uniform_like_reference
-from .dtype import to_float32
+from .dtype import from_float32, quantize_to_dtype_float32, to_float32
 
 
 def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterations=5):
@@ -47,12 +47,20 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             else: inputs_np.append(generate_random_data(s, d))
 
         if op_name == "clip":
-            inputs_np[1][...] = -1.0
-            inputs_np[2][...] = 1.0
+            inputs_np[1] = from_float32(np.full(shapes[1], -1.0, dtype=np.float32), dtypes[1])
+            inputs_np[2] = from_float32(np.full(shapes[2], 1.0, dtype=np.float32), dtypes[2])
 
         if op_name == "sqrt":
             # 主路径：保证非负，避免 NaN 干扰对齐
-            inputs_np[0] = np.abs(inputs_np[0]).astype(inputs_np[0].dtype, copy=False)
+            inputs_np[0] = from_float32(np.abs(to_float32(inputs_np[0], dtypes[0])), dtypes[0])
+
+        if op_name in {"equal", "greater", "less", "greater_or_equal", "less_or_equal"}:
+            # 比较类混合精度计划使用有限且包含等值/大小关系的样本，避免 float8 随机 NaN 掩盖比较语义。
+            total = int(np.prod(shapes[0]))
+            base = np.linspace(-3.0, 3.0, total, dtype=np.float32).reshape(shapes[0])
+            offsets = (((np.arange(total, dtype=np.int32) % 5) - 2).astype(np.float32) * 0.25).reshape(shapes[1])
+            inputs_np[0] = from_float32(base, dtypes[0])
+            inputs_np[1] = from_float32(base + offsets, dtypes[1])
 
         if op_name == "gather":
             M, N = shapes[0]      # data shape (M,N)
@@ -88,7 +96,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             cols = np.random.randint(0, N, size=I, dtype=np.int64)
             inputs_np[1] = np.stack([rows, cols], axis=1).astype(np.int64)
         if op_name == "reduce_prod":
-            inputs_np[0] = np.clip(to_float32(inputs_np[0], dtypes[0]), -1.1, 1.1).astype(np.float32)
+            inputs_np[0] = from_float32(np.clip(to_float32(inputs_np[0], dtypes[0]), -1.1, 1.1), dtypes[0])
 
         if op_name == "nonzero":
             # 保证既有 0 也有非 0，避免输出全空或全满太极端
@@ -96,11 +104,14 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             mask = np.random.rand(*x.shape) < 0.35
             x[mask] = 0.0
             x[~mask] = np.where(np.abs(x[~mask]) < 1e-3, 1.0, x[~mask])
-            inputs_np[0] = x.astype(np.float32)
+            inputs_np[0] = from_float32(x, dtypes[0])
 
         if op_name == "argmin" or op_name == "argmax":
-            # 不需要额外处理，主路径由 plan 固定成 2D + axis=1
-            pass
+            # Arg 类计划固定为 2D + axis=1，并使用可量化后仍无 tie 的行内递增数据。
+            M, N = shapes[0]
+            row_offsets = np.arange(M, dtype=np.float32).reshape(M, 1) * 0.5
+            col_values = np.arange(N, dtype=np.float32).reshape(1, N) - (N // 2)
+            inputs_np[0] = from_float32(row_offsets + col_values, dtypes[0])
 
         if op_name == "resize":
             # inputs: x, roi, scales, sizes
@@ -122,11 +133,67 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             # 为了避免 ties，给输入加一点单调扰动
             x = to_float32(inputs_np[0], dtypes[0]).astype(np.float32)
             eps = (np.arange(x.size, dtype=np.float32).reshape(x.shape) * 1e-6)
-            x = x + eps
-            inputs_np[0] = x
+            inputs_np[0] = from_float32(x + eps, dtypes[0])
 
         if op_name == "max_unpool":
             inputs_np[1] = np.array([[[[5, 7], [13, 15]]]], dtype=np.int64)
+
+        if op_name == "max_roi_pool":
+            inputs_np[1] = np.array(
+                [
+                    [0.0, 0.0, 0.0, 4.0, 4.0],
+                    [1.0, 1.0, 1.0, 3.0, 4.0],
+                ],
+                dtype=np.float32,
+            )
+            inputs_np[1] = from_float32(inputs_np[1], dtypes[1])
+
+        if op_name == "roi_align":
+            inputs_np[1] = np.array(
+                [
+                    [0.2, 0.1, 3.8, 3.0],
+                    [0.5, 0.4, 4.0, 2.6],
+                ],
+                dtype=np.float32,
+            )
+            inputs_np[1] = from_float32(inputs_np[1], dtypes[1])
+            inputs_np[2] = np.array([0, 1], dtype=np.int64)
+
+        if op_name == "dft":
+            inputs_np[0] = from_float32(np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32), dtypes[0])
+            inputs_np[1] = np.array(init_args.get("dft_length_value", shapes[0][1]), dtype=np.int64)
+
+        if op_name == "stft":
+            inputs_np[0] = from_float32(np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32), dtypes[0])
+            inputs_np[1] = np.array(init_args.get("frame_step_value", 2), dtype=np.int64)
+            inputs_np[2] = from_float32(np.array([1.0, 0.5], dtype=np.float32), dtypes[2])
+            inputs_np[3] = np.array(init_args.get("frame_length_value", 2), dtype=np.int64)
+
+        if op_name == "rnn":
+            inputs_np[0] = from_float32(np.linspace(-0.5, 0.6, 12, dtype=np.float32).reshape(3, 2, 2), dtypes[0])
+            inputs_np[1] = from_float32(np.linspace(-0.4, 0.5, 4, dtype=np.float32).reshape(1, 2, 2), dtypes[1])
+            inputs_np[2] = from_float32(np.linspace(0.3, -0.2, 4, dtype=np.float32).reshape(1, 2, 2), dtypes[2])
+            inputs_np[3] = from_float32(np.linspace(-0.1, 0.2, 4, dtype=np.float32).reshape(1, 4), dtypes[3])
+            inputs_np[4] = np.array([3, 2], dtype=np.int64)
+            inputs_np[5] = from_float32(np.array([[[0.1, -0.1], [0.2, 0.0]]], dtype=np.float32), dtypes[5])
+
+        if op_name == "gru":
+            inputs_np[0] = from_float32(np.linspace(-0.5, 0.6, 12, dtype=np.float32).reshape(3, 2, 2), dtypes[0])
+            inputs_np[1] = from_float32(np.linspace(-0.4, 0.5, 12, dtype=np.float32).reshape(1, 6, 2), dtypes[1])
+            inputs_np[2] = from_float32(np.linspace(0.3, -0.2, 12, dtype=np.float32).reshape(1, 6, 2), dtypes[2])
+            inputs_np[3] = from_float32(np.linspace(-0.2, 0.2, 12, dtype=np.float32).reshape(1, 12), dtypes[3])
+            inputs_np[4] = np.array([3, 2], dtype=np.int64)
+            inputs_np[5] = from_float32(np.array([[[0.1, -0.1], [0.2, 0.0]]], dtype=np.float32), dtypes[5])
+
+        if op_name == "lstm":
+            inputs_np[0] = from_float32(np.linspace(-0.5, 0.6, 12, dtype=np.float32).reshape(3, 2, 2), dtypes[0])
+            inputs_np[1] = from_float32(np.linspace(-0.3, 0.4, 16, dtype=np.float32).reshape(1, 8, 2), dtypes[1])
+            inputs_np[2] = from_float32(np.linspace(0.2, -0.2, 16, dtype=np.float32).reshape(1, 8, 2), dtypes[2])
+            inputs_np[3] = from_float32(np.linspace(-0.1, 0.1, 16, dtype=np.float32).reshape(1, 16), dtypes[3])
+            inputs_np[4] = np.array([3, 2], dtype=np.int64)
+            inputs_np[5] = from_float32(np.array([[[0.1, 0.0], [-0.1, 0.2]]], dtype=np.float32), dtypes[5])
+            inputs_np[6] = from_float32(np.array([[[0.0, 0.2], [0.1, -0.1]]], dtype=np.float32), dtypes[6])
+            inputs_np[7] = from_float32(np.linspace(-0.05, 0.05, 6, dtype=np.float32).reshape(1, 6), dtypes[7])
 
         if op_name == "qlinear_conv":
             out_channels = shapes[3][0]
@@ -173,6 +240,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args = dict(init_args)
             sizes_value = op_init_args.pop("sizes_value", None)
             k_value = op_init_args.pop("k_value", None)
+            op_init_args.pop("dft_length_value", None)
+            op_init_args.pop("frame_step_value", None)
+            op_init_args.pop("frame_length_value", None)
 
             valid_tensors = [t for t in inputs_tensor if t is not None]
 
@@ -189,6 +259,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             elif op_name == "conv_integer":
                 op = op_cls(inputs=[], outputs=[], **op_init_args)
                 nps_out = op.forward(inputs_tensor[0], inputs_tensor[1], inputs_tensor[2], inputs_tensor[3])["tensor"].data
+
+            elif op_name in {"rnn", "gru", "lstm"}:
+                op = op_cls(inputs=[], outputs=["y"], dtype=out_dtype, **op_init_args)
+                nps_out = op.forward(*valid_tensors)["tensor"].data
 
             else:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
@@ -321,6 +395,97 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             p_list = [x.shape[0], x.shape[1], x.shape[2], x.shape[3], oh, ow,
                       k[0], k[1], pads[0], pads[1], pads[2], pads[3], s[0], s[1]]
             params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "max_roi_pool":
+            x, rois = inputs_np[0], inputs_np[1]
+            pooled_shape = init_args["pooled_shape"]
+            ints = np.array(
+                [x.shape[0], x.shape[1], x.shape[2], x.shape[3], rois.shape[0], pooled_shape[0], pooled_shape[1]],
+                dtype=np.int32,
+            ).tobytes()
+            params_bin = ints + np.array([init_args.get("spatial_scale", 1.0)], dtype=np.float32).tobytes()
+        elif op_name == "roi_align":
+            x, rois = inputs_np[0], inputs_np[1]
+            mode_code = 0 if init_args.get("mode", "avg").lower() == "avg" else 1
+            coord_mode = init_args.get("coordinate_transformation_mode", "half_pixel").lower()
+            coord_code = 0 if coord_mode == "half_pixel" else 1
+            ints = np.array(
+                [
+                    x.shape[0],
+                    x.shape[1],
+                    x.shape[2],
+                    x.shape[3],
+                    rois.shape[0],
+                    init_args["output_height"],
+                    init_args["output_width"],
+                    init_args.get("sampling_ratio", 0),
+                    mode_code,
+                    coord_code,
+                ],
+                dtype=np.int32,
+            ).tobytes()
+            params_bin = ints + np.array([init_args.get("spatial_scale", 1.0)], dtype=np.float32).tobytes()
+        elif op_name == "dft":
+            x = inputs_np[0]
+            dft_length = int(np.asarray(inputs_np[1]).item())
+            axis = init_args.get("axis", 1)
+            inverse = init_args.get("inverse", 0)
+            onesided = init_args.get("onesided", 0)
+            output_axis_len = dft_length // 2 + 1 if onesided and not inverse else dft_length
+            output_complex_dim = 1 if inverse and onesided else 2
+            params_bin = np.array(
+                [
+                    x.shape[0],
+                    x.shape[1],
+                    x.shape[2],
+                    output_axis_len,
+                    output_complex_dim,
+                    axis,
+                    inverse,
+                    onesided,
+                    dft_length,
+                ],
+                dtype=np.int32,
+            ).tobytes()
+        elif op_name == "stft":
+            signal = inputs_np[0]
+            frame_step = int(np.asarray(inputs_np[1]).item())
+            frame_length = int(np.asarray(inputs_np[3]).item())
+            n_frames = 1 + (signal.shape[1] - frame_length) // frame_step
+            bins = frame_length // 2 + 1 if init_args.get("onesided", 1) else frame_length
+            has_window = 1 if inputs_np[2] is not None else 0
+            params_bin = np.array(
+                [
+                    signal.shape[0],
+                    signal.shape[1],
+                    signal.shape[2],
+                    n_frames,
+                    bins,
+                    frame_step,
+                    frame_length,
+                    init_args.get("onesided", 1),
+                    has_window,
+                ],
+                dtype=np.int32,
+            ).tobytes()
+        elif op_name in {"rnn", "gru", "lstm"}:
+            x = inputs_np[0]
+            w = inputs_np[1]
+            hidden = int(init_args.get("hidden_size", inputs_np[2].shape[-1]))
+            direction_code = {"forward": 0, "reverse": 1, "bidirectional": 2}[init_args.get("direction", "forward")]
+            layout = int(init_args.get("layout", 0))
+            seq_len = x.shape[1] if layout == 1 else x.shape[0]
+            batch = x.shape[0] if layout == 1 else x.shape[1]
+            input_size = x.shape[2]
+            num_dirs = w.shape[0]
+            op_specific = 0
+            if op_name == "gru":
+                op_specific = int(init_args.get("linear_before_reset", 0))
+            elif op_name == "lstm":
+                op_specific = int(init_args.get("input_forget", 0))
+            params_bin = np.array(
+                [seq_len, batch, input_size, num_dirs, hidden, direction_code, layout, op_specific],
+                dtype=np.int32,
+            ).tobytes()
         elif op_name == "gemm":
             a, b, c = inputs_np[0], inputs_np[1], inputs_np[2]
             tA, tB = init_args['transA'], init_args['transB']
@@ -432,7 +597,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if expected_shape == ():
             expected_shape = (1,) # 统一当成 1 元素张量来跑 CUDA/读写 bin
             nps_out = np.array([nps_out], dtype=nps_out.dtype)
-        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "max_unpool", "gemm", "softmax"] # 这些算子自己处理形状
+        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "max_unpool", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax"] # 这些算子自己处理形状
         is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
         
         cuda_inputs = []
@@ -440,7 +605,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             if inp is None:
                 cuda_inputs.append(None)
             else:
-                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk", "max_unpool"] and d == "int64":
+                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk", "max_unpool", "roi_align", "dft", "stft", "rnn", "gru", "lstm"] and d == "int64":
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int64)))
                     continue
 
@@ -542,6 +707,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             nps_f32 = nps_int.astype(np.float32)
         else:
             nps_f32 = to_float32(nps_out, out_dtype)
+            cuda_out = quantize_to_dtype_float32(cuda_out, out_dtype)
             is_ok, max_abs, max_rel, fail_mask = check_accuracy(nps_f32, cuda_out, atol, rtol, out_dtype)
         
         if max_abs >= 0:

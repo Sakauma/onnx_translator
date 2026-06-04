@@ -26,7 +26,7 @@ class Multinomial(Ops):
 
     # 执行 `Multinomial` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
-        probs = np.asarray(input.data, dtype=np.float64)
+        probs = _tensor_data_as_numeric(input).astype(np.float64, copy=False)
         if probs.ndim != 2:
             raise ValueError(f"Multinomial expects rank-2 input, got shape {input.size}")
         if self.sample_size < 0:
@@ -123,8 +123,9 @@ class NegativeLogLikelihoodLoss(Ops):
         gather_weight = None
         if weight is not None:
             target_i = np.asarray(target, dtype=np.int64)
-            clipped = np.clip(target_i, 0, len(weight.data) - 1)
-            gather_weight = np.take(weight.data, clipped).astype(loss.dtype, copy=False)
+            weight_data = _tensor_data_as_numeric(weight)
+            clipped = np.clip(target_i, 0, len(weight_data) - 1)
+            gather_weight = np.take(weight_data, clipped).astype(loss.dtype, copy=False)
             if self.ignore_index is not None:
                 gather_weight = np.where(target_i == self.ignore_index, 0, gather_weight).astype(loss.dtype, copy=False)
         elif self.ignore_index is not None:
@@ -146,7 +147,7 @@ class NegativeLogLikelihoodLoss(Ops):
 
     # 执行 `NegativeLogLikelihoodLoss` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input, target, weight=None):
-        data = np.asarray(input.data)
+        data = _tensor_data_as_numeric(input)
         labels = np.asarray(target.data)
         expected_target_shape = self._target_shape(data.shape)
         if labels.shape != expected_target_shape:
@@ -189,7 +190,7 @@ class NegativeLogLikelihoodLoss(Ops):
 
         loss = self._gather_negative_scores(data, labels, self.ignore_index)
         reduced = self._reduce(loss, labels, weight)
-        out_data = np.asarray(reduced, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype))
+        out_data = _cast_numeric_to_dtype(reduced, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `NegativeLogLikelihoodLoss` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -222,7 +223,7 @@ class SoftmaxCrossEntropyLoss(NegativeLogLikelihoodLoss):
 
     # 执行 `SoftmaxCrossEntropyLoss` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, scores, labels, weights=None):
-        data = np.asarray(scores.data)
+        data = _tensor_data_as_numeric(scores)
         target = np.asarray(labels.data)
         expected_target_shape = self._target_shape(data.shape)
         if target.shape != expected_target_shape:
@@ -232,7 +233,6 @@ class SoftmaxCrossEntropyLoss(NegativeLogLikelihoodLoss):
             invalid = invalid & (target != self.ignore_index)
         if np.any(invalid):
             raise ValueError(f"Target class is out of range [0, {data.shape[1]})")
-        out_dtype = nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype)
         if (
             self.lib is not None
             and scores.dtype in nn.DTYPE_MAP
@@ -281,9 +281,11 @@ class SoftmaxCrossEntropyLoss(NegativeLogLikelihoodLoss):
         log_prob = self._log_softmax(data)
         loss = self._gather_negative_scores(log_prob, target, self.ignore_index)
         reduced = self._reduce(loss, target, weights)
-        loss_tensor = Tensor(*np.asarray(reduced).shape, dtype=self.dtype, data=np.asarray(reduced, dtype=out_dtype))
+        loss_data = _cast_numeric_to_dtype(reduced, self.dtype)
+        loss_tensor = Tensor(*loss_data.shape, dtype=self.dtype, data=loss_data)
         if len(self.outputs) > 1 and self.outputs[1]:
-            log_tensor = Tensor(*log_prob.shape, dtype=self.dtype, data=log_prob.astype(out_dtype, copy=False))
+            log_data = _cast_numeric_to_dtype(log_prob, self.dtype)
+            log_tensor = Tensor(*log_data.shape, dtype=self.dtype, data=log_data)
             return {"tensor": (loss_tensor, log_tensor), "parameters": None}
         return {"tensor": loss_tensor, "parameters": None}
 
@@ -330,7 +332,7 @@ class Unique(Ops):
 
     # 封装 `_compute` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _compute(self, x):
-        data = x.data
+        data = _tensor_data_as_numeric(x)
         if self.axis is None:
             values, indices, inverse, counts = np.unique(
                 data.reshape(-1), return_index=True, return_inverse=True, return_counts=True
@@ -343,7 +345,7 @@ class Unique(Ops):
             )
             values, indices, inverse, counts = self._reorder_unique(values, indices, inverse, counts, axis=axis)
         return (
-            values.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, values.dtype), copy=False),
+            _cast_numeric_to_dtype(values, self.dtype),
             indices.astype(np.int64, copy=False),
             inverse.astype(np.int64, copy=False),
             counts.astype(np.int64, copy=False),
@@ -439,16 +441,16 @@ class NonMaxSuppression(Ops):
         iou_threshold=None,
         score_threshold=None,
     ):
-        boxes_data = boxes.data.astype(np.float32, copy=False)
-        scores_data = scores.data.astype(np.float32, copy=False)
+        boxes_data = _tensor_data_as_numeric(boxes).astype(np.float32, copy=False)
+        scores_data = _tensor_data_as_numeric(scores).astype(np.float32, copy=False)
         if boxes_data.ndim != 3 or boxes_data.shape[2] != 4:
             raise ValueError(f"NonMaxSuppression boxes must have shape [batch, boxes, 4], got {boxes.size}")
         if scores_data.ndim != 3 or scores_data.shape[0] != boxes_data.shape[0] or scores_data.shape[2] != boxes_data.shape[1]:
             raise ValueError(f"NonMaxSuppression scores must have shape [batch, classes, boxes], got {scores.size}")
 
         max_output = 0 if max_output_boxes_per_class is None else int(max_output_boxes_per_class.data.item())
-        iou = 0.0 if iou_threshold is None else float(iou_threshold.data.item())
-        score_min = -np.inf if score_threshold is None else float(score_threshold.data.item())
+        iou = 0.0 if iou_threshold is None else float(_tensor_data_as_numeric(iou_threshold).item())
+        score_min = -np.inf if score_threshold is None else float(_tensor_data_as_numeric(score_threshold).item())
         if (
             self.lib is not None
             and boxes.dtype in nn.DTYPE_MAP
@@ -456,8 +458,8 @@ class NonMaxSuppression(Ops):
             and max_output > 0
         ):
             max_rows = boxes_data.shape[0] * scores_data.shape[1] * min(max_output, boxes_data.shape[1])
-            boxes_c = self._numpy_to_ctensor(np.ascontiguousarray(boxes_data.astype(nn.DTYPE_TO_NUMPY[boxes.dtype], copy=False)), boxes.dtype)
-            scores_c = self._numpy_to_ctensor(np.ascontiguousarray(scores_data.astype(nn.DTYPE_TO_NUMPY[scores.dtype], copy=False)), scores.dtype)
+            boxes_c = self._numpy_to_ctensor(np.ascontiguousarray(boxes.data.astype(nn.DTYPE_TO_NUMPY[boxes.dtype], copy=False)), boxes.dtype)
+            scores_c = self._numpy_to_ctensor(np.ascontiguousarray(scores.data.astype(nn.DTYPE_TO_NUMPY[scores.dtype], copy=False)), scores.dtype)
             output_shape_c = (ctypes.c_int * 2)(max_rows, 3)
             output_c = self.lib.create_tensor(output_shape_c, 2, nn.DTYPE_MAP[self.dtype])
             count = int(self.lib.non_max_suppression_forward(
@@ -686,8 +688,8 @@ class Einsum(Ops):
         if k != k2:
             raise ValueError(f"Einsum ij,jk->ik shape mismatch: {left.size} vs {right.size}")
 
-        a = left.data.astype(np.float32, copy=False)
-        b = right.data.astype(np.float32, copy=False)
+        a = _tensor_data_as_numeric(left).astype(np.float32, copy=False)
+        b = _tensor_data_as_numeric(right).astype(np.float32, copy=False)
         out = np.empty((m, n), dtype=np.float32)
         for i in range(m):
             for j in range(n):
@@ -729,8 +731,8 @@ class Einsum(Ops):
         if out_data is None and equation == "ij,jk->ik" and len(inputs) == 2:
             out_data = self._forward_ij_jk_to_ik(inputs[0], inputs[1])
         if out_data is None:
-            out_data = np.einsum(self.equation, *(x.data for x in inputs))
-        out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+            out_data = np.einsum(self.equation, *(_tensor_data_as_numeric(x) for x in inputs))
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `Einsum` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。

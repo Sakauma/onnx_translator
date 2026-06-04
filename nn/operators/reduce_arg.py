@@ -61,7 +61,7 @@ class ReduceBase(Ops):
 
     # 封装 `_numpy_reduce` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _numpy_reduce(self, data, axes):
-        arr = np.asarray(data.data)
+        arr = _tensor_data_as_numeric(data)
         if not axes:
             out_data = arr.copy()
         else:
@@ -85,13 +85,20 @@ class ReduceBase(Ops):
             elif op_name == "ReduceLogSum":
                 out_data = np.log(np.sum(arr, axis=axis, keepdims=keepdims))
             elif op_name == "ReduceLogSumExp":
-                out_data = np.log(np.sum(np.exp(arr), axis=axis, keepdims=keepdims))
+                data_max = arr.copy()
+                data_max[np.isinf(data_max)] = -np.inf
+                max_values = np.max(data_max, axis=axis, keepdims=True)
+                shifted = np.subtract(arr, max_values)
+                summed = np.sum(np.exp(shifted), axis=axis, keepdims=True, dtype=arr.dtype)
+                out_data = np.log(summed) + max_values
+                if not keepdims:
+                    out_data = np.squeeze(out_data, axis=axis)
             elif op_name == "ReduceSumSquare":
                 out_data = np.sum(np.square(arr), axis=axis, keepdims=keepdims)
             else:
                 raise ValueError(f"Unsupported reduce op {op_name}")
 
-        out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return Tensor(*out_data.shape, dtype=self.dtype, data=out_data)
 
     # 封装 `_calc_out_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
@@ -237,7 +244,7 @@ class ArgBase(Ops):
             self.lib.free_tensor(output_c)
             return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-        out_data = self._arg_numpy(np.asarray(data.data), axis).astype(np.int64)
+        out_data = self._arg_numpy(_tensor_data_as_numeric(data), axis).astype(np.int64)
         if self.keepdims:
             out_data = np.expand_dims(out_data, axis=axis)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}

@@ -84,7 +84,7 @@ class LRN(Ops):
             self.lib.free_tensor(x_c)
             self.lib.free_tensor(out_c)
             return {"tensor": Tensor(*x.size, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
-        data = x.data.astype(np.float32, copy=False)
+        data = _tensor_data_as_numeric(x).astype(np.float32, copy=False)
         square_sum = np.zeros_like(data, dtype=np.float32)
         channels = data.shape[1]
         lower = (self.size - 1) // 2
@@ -94,7 +94,7 @@ class LRN(Ops):
             end = min(channels, c + upper + 1)
             square_sum[:, c, ...] = np.sum(data[:, begin:end, ...] ** 2, axis=1)
         out_data = data / ((self.bias + (self.alpha / self.size) * square_sum) ** self.beta)
-        out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*x.size, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
     # 执行 `LRN` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -141,11 +141,11 @@ class MeanVarianceNormalization(Ops):
             self.lib.free_tensor(x_c)
             self.lib.free_tensor(out_c)
             return {"tensor": Tensor(*x.size, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
-        data = x.data.astype(np.float32, copy=False)
+        data = _tensor_data_as_numeric(x).astype(np.float32, copy=False)
         mean = np.mean(data, axis=axes, keepdims=True)
         variance = np.mean((data - mean) ** 2, axis=axes, keepdims=True)
         out_data = (data - mean) / np.sqrt(variance)
-        out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*x.size, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
     # 执行 `MeanVarianceNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -185,8 +185,9 @@ class Mean(Ops):
                 self.lib.free_tensor(c_tensor)
             self.lib.free_tensor(output_c)
         else:
-            out_data = np.mean(np.stack(arrays, axis=0), axis=0)
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+            decoded_arrays = np.broadcast_arrays(*(_tensor_data_as_numeric(x) for x in inputs))
+            out_data = np.mean(np.stack(decoded_arrays, axis=0), axis=0)
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `Mean` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -269,16 +270,16 @@ class BatchNormalization(Ops):
     # 封装 `_reshape_param` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _reshape_param(param, rank):
-        return np.asarray(param.data).reshape((-1,) + (1,) * (rank - 2))
+        return _tensor_data_as_numeric(param).reshape((-1,) + (1,) * (rank - 2))
 
     # 封装 `_normalize` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _normalize(self, x_data, scale_data, bias_data, mean_data, var_data):
         y = scale_data * (x_data - mean_data) / np.sqrt(var_data + self.epsilon) + bias_data
-        return np.asarray(y, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, x_data.dtype))
+        return _cast_numeric_to_dtype(y, self.dtype)
 
     # 执行 `BatchNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, scale, B, mean, var):
-        x_data = np.asarray(x.data)
+        x_data = _tensor_data_as_numeric(x)
         rank = x_data.ndim
         scale_data = self._reshape_param(scale, rank)
         bias_data = self._reshape_param(B, rank)
@@ -287,8 +288,8 @@ class BatchNormalization(Ops):
             axes = tuple(axis for axis in range(rank) if axis != 1)
             saved_mean = np.mean(x_data, axis=axes)
             saved_var = np.var(x_data, axis=axes)
-            running_mean = np.asarray(mean.data) * self.momentum + saved_mean * (1.0 - self.momentum)
-            running_var = np.asarray(var.data) * self.momentum + saved_var * (1.0 - self.momentum)
+            running_mean = _tensor_data_as_numeric(mean) * self.momentum + saved_mean * (1.0 - self.momentum)
+            running_var = _tensor_data_as_numeric(var) * self.momentum + saved_var * (1.0 - self.momentum)
             y_data = self._normalize(
                 x_data,
                 scale_data,
@@ -298,8 +299,8 @@ class BatchNormalization(Ops):
             )
             outputs = (
                 Tensor(*x.size, dtype=self.dtype, data=y_data),
-                Tensor(*saved_mean.shape, dtype=self.dtype, data=np.asarray(running_mean, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, running_mean.dtype))),
-                Tensor(*saved_var.shape, dtype=self.dtype, data=np.asarray(running_var, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, running_var.dtype))),
+                Tensor(*saved_mean.shape, dtype=self.dtype, data=_cast_numeric_to_dtype(running_mean, self.dtype)),
+                Tensor(*saved_var.shape, dtype=self.dtype, data=_cast_numeric_to_dtype(running_var, self.dtype)),
             )
         else:
             if (
@@ -397,7 +398,7 @@ class LayerNormalization(Ops):
 
     # 执行 `LayerNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, scale=None, B=None):
-        x_data = np.asarray(x.data)
+        x_data = _tensor_data_as_numeric(x)
         rank = x_data.ndim
         axis = self.axis if self.axis >= 0 else self.axis + rank
         if axis < 0 or axis >= rank:
@@ -434,20 +435,20 @@ class LayerNormalization(Ops):
             return {"tensor": Tensor(*x.size, dtype=self.dtype, data=y_data), "parameters": None}
         row_number = int(np.prod(x_data.shape[:axis], dtype=np.int64)) if axis > 0 else 1
         col_number = int(np.prod(x_data.shape[axis:], dtype=np.int64))
-        stash_np_dtype = nn.DTYPE_TO_NUMPY.get(self.stash_dtype, np.float32)
+        stash_np_dtype = np.float32 if self.stash_dtype == "bfloat16" else nn.DTYPE_TO_NUMPY.get(self.stash_dtype, np.float32)
         work = x_data.astype(stash_np_dtype, copy=False).reshape(row_number, col_number)
         mean = np.mean(work, axis=1, keepdims=True)
         inv_std = np.reciprocal(np.sqrt(np.mean((work - mean) ** 2, axis=1, keepdims=True) + self.epsilon))
         normalized = ((work - mean) * inv_std).reshape(x_data.shape)
         if scale is not None:
-            normalized = normalized * np.asarray(scale.data)
+            normalized = normalized * _tensor_data_as_numeric(scale)
         if B is not None:
-            normalized = normalized + np.asarray(B.data)
+            normalized = normalized + _tensor_data_as_numeric(B)
 
         reduction_shape = tuple(x_data.shape[:axis]) + (1,) * (rank - axis)
-        y = Tensor(*x.size, dtype=self.dtype, data=np.asarray(normalized, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, x_data.dtype)))
-        mean_tensor = Tensor(*reduction_shape, dtype=self.stash_dtype, data=np.asarray(mean.reshape(reduction_shape), dtype=stash_np_dtype))
-        inv_std_tensor = Tensor(*reduction_shape, dtype=self.stash_dtype, data=np.asarray(inv_std.reshape(reduction_shape), dtype=stash_np_dtype))
+        y = Tensor(*x.size, dtype=self.dtype, data=_cast_numeric_to_dtype(normalized, self.dtype))
+        mean_tensor = Tensor(*reduction_shape, dtype=self.stash_dtype, data=_cast_numeric_to_dtype(mean.reshape(reduction_shape), self.stash_dtype))
+        inv_std_tensor = Tensor(*reduction_shape, dtype=self.stash_dtype, data=_cast_numeric_to_dtype(inv_std.reshape(reduction_shape), self.stash_dtype))
         outputs = (y, mean_tensor, inv_std_tensor)
         selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
         return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
@@ -548,11 +549,11 @@ class LpNormalization(Ops):
             self.lib.free_tensor(output_c)
             return {"tensor": Tensor(*input.size, dtype=self.dtype, data=out_data), "parameters": None}
 
-        data = np.asarray(input.data)
+        data = _tensor_data_as_numeric(input)
         norm = np.power(np.power(np.abs(data), self.p).sum(axis=axis), 1.0 / self.p)
         norm = np.expand_dims(norm, axis)
         out_data = np.where(norm == 0, 0, data / norm)
-        out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, data.dtype))
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `LpNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。

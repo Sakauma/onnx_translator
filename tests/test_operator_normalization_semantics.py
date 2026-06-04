@@ -11,6 +11,7 @@
 
 from onnx.reference import ReferenceEvaluator
 
+from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import BatchNormalization, InstanceNormalization, LayerNormalization, LpNormalization, LRN, MeanVarianceNormalization
 
@@ -184,3 +185,74 @@ def test_c_backend_bfloat16_normalization_ops_decode_and_write_bit_storage():
 
     lrn = LRN(["x"], ["y"], size=3, alpha=0.3, beta=0.5, bias=1.0, dtype="bfloat16").forward(bf16_x)["tensor"]
     np.testing.assert_allclose(_bf16_to_float32(lrn.data), _lrn_formula(x_values, 3, 0.3, 0.5, 1.0), rtol=2e-2, atol=2e-2)
+
+
+# 验证 Python fallback 归一化路径同样按 bfloat16 位模式解码输入并写回位模式。
+def test_python_normalization_fallback_bfloat16_decodes_bit_storage(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    x_values = ((np.arange(2 * 3 * 2 * 2, dtype=np.float32).reshape(2, 3, 2, 2) / 10.0) - 1.0).astype(np.float32)
+    scale = np.array([1.0, 0.5, 1.5], dtype=np.float32)
+    bias = np.array([0.1, -0.2, 0.3], dtype=np.float32)
+    mean = np.array([0.0, 0.2, -0.1], dtype=np.float32)
+    var = np.array([1.0, 0.5, 2.0], dtype=np.float32)
+    bf16_x = _tensor(_bf16_bits(x_values), "bfloat16")
+    bf16_scale = _tensor(_bf16_bits(scale), "bfloat16")
+    bf16_bias = _tensor(_bf16_bits(bias), "bfloat16")
+
+    batch = BatchNormalization(["x", "scale", "b", "mean", "var"], ["y"], epsilon=1e-4, dtype="bfloat16").forward(
+        bf16_x,
+        bf16_scale,
+        bf16_bias,
+        _tensor(_bf16_bits(mean), "bfloat16"),
+        _tensor(_bf16_bits(var), "bfloat16"),
+    )["tensor"]
+    np.testing.assert_allclose(_bf16_to_float32(batch.data), _batch_norm_formula(x_values, scale, bias, mean, var, 1e-4), rtol=2e-2, atol=2e-2)
+
+    mvn = MeanVarianceNormalization(["x"], ["y"], axes=[0, 2, 3], dtype="bfloat16").forward(bf16_x)["tensor"]
+    np.testing.assert_allclose(_bf16_to_float32(mvn.data), _mvn_formula(x_values, [0, 2, 3]), rtol=2e-2, atol=2e-2)
+
+    lrn = LRN(["x"], ["y"], size=3, alpha=0.3, beta=0.5, bias=1.0, dtype="bfloat16").forward(bf16_x)["tensor"]
+    np.testing.assert_allclose(_bf16_to_float32(lrn.data), _lrn_formula(x_values, 3, 0.3, 0.5, 1.0), rtol=2e-2, atol=2e-2)
+
+    lp = LpNormalization(["x"], ["y"], axis=1, p=2, dtype="bfloat16").forward(bf16_x)["tensor"]
+    lp_norm = np.linalg.norm(x_values, ord=2, axis=1, keepdims=True)
+    lp_expected = np.where(lp_norm == 0, 0, x_values / lp_norm)
+    np.testing.assert_allclose(_bf16_to_float32(lp.data), lp_expected, rtol=2e-2, atol=2e-2)
+
+    mean_out = Mean(["a", "b"], ["y"], dtype="bfloat16").forward(
+        bf16_x,
+        _tensor(_bf16_bits(x_values + 1.0), "bfloat16"),
+    )["tensor"]
+    np.testing.assert_allclose(_bf16_to_float32(mean_out.data), x_values + 0.5, rtol=2e-2, atol=2e-2)
+
+
+# 验证 LayerNormalization 的 aux-output fallback 不把 bfloat16 存储位模式当作整数幅值。
+def test_python_layer_normalization_bfloat16_fallback_decodes_bit_storage(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    x_values = ((np.arange(2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4) / 7.0) - 1.0).astype(np.float32)
+    scale = np.array([1.0, 0.5, 1.5, -0.5], dtype=np.float32)
+    bias = np.array([0.1, -0.2, 0.3, 0.0], dtype=np.float32)
+    actual_y, actual_mean, actual_inv_std = LayerNormalization(
+        ["x", "scale", "bias"],
+        ["y", "mean", "inv_std"],
+        axis=-1,
+        epsilon=1e-4,
+        stash_type=1,
+        dtype="bfloat16",
+    ).forward(
+        _tensor(_bf16_bits(x_values), "bfloat16"),
+        _tensor(_bf16_bits(scale), "bfloat16"),
+        _tensor(_bf16_bits(bias), "bfloat16"),
+    )["tensor"]
+
+    decoded_x = _bf16_to_float32(_bf16_bits(x_values))
+    decoded_scale = _bf16_to_float32(_bf16_bits(scale))
+    decoded_bias = _bf16_to_float32(_bf16_bits(bias))
+    mean = np.mean(decoded_x, axis=-1, keepdims=True)
+    inv_std = np.reciprocal(np.sqrt(np.mean((decoded_x - mean) ** 2, axis=-1, keepdims=True) + 1e-4))
+    expected_y = (decoded_x - mean) * inv_std * decoded_scale.reshape((1, 1, 4)) + decoded_bias.reshape((1, 1, 4))
+    np.testing.assert_allclose(_bf16_to_float32(actual_y.data), expected_y, rtol=2e-2, atol=2e-2)
+    np.testing.assert_allclose(actual_mean.data, mean.reshape(2, 3, 1), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(actual_inv_std.data, inv_std.reshape(2, 3, 1), rtol=1e-6, atol=1e-6)

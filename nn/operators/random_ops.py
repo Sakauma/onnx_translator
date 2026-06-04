@@ -21,6 +21,11 @@ def _resolve_random_dtype(dtype, default=None):
     return nn.onnx_dtype_mapping.get(dtype, default or "float32")
 
 
+# 将随机算子的浮点样本写回目标 dtype；bfloat16 必须编码为 uint16 位模式。
+def _cast_random_output(values, dtype):
+    return _cast_numeric_to_dtype(np.asarray(values, dtype=np.float32), dtype)
+
+
 class EyeLike(Ops):
     # 初始化 `EyeLike` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, k=0, dtype=None, version="17"):
@@ -78,7 +83,7 @@ class RandomUniformLike(Ops):
         else:
             seed = None if self.seed is None or self.seed == 0.0 else int(self.seed)
             rng = np.random.default_rng(seed)
-            out_data = rng.uniform(self.low, self.high, size=input.size).astype(nn.DTYPE_TO_NUMPY.get(target_dtype, np.float32))
+            out_data = _cast_random_output(rng.uniform(self.low, self.high, size=input.size), target_dtype)
         out_tensor.data = out_data
         
         return {"tensor": out_tensor, "parameters": None}
@@ -105,11 +110,16 @@ class RandomUniform(Ops):
         if self.shape_val is None:
             raise ValueError("RandomUniform requires 'shape' attribute")
         out_shape = tuple(self.shape_val)
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[self.dtype])
-        self.lib.random_uniform_like_forward(output_c, ctypes.c_float(self.low), ctypes.c_float(self.high), ctypes.c_float(self.seed))
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(output_c)
+        if self.lib is not None and self.dtype in nn.DTYPE_MAP:
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[self.dtype])
+            self.lib.random_uniform_like_forward(output_c, ctypes.c_float(self.low), ctypes.c_float(self.high), ctypes.c_float(self.seed))
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(output_c)
+        else:
+            seed = None if self.seed is None or self.seed == 0.0 else int(self.seed)
+            rng = np.random.default_rng(seed)
+            out_data = _cast_random_output(rng.uniform(self.low, self.high, size=out_shape), self.dtype)
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `RandomUniform` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -136,15 +146,20 @@ class RandomNormal(Ops):
         # Shape 必须是初始化属性
         if self.shape_val is None:
             raise ValueError("RandomNormal requires 'shape' attribute")
-        
+
         out_shape = tuple(self.shape_val)
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[self.dtype])
-        
-        self.lib.random_normal_forward(output_c, ctypes.c_float(self.mean), ctypes.c_float(self.scale), ctypes.c_float(self.seed))
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
-        self.lib.free_tensor(output_c)
+        if self.lib is not None and self.dtype in nn.DTYPE_MAP:
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[self.dtype])
+
+            self.lib.random_normal_forward(output_c, ctypes.c_float(self.mean), ctypes.c_float(self.scale), ctypes.c_float(self.seed))
+
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(output_c)
+        else:
+            seed = None if self.seed is None or self.seed == 0.0 else int(self.seed)
+            rng = np.random.default_rng(seed)
+            out_data = _cast_random_output(rng.normal(self.mean, self.scale, size=out_shape), self.dtype)
         return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `RandomNormal` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -169,14 +184,19 @@ class RandomNormalLike(Ops):
     def forward(self, input):
         target_dtype = self.dtype if self.dtype else input.dtype
         out_shape = input.size
-        
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[target_dtype])
-        
-        self.lib.random_normal_forward(output_c, ctypes.c_float(self.mean), ctypes.c_float(self.scale), ctypes.c_float(self.seed))
-        
-        out_data = self._ctensor_to_numpy(output_c, target_dtype)
-        self.lib.free_tensor(output_c)
+
+        if self.lib is not None and target_dtype in nn.DTYPE_MAP:
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[target_dtype])
+
+            self.lib.random_normal_forward(output_c, ctypes.c_float(self.mean), ctypes.c_float(self.scale), ctypes.c_float(self.seed))
+
+            out_data = self._ctensor_to_numpy(output_c, target_dtype)
+            self.lib.free_tensor(output_c)
+        else:
+            seed = None if self.seed is None or self.seed == 0.0 else int(self.seed)
+            rng = np.random.default_rng(seed)
+            out_data = _cast_random_output(rng.normal(self.mean, self.scale, size=out_shape), target_dtype)
         return {"tensor": Tensor(*out_shape, dtype=target_dtype, data=out_data), "parameters": None}
 
     # 执行 `RandomNormalLike` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -202,9 +222,8 @@ class Bernoulli(Ops):
         if self.lib is None or target_dtype not in nn.DTYPE_MAP:
             seed = None if self.seed is None or self.seed == 0.0 else int(self.seed)
             rng = np.random.default_rng(seed)
-            out_data = rng.binomial(1, p=np.asarray(input.data, dtype=np.float64)).astype(
-                nn.DTYPE_TO_NUMPY.get(target_dtype, np.float32)
-            )
+            probs = _tensor_data_as_numeric(input).astype(np.float64, copy=False)
+            out_data = _cast_random_output(rng.binomial(1, p=probs), target_dtype)
             return {"tensor": Tensor(*out_shape, dtype=target_dtype, data=out_data), "parameters": None}
         
         input_c = self._numpy_to_ctensor(input.data, input.dtype)
@@ -238,7 +257,7 @@ class Dropout(Ops):
     def forward(self, data, ratio=None, training_mode=None):
         r = float(self.default_ratio)
         if ratio is not None:
-            r = float(ratio.data.item())
+            r = float(_tensor_data_as_numeric(ratio).item())
         
         if r < 0.0 or r >= 1.0:
             raise ValueError(f"Dropout ratio must be in [0, 1), got {r}")
@@ -262,7 +281,8 @@ class Dropout(Ops):
             else:
                 rng = np.random.RandomState(int(self.seed))
                 mask_data = rng.uniform(0.0, 1.0, data.size) >= r
-            out_data = data.data * mask_data.astype(data.data.dtype) / (1.0 - r)
+            numeric = _tensor_data_as_numeric(data)
+            out_data = _cast_numeric_to_dtype(numeric * mask_data.astype(numeric.dtype) / (1.0 - r), data.dtype)
         else:
             mask_data = np.ones(data.size, dtype=np.bool_)
             out_data = data.data.copy()

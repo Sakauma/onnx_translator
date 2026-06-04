@@ -154,25 +154,9 @@ void cast_forward(const Tensor* input, Tensor* output) {
         return;
     }
     
-    // 检查是否是 "浮点 -> 整数" 的情况
-    int is_float_to_int = (input->dtype == DTYPE_FLOAT32 || input->dtype == DTYPE_FLOAT64 || 
-                           input->dtype == DTYPE_FLOAT16 || input->dtype == DTYPE_BFLOAT16) &&
-                          IS_INT_TYPE(output->dtype);
-    int is_int_to_int = IS_INT_TYPE(input->dtype) && IS_INT_TYPE(output->dtype);
-
     _Pragma("omp parallel for")
     for (size_t i = 0; i < input->size; i++) {
-        // 1. 读取输入 (统一转 double)
-        double val = get_value_as_double(input, i);
-        
-        // 2. 写入输出
-        if (is_float_to_int || is_int_to_int) {
-            int64_t int_val = is_int_to_int ? get_value_as_int64(input, i) : (int64_t)val;
-            set_tensor_value_from_int(output, i, int_val);
-        } else {
-            // 其他情况 (Int->Float, Float->Float, Int->Int) 保持原有逻辑
-            set_tensor_value_from_float(output, i, val);
-        }
+        set_tensor_value_for_cast(output, i, input, i);
     }
 }
 
@@ -306,11 +290,22 @@ void constant_of_shape_forward(Tensor* output, const Tensor* value) {
 // 实现 `range` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void range_forward(const Tensor* start, const Tensor* limit, const Tensor* delta, Tensor* output) {
     if (!start || !limit || !delta || !output) return;
-    
+
+    size_t loop_size = output->size;
+    if (IS_INT_TYPE(output->dtype) && IS_INT_TYPE(start->dtype) && IS_INT_TYPE(delta->dtype)) {
+        uint64_t val_start = get_integer_value_as_uint64(start, 0);
+        uint64_t val_delta = get_integer_value_as_uint64(delta, 0);
+        _Pragma("omp parallel for")
+        for (size_t i = 0; i < loop_size; i++) {
+            uint64_t res = val_start + (uint64_t)i * val_delta;
+            set_integer_value_wrapped(output, i, res);
+        }
+        return;
+    }
+
     double val_start = get_value_as_double(start, 0);
     double val_delta = get_value_as_double(delta, 0);
-    
-    size_t loop_size = output->size;
+
     _Pragma("omp parallel for")
     for (size_t i = 0; i < loop_size; i++) {
         double res = val_start + (double)i * val_delta;
@@ -475,20 +470,17 @@ void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updat
         
         // 执行写入
         if (reduction == 0) {
-            set_tensor_value_from_float(data, data_idx, val);
+            apply_scatter_update(data, data_idx, updates, i, reduction);
         } else if (reduction == 1) { // Add
             // 使用 switch-case 分发到具体类型以启用 omp atomic
             switch (data->dtype) {
                 OMP_ATOMIC_DISPATCH(DTYPE_FLOAT32, float, +=)
                 OMP_ATOMIC_DISPATCH(DTYPE_FLOAT64, double, +=)
-                OMP_ATOMIC_DISPATCH(DTYPE_INT32, int32_t, +=)
-                OMP_ATOMIC_DISPATCH(DTYPE_INT64, int64_t, +=)
                 default: 
                     // 对于不支持 atomic 的类型，使用 critical
                     #pragma omp critical
                     {
-                        double old = get_value_as_double(data, data_idx);
-                        set_tensor_value_from_float(data, data_idx, old + val);
+                        apply_scatter_update(data, data_idx, updates, i, reduction);
                     }
                     break;
             }
@@ -499,8 +491,7 @@ void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updat
                 default:
                     #pragma omp critical
                     {
-                        double old = get_value_as_double(data, data_idx);
-                        set_tensor_value_from_float(data, data_idx, old * val);
+                        apply_scatter_update(data, data_idx, updates, i, reduction);
                     }
             }
         }
@@ -756,6 +747,46 @@ int compare_asc(const void* a, const void* b) {
 }
 
 
+// 作为 `compare_signed_desc` 排序比较函数，按有符号整数值降序排列，平局时保留较小原始索引。
+int compare_signed_desc(const void* a, const void* b) {
+    TopKElement* e1 = (TopKElement*)a;
+    TopKElement* e2 = (TopKElement*)b;
+    if (e1->signed_value > e2->signed_value) return -1;
+    if (e1->signed_value < e2->signed_value) return 1;
+    return (e1->index < e2->index) ? -1 : 1;
+}
+
+
+// 作为 `compare_signed_asc` 排序比较函数，按有符号整数值升序排列，平局时保留较小原始索引。
+int compare_signed_asc(const void* a, const void* b) {
+    TopKElement* e1 = (TopKElement*)a;
+    TopKElement* e2 = (TopKElement*)b;
+    if (e1->signed_value < e2->signed_value) return -1;
+    if (e1->signed_value > e2->signed_value) return 1;
+    return (e1->index < e2->index) ? -1 : 1;
+}
+
+
+// 作为 `compare_unsigned_desc` 排序比较函数，按无符号整数值降序排列，平局时保留较小原始索引。
+int compare_unsigned_desc(const void* a, const void* b) {
+    TopKElement* e1 = (TopKElement*)a;
+    TopKElement* e2 = (TopKElement*)b;
+    if (e1->raw_value > e2->raw_value) return -1;
+    if (e1->raw_value < e2->raw_value) return 1;
+    return (e1->index < e2->index) ? -1 : 1;
+}
+
+
+// 作为 `compare_unsigned_asc` 排序比较函数，按无符号整数值升序排列，平局时保留较小原始索引。
+int compare_unsigned_asc(const void* a, const void* b) {
+    TopKElement* e1 = (TopKElement*)a;
+    TopKElement* e2 = (TopKElement*)b;
+    if (e1->raw_value < e2->raw_value) return -1;
+    if (e1->raw_value > e2->raw_value) return 1;
+    return (e1->index < e2->index) ? -1 : 1;
+}
+
+
 // 实现 `topk` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis, int largest, int sorted, int K) {
     if (!input || !values || !indices) return;
@@ -769,6 +800,8 @@ void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis
     for (int i = 0; i < axis; i++) outer_loops *= input->shape[i];
     int inner_loops = 1;
     for (int i = axis + 1; i < ndim; i++) inner_loops *= input->shape[i];
+    int integer_path = is_integer_dtype(input->dtype) && is_integer_dtype(values->dtype);
+    int unsigned_path = is_unsigned_integer_dtype(input->dtype);
     
     #pragma omp parallel for
     for (size_t i = 0; i < (size_t)outer_loops * inner_loops; i++) {
@@ -785,12 +818,21 @@ void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis
             // 构造完整坐标的 flat index
             // Index = outer * (axis_dim * inner) + k * inner + inner_idx
             size_t idx = (size_t)outer_idx * axis_dim * inner_loops + (size_t)k * inner_loops + inner_idx;
-            buffer[k].value = get_value_as_double(input, idx);
+            if (integer_path) {
+                buffer[k].raw_value = get_integer_value_as_uint64(input, idx);
+                buffer[k].signed_value = get_value_as_int64(input, idx);
+            } else {
+                buffer[k].value = get_value_as_double(input, idx);
+            }
             buffer[k].index = k; // 记录原始下标
         }
         
         // 排序
-        if (largest) {
+        if (integer_path && unsigned_path) {
+            qsort(buffer, axis_dim, sizeof(TopKElement), largest ? compare_unsigned_desc : compare_unsigned_asc);
+        } else if (integer_path) {
+            qsort(buffer, axis_dim, sizeof(TopKElement), largest ? compare_signed_desc : compare_signed_asc);
+        } else if (largest) {
             qsort(buffer, axis_dim, sizeof(TopKElement), compare_desc);
         } else {
             qsort(buffer, axis_dim, sizeof(TopKElement), compare_asc);
@@ -803,7 +845,11 @@ void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis
             // OutIndex = outer * (K * inner) + k * inner + inner_idx
             size_t out_idx = (size_t)outer_idx * K * inner_loops + (size_t)k * inner_loops + inner_idx;
             
-            set_tensor_value_from_float(values, out_idx, buffer[k].value);
+            if (integer_path) {
+                set_integer_value_wrapped(values, out_idx, buffer[k].raw_value);
+            } else {
+                set_tensor_value_from_float(values, out_idx, buffer[k].value);
+            }
             set_tensor_value_from_int(indices, out_idx, buffer[k].index);
         }
         free(buffer);
@@ -823,6 +869,7 @@ void cumsum_forward(const Tensor* input, Tensor* output, int axis, int exclusive
     for (int i = 0; i < axis; i++) outer_loops *= input->shape[i];
     int inner_loops = 1;
     for (int i = axis + 1; i < ndim; i++) inner_loops *= input->shape[i];
+    int integer_path = is_integer_dtype(input->dtype) && is_integer_dtype(output->dtype);
     
     #pragma omp parallel for
     for (size_t i = 0; i < (size_t)outer_loops * inner_loops; i++) {
@@ -830,6 +877,7 @@ void cumsum_forward(const Tensor* input, Tensor* output, int axis, int exclusive
         int outer_idx = i / inner_loops;
         
         double accumulator = 0.0;
+        uint64_t integer_accumulator = 0;
         
         // 确定遍历方向
         int start = reverse ? axis_dim - 1 : 0;
@@ -838,14 +886,24 @@ void cumsum_forward(const Tensor* input, Tensor* output, int axis, int exclusive
         
         for (int k = start; k != end; k += step) {
             size_t idx = (size_t)outer_idx * axis_dim * inner_loops + (size_t)k * inner_loops + inner_idx;
-            double val = get_value_as_double(input, idx);
-            
-            if (exclusive) {
-                set_tensor_value_from_float(output, idx, accumulator);
-                accumulator += val;
+            if (integer_path) {
+                uint64_t val = get_integer_value_as_uint64(input, idx);
+                if (exclusive) {
+                    set_integer_value_wrapped(output, idx, integer_accumulator);
+                    integer_accumulator += val;
+                } else {
+                    integer_accumulator += val;
+                    set_integer_value_wrapped(output, idx, integer_accumulator);
+                }
             } else {
-                accumulator += val;
-                set_tensor_value_from_float(output, idx, accumulator);
+                double val = get_value_as_double(input, idx);
+                if (exclusive) {
+                    set_tensor_value_from_float(output, idx, accumulator);
+                    accumulator += val;
+                } else {
+                    accumulator += val;
+                    set_tensor_value_from_float(output, idx, accumulator);
+                }
             }
         }
     }
@@ -1167,18 +1225,15 @@ void scatter_elements_forward(Tensor* data, const Tensor* indices, const Tensor*
         double val = get_value_as_double(updates, i);
         
         if (reduction == 0) {
-            set_tensor_value_from_float(data, data_idx, val);
+            apply_scatter_update(data, data_idx, updates, i, reduction);
         } else if (reduction == 1) { // Add
              switch (data->dtype) {
                 OMP_ATOMIC_DISPATCH(DTYPE_FLOAT32, float, +=)
                 OMP_ATOMIC_DISPATCH(DTYPE_FLOAT64, double, +=)
-                OMP_ATOMIC_DISPATCH(DTYPE_INT32, int32_t, +=)
-                OMP_ATOMIC_DISPATCH(DTYPE_INT64, int64_t, +=)
                 default: 
                     #pragma omp critical
                     {
-                        double old = get_value_as_double(data, data_idx);
-                        set_tensor_value_from_float(data, data_idx, old + val);
+                        apply_scatter_update(data, data_idx, updates, i, reduction);
                     }
             }
         } else if (reduction == 2) { // Mul
@@ -1188,11 +1243,9 @@ void scatter_elements_forward(Tensor* data, const Tensor* indices, const Tensor*
                 default:
                     #pragma omp critical
                     {
-                        double old = get_value_as_double(data, data_idx);
-                        set_tensor_value_from_float(data, data_idx, old * val);
+                        apply_scatter_update(data, data_idx, updates, i, reduction);
                     }
             }
         }
     }
 }
-

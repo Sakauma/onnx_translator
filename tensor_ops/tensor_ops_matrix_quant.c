@@ -128,6 +128,7 @@ void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
     }
     if (ndim < 2) return; // 至少是 2D
     int K = A->shape[A->ndim - 1];
+    int use_integer_path = is_integer_dtype(A->dtype) && is_integer_dtype(B->dtype) && is_integer_dtype(Y->dtype);
     #pragma omp parallel for
     for (size_t i = 0; i < Y->size; i++) {
         int coords[MAX_NDIM] = {0}; // 最大 16 维
@@ -136,6 +137,7 @@ void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
         int m = coords[ndim - 2];
         int n = coords[ndim - 1];
         double sum = 0.0;
+        uint64_t integer_sum = 0;
         // 内积循环 K
         for (int k = 0; k < K; k++) {
             size_t idx_a = 0;
@@ -169,14 +171,24 @@ void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y) {
                 idx_b += val * stride_b;
                 stride_b *= B->shape[d];
             }
-            // 混合精度计算核心：
-            // get_value_as_double 自动处理了 float16/bfloat16/float8 到 double 的提升
-            double val_a = get_value_as_double(A, idx_a);
-            double val_b = get_value_as_double(B, idx_b);
-            sum += val_a * val_b;
+            if (use_integer_path) {
+                // 整数 MatMul 按目标 dtype 的二补码位宽自然回绕，避免 double 丢失 int64/uint64 低位。
+                uint64_t val_a = get_integer_value_as_uint64(A, idx_a);
+                uint64_t val_b = get_integer_value_as_uint64(B, idx_b);
+                integer_sum += val_a * val_b;
+            } else {
+                // 混合精度浮点计算核心：float16/bfloat16/float8 先提升到 double 再累加。
+                double val_a = get_value_as_double(A, idx_a);
+                double val_b = get_value_as_double(B, idx_b);
+                sum += val_a * val_b;
+            }
         }
         // 结果存回
-        set_tensor_value_from_float(Y, i, sum);
+        if (use_integer_path) {
+            set_integer_value_wrapped(Y, i, integer_sum);
+        } else {
+            set_tensor_value_from_float(Y, i, sum);
+        }
     }
 }
 
@@ -367,4 +379,3 @@ void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale
         set_tensor_value_from_float(y, i, q_val);
     }
 }
-

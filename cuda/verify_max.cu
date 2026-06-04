@@ -20,7 +20,7 @@ __global__ void max_kernel(const float* A, const float* B, float* out, size_t n)
     if (idx < n) {
         float a = A[idx];
         float b = B[idx];
-        out[idx] = fmaxf(a,b);
+        out[idx] = (isnan(a) || isnan(b)) ? NAN : (a > b ? a : b);
     }
 }
 

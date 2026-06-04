@@ -86,11 +86,12 @@ class PRelu(Ops):
 
     # 执行 `PRelu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x: Tensor, slope: Tensor) -> dict:
-        x_data, slope_data = np.broadcast_arrays(x.data, slope.data)
+        raw_x_data, raw_slope_data = np.broadcast_arrays(x.data, slope.data)
+        x_data, slope_data = np.broadcast_arrays(_tensor_data_as_numeric(x), _tensor_data_as_numeric(slope))
         if self.lib is not None and self.dtype in nn.DTYPE_MAP and x.dtype in nn.DTYPE_MAP and slope.dtype in nn.DTYPE_MAP:
-            x_c = self._numpy_to_ctensor(np.ascontiguousarray(x_data.astype(nn.DTYPE_TO_NUMPY[x.dtype], copy=False)), x.dtype)
+            x_c = self._numpy_to_ctensor(np.ascontiguousarray(raw_x_data.astype(nn.DTYPE_TO_NUMPY[x.dtype], copy=False)), x.dtype)
             slope_c = self._numpy_to_ctensor(
-                np.ascontiguousarray(slope_data.astype(nn.DTYPE_TO_NUMPY[slope.dtype], copy=False)), slope.dtype
+                np.ascontiguousarray(raw_slope_data.astype(nn.DTYPE_TO_NUMPY[slope.dtype], copy=False)), slope.dtype
             )
             output_shape_c = (ctypes.c_int * len(x_data.shape))(*x_data.shape)
             output_c = self.lib.create_tensor(output_shape_c, len(x_data.shape), nn.DTYPE_MAP[self.dtype])
@@ -101,7 +102,7 @@ class PRelu(Ops):
             self.lib.free_tensor(output_c)
         else:
             out_data = np.where(x_data >= 0, x_data, x_data * slope_data)
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
     # 执行 `PRelu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -134,8 +135,8 @@ class Det(Ops):
             self.lib.free_tensor(output_c)
             return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
-        out_data = np.linalg.det(x.data)
-        out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+        out_data = np.linalg.det(_tensor_data_as_numeric(x))
+        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
     # 执行 `Det` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -255,17 +256,17 @@ class QLinearMatMul(Ops):
             return {"tensor": Tensor(*final_shape, dtype=out_dtype, data=out_data), "parameters": None, "graph": None}
 
         data_a, data_b, out_shape_for_c, final_shape = _prepare_matmul_c_shapes(a, b)
-        a_scale_data = _broadcast_matmul_param(a_scale, data_a.shape, a_scale.dtype, "row").astype(np.float64)
-        a_zp_data = _broadcast_matmul_param(a_zero_point, data_a.shape, a.dtype, "row").astype(np.int32)
-        b_scale_data = _broadcast_matmul_param(b_scale, data_b.shape, b_scale.dtype, "col").astype(np.float64)
-        b_zp_data = _broadcast_matmul_param(b_zero_point, data_b.shape, b.dtype, "col").astype(np.int32)
+        a_scale_data = _broadcast_matmul_param(a_scale, data_a.shape, a_scale.dtype, "row", numeric_dtype=np.float64)
+        a_zp_data = _broadcast_matmul_param(a_zero_point, data_a.shape, a.dtype, "row", numeric_dtype=np.int32)
+        b_scale_data = _broadcast_matmul_param(b_scale, data_b.shape, b_scale.dtype, "col", numeric_dtype=np.float64)
+        b_zp_data = _broadcast_matmul_param(b_zero_point, data_b.shape, b.dtype, "col", numeric_dtype=np.int32)
 
         a_real = (data_a.astype(np.int32) - a_zp_data).astype(np.float64) * a_scale_data
         b_real = (data_b.astype(np.int32) - b_zp_data).astype(np.float64) * b_scale_data
         matmul_real = np.matmul(a_real, b_real)
 
-        y_scale_data = _broadcast_output_param(y_scale, out_shape_for_c, y_scale.dtype).astype(np.float64)
-        y_zp_data = _broadcast_output_param(y_zero_point, out_shape_for_c, out_dtype).astype(np.float64)
+        y_scale_data = _broadcast_output_param(y_scale, out_shape_for_c, y_scale.dtype, numeric_dtype=np.float64)
+        y_zp_data = _broadcast_output_param(y_zero_point, out_shape_for_c, out_dtype, numeric_dtype=np.float64)
         out = np.rint(matmul_real / y_scale_data + y_zp_data).astype(np.int64).reshape(final_shape)
         if y_zero_point.dtype == "uint8":
             out = np.clip(out, 0, 255).astype(np.uint8)
@@ -294,8 +295,8 @@ class MatMul(Ops):
     # 执行 `MatMul` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
         if self.lib is None or self.dtype not in nn.DTYPE_MAP:
-            out_data = np.matmul(np.asarray(input_a.data), np.asarray(input_b.data))
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+            out_data = np.matmul(_tensor_data_as_numeric(input_a), _tensor_data_as_numeric(input_b))
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
             return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
 
         data_a = input_a.data

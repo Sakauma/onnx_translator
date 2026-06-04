@@ -60,9 +60,8 @@ void abs_forward(const Tensor* input, Tensor* output) {
         if (IS_INT_TYPE(input->dtype)) {
             // 整数路径
             int64_t val = get_value_as_int64(input, i);
-            // 处理int64_min的特殊情况
-            int64_t res = (val == INT64_MIN) ? INT64_MAX : (val < 0 ? -val : val);
-            set_tensor_value_from_int(output, i, res);
+            uint64_t res = val < 0 ? (0ULL - (uint64_t)val) : (uint64_t)val;
+            set_integer_value_wrapped(output, i, res);
         } else {
             // 浮点路径
             double val = get_value_as_double(input, i);
@@ -324,6 +323,22 @@ UNARY_OP_IMPL(tanh_forward, tanh(val))
 // 实现 `pow` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void pow_forward(const Tensor* A, const Tensor* B, Tensor* O) {
     if (!A || !B || !O) return;
+    if (is_integer_dtype(A->dtype) && is_integer_dtype(B->dtype) && is_integer_dtype(O->dtype)) {
+        _Pragma("omp parallel for")
+        for (size_t i = 0; i < O->size; i++) {
+            uint64_t base = get_integer_value_as_uint64(A, i);
+            uint64_t exp = get_integer_value_as_uint64(B, i);
+            uint64_t result = 1ULL;
+            while (exp > 0) {
+                if (exp & 1ULL) result *= base;
+                exp >>= 1;
+                if (exp) base *= base;
+            }
+            set_integer_value_wrapped(O, i, result);
+        }
+        return;
+    }
+
     _Pragma("omp parallel for")
     for (size_t i = 0; i < O->size; i++) {
         double val_a = get_value_as_double(A, i);
@@ -348,7 +363,7 @@ void max_forward(const Tensor* A, const Tensor* B, Tensor* O) {
         for (size_t i = 0; i < O->size; i++) {
             double val_a = get_value_as_double(A, i);
             double val_b = get_value_as_double(B, i);
-            double res = (val_a > val_b ? val_a : val_b);
+            double res = (isnan(val_a) || isnan(val_b)) ? NAN : (val_a > val_b ? val_a : val_b);
             set_tensor_value_from_float(O, i, res);
         }
     }
@@ -369,7 +384,7 @@ void min_forward(const Tensor* A, const Tensor* B, Tensor* O) {
         for (size_t i = 0; i < O->size; i++) {
             double val_a = get_value_as_double(A, i);
             double val_b = get_value_as_double(B, i);
-            double res = (val_a < val_b ? val_a : val_b);
+            double res = (isnan(val_a) || isnan(val_b)) ? NAN : (val_a < val_b ? val_a : val_b);
             set_tensor_value_from_float(O, i, res);
         }
     }
@@ -377,7 +392,23 @@ void min_forward(const Tensor* A, const Tensor* B, Tensor* O) {
 
 
 // Neg
-UNARY_OP_IMPL(neg_forward, -val)
+// 实现 `neg` 算子的 C 后端入口，整数路径按目标 dtype 位宽回绕，匹配 ONNX reference 的 NumPy 行为。
+void neg_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output || !input->data || !output->data || input->size != output->size) {
+        return;
+    }
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        if (IS_INT_TYPE(input->dtype)) {
+            int64_t val = get_value_as_int64(input, i);
+            set_integer_value_wrapped(output, i, 0ULL - (uint64_t)val);
+        } else {
+            double val = get_value_as_double(input, i);
+            set_tensor_value_from_float(output, i, -val);
+        }
+    }
+}
 
 
 // Reciprocal
@@ -434,6 +465,40 @@ void clip_forward(const Tensor* input, Tensor* output, const Tensor* min_t, cons
     int has_min = (min_t && min_t->data);
     int has_max = (max_t && max_t->data);
 
+    if (is_integer_dtype(output->dtype) && is_integer_dtype(input->dtype)) {
+        int unsigned_path = output->dtype == DTYPE_UINT8 ||
+                            output->dtype == DTYPE_UINT16 ||
+                            output->dtype == DTYPE_UINT32 ||
+                            output->dtype == DTYPE_UINT64;
+        #pragma omp parallel for
+        for (size_t i = 0; i < output->size; i++) {
+            if (unsigned_path) {
+                uint64_t val = get_integer_value_as_uint64(input, i);
+                if (has_min) {
+                    uint64_t min_val = get_integer_value_as_uint64(min_t, i);
+                    if (val < min_val) val = min_val;
+                }
+                if (has_max) {
+                    uint64_t max_val = get_integer_value_as_uint64(max_t, i);
+                    if (val > max_val) val = max_val;
+                }
+                set_integer_value_wrapped(output, i, val);
+            } else {
+                int64_t val = get_value_as_int64(input, i);
+                if (has_min) {
+                    int64_t min_val = get_value_as_int64(min_t, i);
+                    if (val < min_val) val = min_val;
+                }
+                if (has_max) {
+                    int64_t max_val = get_value_as_int64(max_t, i);
+                    if (val > max_val) val = max_val;
+                }
+                set_integer_value_wrapped(output, i, (uint64_t)val);
+            }
+        }
+        return;
+    }
+
     #pragma omp parallel for
     for (size_t i = 0; i < output->size; i++) {
         double val = get_value_as_double(input, i);
@@ -450,15 +515,15 @@ void clip_forward(const Tensor* input, Tensor* output, const Tensor* min_t, cons
 }
 
 
-BINARY_COMP_IMPL(equal_forward, ==)
+BINARY_COMP_IMPL(equal_forward, TENSOR_COMPARE_EQ)
 
-BINARY_COMP_IMPL(greater_forward, >)
+BINARY_COMP_IMPL(greater_forward, TENSOR_COMPARE_GT)
 
-BINARY_COMP_IMPL(less_forward, <)
+BINARY_COMP_IMPL(less_forward, TENSOR_COMPARE_LT)
 
-BINARY_COMP_IMPL(greater_or_equal_forward, >=)
+BINARY_COMP_IMPL(greater_or_equal_forward, TENSOR_COMPARE_GE)
 
-BINARY_COMP_IMPL(less_or_equal_forward, <=)
+BINARY_COMP_IMPL(less_or_equal_forward, TENSOR_COMPARE_LE)
 
 
 // Not: 按位取反 (bool/uint8) 或 逻辑非
@@ -470,7 +535,7 @@ void not_forward(const Tensor* input, Tensor* output) {
         double val = get_value_as_double(input, i);
         // ONNX Not 对 bool 生效，这里做逻辑非
         uint8_t res = (val == 0) ? 1 : 0; 
-        ((uint8_t*)output->data)[i] = res;
+        set_tensor_value_from_int(output, i, res);
     }
 }
 
@@ -482,7 +547,7 @@ void isnan_forward(const Tensor* input, Tensor* output) {
     for (size_t i = 0; i < input->size; i++) {
         double val = get_value_as_double(input, i);
         uint8_t res = isnan(val) ? 1 : 0;
-        ((uint8_t*)output->data)[i] = res;
+        set_tensor_value_from_int(output, i, res);
     }
 }
 
@@ -525,9 +590,45 @@ void identity_forward(const Tensor* input, Tensor* output) {
 }
 
 
+// 按 Python `%` 语义计算有符号整数余数，结果符号跟随除数。
+static inline int64_t signed_python_mod(int64_t a, int64_t b) {
+    if (b == 0 || b == -1) {
+        return 0;
+    }
+    int64_t res = a % b;
+    if (res != 0 && ((res < 0) != (b < 0))) {
+        res += b;
+    }
+    return res;
+}
+
+
 // 实现 `mod` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void mod_forward(const Tensor* A, const Tensor* B, Tensor* O, int fmod_mode) {
     if (!A || !B || !O) return;
+
+    if (!fmod_mode && is_integer_dtype(A->dtype) && is_integer_dtype(B->dtype) && is_integer_dtype(O->dtype)) {
+        int unsigned_path = O->dtype == DTYPE_UINT8 ||
+                            O->dtype == DTYPE_UINT16 ||
+                            O->dtype == DTYPE_UINT32 ||
+                            O->dtype == DTYPE_UINT64;
+        _Pragma("omp parallel for")
+        for (size_t i = 0; i < O->size; i++) {
+            if (unsigned_path) {
+                uint64_t a = get_integer_value_as_uint64(A, i);
+                uint64_t b = get_integer_value_as_uint64(B, i);
+                uint64_t res = b == 0 ? 0 : a % b;
+                set_integer_value_wrapped(O, i, res);
+            } else {
+                int64_t a = get_value_as_int64(A, i);
+                int64_t b = get_value_as_int64(B, i);
+                int64_t res = signed_python_mod(a, b);
+                set_integer_value_wrapped(O, i, (uint64_t)res);
+            }
+        }
+        return;
+    }
+
     _Pragma("omp parallel for")
     for (size_t i = 0; i < O->size; i++) {
         double a = get_value_as_double(A, i);
@@ -694,9 +795,13 @@ void bitwise_not_forward(const Tensor* input, Tensor* output) {
     
     #pragma omp parallel for
     for (size_t i = 0; i < input->size; i++) {
-        int64_t val = get_value_as_int64(input, i);
-        int64_t res = ~val;
-        set_tensor_value_from_int(output, i, res);
+        uint64_t val = get_integer_value_as_uint64(input, i);
+        uint64_t res = ~val;
+        if (IS_INT_TYPE(output->dtype)) {
+            set_integer_value_wrapped(output, i, res);
+        } else {
+            set_tensor_value_from_int(output, i, (int64_t)res);
+        }
     }
 }
 
@@ -777,4 +882,3 @@ void binarizer_forward(const Tensor* input, Tensor* output, float threshold) {
         set_tensor_value_from_float(output, i, res);
     }
 }
-

@@ -50,9 +50,9 @@ class Conv(Ops):
 
         if self.lib is None or len(x.size) != 4:
             out_data = _conv_nd_numpy(
-                x.data,
-                w.data,
-                None if b is None else b.data,
+                _tensor_data_as_numeric(x),
+                _tensor_data_as_numeric(w),
+                None if b is None else _tensor_data_as_numeric(b),
                 pads=pads,
                 strides=strides,
                 dilations=dilations,
@@ -60,7 +60,7 @@ class Conv(Ops):
                 auto_pad="NOTSET",
                 acc_dtype=np.float64,
             )
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
             out_tensor = Tensor(*out_data.shape, dtype=self.dtype, data=out_data)
             values = {"tensor": out_tensor, "parameters": None, "graph": None}
             self.parameters = {"values": values}
@@ -204,8 +204,8 @@ class ConvTranspose(Ops):
 
     # 执行 `ConvTranspose` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, w, b=None):
-        x_data = np.asarray(x.data, dtype=np.float64)
-        w_data = np.asarray(w.data, dtype=np.float64)
+        x_data = np.asarray(_tensor_data_as_numeric(x), dtype=np.float64)
+        w_data = np.asarray(_tensor_data_as_numeric(w), dtype=np.float64)
         n_batches, in_channels = x_data.shape[:2]
         if w_data.shape[0] != in_channels:
             raise ValueError(f"ConvTranspose weight input channels {w_data.shape[0]} != input channels {in_channels}")
@@ -267,8 +267,8 @@ class ConvTranspose(Ops):
                                 out[(n, oc) + out_index] += x_value * w_data[(ic, oc_local) + kernel_index]
 
         if b is not None:
-            out += np.asarray(b.data, dtype=np.float64).reshape((1, out_channels) + (1,) * spatial_rank)
-        out_data = out.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, np.float32), copy=False)
+            out += np.asarray(_tensor_data_as_numeric(b), dtype=np.float64).reshape((1, out_channels) + (1,) * spatial_rank)
+        out_data = _cast_numeric_to_dtype(out, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `ConvTranspose` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -494,13 +494,13 @@ class QLinearConv(Ops):
 
         bias = None
         if b is not None:
-            raw_x_scale = np.asarray(x_scale.data, dtype=np.float64)
-            raw_w_scale = np.asarray(w_scale.data, dtype=np.float64)
+            raw_x_scale = np.asarray(_tensor_data_as_numeric(x_scale), dtype=np.float64)
+            raw_w_scale = np.asarray(_tensor_data_as_numeric(w_scale), dtype=np.float64)
             if raw_w_scale.ndim == 0 or raw_w_scale.size == 1:
                 bias_scale = raw_x_scale.reshape(-1)[0] * raw_w_scale.reshape(-1)[0]
             else:
                 bias_scale = raw_x_scale.reshape(-1)[0] * raw_w_scale.reshape(-1)
-            bias = b.data.astype(np.float64) * bias_scale
+            bias = _tensor_data_as_numeric(b).astype(np.float64) * bias_scale
 
         strides = _conv_attr(self.strides, spatial_rank, 1)
         dilations = _conv_attr(self.dilations, spatial_rank, 1)

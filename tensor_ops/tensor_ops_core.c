@@ -69,6 +69,7 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
     switch (dtype) {
         case DTYPE_FLOAT8_E4M3:
         case DTYPE_FLOAT8_E5M2:
+        case DTYPE_BOOL:
             elem_size = 1;  // 8位浮点数
             break;
         case DTYPE_FLOAT16:
@@ -91,12 +92,15 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
             elem_size = 1;  // 8位无符号整数
             break;
         case DTYPE_INT16:
+        case DTYPE_UINT16:
             elem_size = 2;  // 16位整数
             break;
         case DTYPE_INT32:
+        case DTYPE_UINT32:
             elem_size = 4;  // 32位整数
             break;
         case DTYPE_INT64:
+        case DTYPE_UINT64:
             elem_size = 8;  // 64位整数
             break;
         default:
@@ -134,4 +138,3 @@ void free_tensor(Tensor* tensor) {
         free(tensor);
     }
 }
-

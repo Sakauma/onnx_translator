@@ -9,6 +9,7 @@
 #   ******************************************************************************
 # */
 
+from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 
 
@@ -159,6 +160,37 @@ def _tensor(data, dtype):
     return Tensor(*data.shape, dtype=dtype, data=data)
 
 
+# 将 float32 数值转换为 bfloat16 的 uint16 位模式，匹配 Tensor 内部存储。
+def _bf16_bits(values):
+    data = np.asarray(values, dtype=np.float32)
+    bits = data.view(np.uint32)
+    lsb = (bits >> 16) & 1
+    guard = (bits >> 15) & 1
+    sticky = (bits & 0x7FFF) != 0
+    rounded = bits + ((guard & (sticky | lsb)).astype(np.uint32) << 16)
+    rounded = np.where(np.isnan(data), bits, rounded)
+    return (rounded >> 16).astype(np.uint16)
+
+
+# 将 bfloat16 的 uint16 位模式解码成 float32，便于和独立循环公式比较。
+def _bf16_to_float32(values):
+    bits = np.asarray(values, dtype=np.uint16).astype(np.uint32) << 16
+    return bits.view(np.float32)
+
+
+# 构造 bfloat16 Tensor，同时返回实际可参与公式计算的解码值。
+def _bf16_tensor(values):
+    bits = _bf16_bits(values)
+    return _tensor(bits, "bfloat16"), _bf16_to_float32(bits)
+
+
+# 比较 bfloat16 Tensor 的位模式输出和独立公式结果。
+def _assert_bf16_tensor_matches(actual, expected):
+    assert actual.dtype == "bfloat16"
+    assert actual.data.dtype == np.uint16
+    np.testing.assert_array_equal(actual.data, _bf16_bits(np.asarray(expected, dtype=np.float32)))
+
+
 # 验证 C 后端循环算子在混合精度和 sequence_lens 场景下符合独立 ONNX 公式。
 def test_c_backend_recurrent_ops_match_independent_onnx_formulas():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
@@ -257,3 +289,51 @@ def test_c_backend_recurrent_ops_match_independent_onnx_formulas():
     np.testing.assert_allclose(actual_y.data, expected_y.astype(np.float16), rtol=1e-3, atol=1e-3)
     np.testing.assert_allclose(actual_h.data, expected_h.astype(np.float16), rtol=1e-3, atol=1e-3)
     np.testing.assert_allclose(actual_c.data, expected_c.astype(np.float16), rtol=1e-3, atol=1e-3)
+
+
+# 验证循环算子的 Python fallback 会解码 bfloat16 输入，并把 Y/Y_h/Y_c 按位编码回 bfloat16。
+def test_python_recurrent_fallback_bfloat16_decodes_and_encodes_bit_storage(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    x, x_values = _bf16_tensor(np.array([[[0.5]], [[-0.25]]], dtype=np.float32))
+    rnn_w, rnn_w_values = _bf16_tensor(np.array([[[0.25]]], dtype=np.float32))
+    rnn_r, rnn_r_values = _bf16_tensor(np.array([[[0.1]]], dtype=np.float32))
+    rnn_b, rnn_b_values = _bf16_tensor(np.zeros((1, 2), dtype=np.float32))
+    initial_h, initial_h_values = _bf16_tensor(np.array([[[0.125]]], dtype=np.float32))
+    expected_y, expected_h = _rnn_reference(x_values, rnn_w_values, rnn_r_values, rnn_b_values, initial_h=initial_h_values)
+    actual_y, actual_h = RNN(
+        ["x", "w", "r", "b", "", "h"], ["y", "yh"], hidden_size=1, dtype="bfloat16"
+    ).forward(x, rnn_w, rnn_r, rnn_b, None, initial_h)["tensor"]
+    _assert_bf16_tensor_matches(actual_y, expected_y)
+    _assert_bf16_tensor_matches(actual_h, expected_h)
+
+    gru_w, gru_w_values = _bf16_tensor(np.array([[[0.2], [-0.15], [0.3]]], dtype=np.float32))
+    gru_r, gru_r_values = _bf16_tensor(np.array([[[0.1], [0.05], [-0.2]]], dtype=np.float32))
+    gru_b, gru_b_values = _bf16_tensor(np.zeros((1, 6), dtype=np.float32))
+    expected_y, expected_h = _gru_reference(x_values, gru_w_values, gru_r_values, gru_b_values, initial_h=initial_h_values)
+    actual_y, actual_h = GRU(
+        ["x", "w", "r", "b", "", "h"], ["y", "yh"], hidden_size=1, dtype="bfloat16"
+    ).forward(x, gru_w, gru_r, gru_b, None, initial_h)["tensor"]
+    _assert_bf16_tensor_matches(actual_y, expected_y)
+    _assert_bf16_tensor_matches(actual_h, expected_h)
+
+    lstm_w, lstm_w_values = _bf16_tensor(np.array([[[0.2], [0.1], [-0.15], [0.3]]], dtype=np.float32))
+    lstm_r, lstm_r_values = _bf16_tensor(np.array([[[0.05], [-0.1], [0.2], [0.15]]], dtype=np.float32))
+    lstm_b, lstm_b_values = _bf16_tensor(np.zeros((1, 8), dtype=np.float32))
+    initial_c, initial_c_values = _bf16_tensor(np.array([[[0.05]]], dtype=np.float32))
+    peepholes, peephole_values = _bf16_tensor(np.array([[0.01, -0.02, 0.03]], dtype=np.float32))
+    expected_y, expected_h, expected_c = _lstm_reference(
+        x_values,
+        lstm_w_values,
+        lstm_r_values,
+        lstm_b_values,
+        initial_h=initial_h_values,
+        initial_c=initial_c_values,
+        p=peephole_values,
+    )
+    actual_y, actual_h, actual_c = LSTM(
+        ["x", "w", "r", "b", "", "h", "c", "p"], ["y", "yh", "yc"], hidden_size=1, dtype="bfloat16"
+    ).forward(x, lstm_w, lstm_r, lstm_b, None, initial_h, initial_c, peepholes)["tensor"]
+    _assert_bf16_tensor_matches(actual_y, expected_y)
+    _assert_bf16_tensor_matches(actual_h, expected_h)
+    _assert_bf16_tensor_matches(actual_c, expected_c)

@@ -9,7 +9,26 @@
 #   ******************************************************************************
 # */
 
+from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
+
+
+# 将 float32 数值转换为 bfloat16 的 uint16 位模式，匹配 Tensor 内部存储。
+def _bf16_bits(values):
+    data = np.asarray(values, dtype=np.float32)
+    bits = data.view(np.uint32)
+    lsb = (bits >> 16) & 1
+    guard = (bits >> 15) & 1
+    sticky = (bits & 0x7FFF) != 0
+    rounded = bits + ((guard & (sticky | lsb)).astype(np.uint32) << 16)
+    rounded = np.where(np.isnan(data), bits, rounded)
+    return (rounded >> 16).astype(np.uint16)
+
+
+# 将 bfloat16 的 uint16 位模式解码成 float32，便于按数值容差比较输出。
+def _bf16_to_float32(values):
+    bits = np.asarray(values, dtype=np.uint16).astype(np.uint32) << 16
+    return bits.view(np.float32)
 
 
 # 计算 MaxRoiPool 的独立参考结果，按 ROI 坐标缩放、量化和池化分箱取最大值。
@@ -205,3 +224,53 @@ def test_c_backend_roi_align_mixed_precision_matches_independent_formula():
         dtype="float16",
     ).forward(_tensor(x16, "float16"), _tensor(rois16, "float16"), _tensor(batch_indices, "int64"))["tensor"]
     np.testing.assert_allclose(actual16.data, expected16, rtol=1e-3, atol=1e-3)
+
+
+# 验证 ROI 算子的 Python fallback 在 bfloat16 输入下按位解码，而不是把 uint16 存储当作坐标或特征值。
+def test_python_roi_fallback_bfloat16_decodes_bit_storage(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    x_values = (np.arange(2 * 1 * 4 * 5, dtype=np.float32).reshape(2, 1, 4, 5) / 7.0) - 2.0
+    max_rois = np.array([[0, 0.0, 0.0, 4.0, 3.0], [1, 1.0, 1.0, 3.0, 3.0]], dtype=np.float32)
+    max_actual = MaxRoiPool(
+        ["x", "rois"],
+        ["y"],
+        pooled_shape=[2, 2],
+        spatial_scale=1.0,
+        dtype="bfloat16",
+    ).forward(_tensor(_bf16_bits(x_values), "bfloat16"), _tensor(_bf16_bits(max_rois), "bfloat16"))["tensor"]
+    max_expected = _max_roi_pool_reference(
+        _bf16_to_float32(_bf16_bits(x_values)),
+        _bf16_to_float32(_bf16_bits(max_rois)),
+        pooled_shape=(2, 2),
+        spatial_scale=1.0,
+    )
+    np.testing.assert_allclose(_bf16_to_float32(max_actual.data), max_expected, rtol=2e-2, atol=2e-2)
+
+    align_rois = np.array([[0.2, 0.1, 3.8, 3.0], [0.5, 0.4, 4.0, 2.6]], dtype=np.float32)
+    batch_indices = np.array([0, 1], dtype=np.int64)
+    align_actual = RoiAlign(
+        ["x", "rois", "batch"],
+        ["y"],
+        output_height=1,
+        output_width=2,
+        sampling_ratio=2,
+        mode="avg",
+        coordinate_transformation_mode="half_pixel",
+        dtype="bfloat16",
+    ).forward(
+        _tensor(_bf16_bits(x_values), "bfloat16"),
+        _tensor(_bf16_bits(align_rois), "bfloat16"),
+        _tensor(batch_indices, "int64"),
+    )["tensor"]
+    align_expected = _roi_align_reference(
+        _bf16_to_float32(_bf16_bits(x_values)),
+        _bf16_to_float32(_bf16_bits(align_rois)),
+        batch_indices,
+        output_height=1,
+        output_width=2,
+        sampling_ratio=2,
+        mode="avg",
+        coordinate_transformation_mode="half_pixel",
+    )
+    np.testing.assert_allclose(_bf16_to_float32(align_actual.data), align_expected, rtol=2e-2, atol=2e-2)

@@ -228,10 +228,35 @@ class TopK(Ops):
     def forward(self, x, k_tensor):
         K = int(k_tensor.data.item())
         axis = self.axis if self.axis >= 0 else self.axis + len(x.size)
+        if axis < 0 or axis >= len(x.size):
+            raise ValueError(f"TopK axis {self.axis} is out of bounds for rank {len(x.size)}")
+        if K < 0 or K > x.size[axis]:
+            raise ValueError(f"TopK K={K} must be in [0, {x.size[axis]}]")
         
         out_shape = list(x.size)
         out_shape[axis] = K
         out_shape = tuple(out_shape)
+
+        if self.lib is None or x.dtype not in nn.DTYPE_MAP or self.dtype not in nn.DTYPE_MAP:
+            data = _tensor_data_as_numeric(x)
+            order_data = -data if self.largest else data
+            order = np.argsort(order_data, axis=axis, kind="stable")
+            top_indices = np.take(order, np.arange(K), axis=axis).astype(np.int64, copy=False)
+            top_values = np.take_along_axis(data, top_indices, axis=axis)
+            if self.sorted:
+                values_data = top_values
+                indices_data = top_indices
+            else:
+                values_data = top_values
+                indices_data = top_indices
+            values_data = _cast_numeric_to_dtype(values_data, self.dtype)
+            return {
+                "tensor": [
+                    Tensor(*out_shape, dtype=self.dtype, data=values_data),
+                    Tensor(*out_shape, dtype="int64", data=indices_data),
+                ],
+                "parameters": None,
+            }
         
         values_tensor = Tensor(*out_shape, dtype=self.dtype)
         indices_tensor = Tensor(*out_shape, dtype="int64")

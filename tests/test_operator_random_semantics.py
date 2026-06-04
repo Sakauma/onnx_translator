@@ -11,6 +11,7 @@
 
 from onnx.reference import ReferenceEvaluator
 
+from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import (
     Bernoulli,
@@ -27,6 +28,24 @@ from nn.Operators import (
 def _tensor(data, dtype):
     data = np.asarray(data)
     return Tensor(*data.shape, dtype=dtype, data=data)
+
+
+# 将 float32 数值转换为 bfloat16 的 uint16 位模式，匹配 Tensor 内部存储。
+def _bf16_bits(values):
+    data = np.asarray(values, dtype=np.float32)
+    bits = data.view(np.uint32)
+    lsb = (bits >> 16) & 1
+    guard = (bits >> 15) & 1
+    sticky = (bits & 0x7FFF) != 0
+    rounded = bits + ((guard & (sticky | lsb)).astype(np.uint32) << 16)
+    rounded = np.where(np.isnan(data), bits, rounded)
+    return (rounded >> 16).astype(np.uint16)
+
+
+# 将 bfloat16 的 uint16 位模式解码成 float32，用于按数值容差比较输出。
+def _bf16_to_float32(values):
+    bits = np.asarray(values, dtype=np.uint16).astype(np.uint32) << 16
+    return bits.view(np.float32)
 
 
 # 调用 ONNX reference evaluator，用于验证可精确复现的随机算子路径。
@@ -147,6 +166,54 @@ def test_c_backend_multinomial_respects_probability_rows_dtype_and_seed():
     assert np.all((first.data >= 0) & (first.data < 3))
 
 
+# 验证 Python fallback 在 bfloat16 下正确按位写回随机输出，而不是写入普通 uint16 数值。
+def test_python_random_fallback_bfloat16_outputs_use_bit_storage(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    uniform = RandomUniform([], ["y"], low=0.25, high=0.75, seed=19.0, dtype="bfloat16", shape=[2, 3]).forward()["tensor"]
+    assert uniform.dtype == "bfloat16"
+    assert uniform.data.dtype == np.uint16
+    uniform_values = _bf16_to_float32(uniform.data)
+    assert np.all(np.isfinite(uniform_values))
+    assert np.all(uniform_values >= np.float32(0.25))
+    assert np.all(uniform_values <= np.float32(0.75))
+
+    like_input = _tensor(_bf16_bits(np.ones((2, 2), dtype=np.float32)), "bfloat16")
+    uniform_like = RandomUniformLike(["x"], ["y"], low=-0.5, high=0.5, seed=23.0).forward(like_input)["tensor"]
+    assert uniform_like.dtype == "bfloat16"
+    assert uniform_like.data.dtype == np.uint16
+    uniform_like_values = _bf16_to_float32(uniform_like.data)
+    assert np.all(uniform_like_values >= np.float32(-0.5))
+    assert np.all(uniform_like_values <= np.float32(0.5))
+
+    normal = RandomNormal([], ["y"], mean=2.0, scale=0.25, seed=29.0, dtype="bfloat16", shape=[2048]).forward()["tensor"]
+    assert normal.dtype == "bfloat16"
+    assert normal.data.dtype == np.uint16
+    normal_values = _bf16_to_float32(normal.data)
+    assert np.all(np.isfinite(normal_values))
+    assert abs(float(np.mean(normal_values)) - 2.0) < 0.03
+
+    normal_like = RandomNormalLike(["x"], ["y"], mean=-1.0, scale=0.5, seed=31.0).forward(like_input)["tensor"]
+    assert normal_like.dtype == "bfloat16"
+    assert normal_like.data.dtype == np.uint16
+    assert np.all(np.isfinite(_bf16_to_float32(normal_like.data)))
+
+
+# 验证 Bernoulli/Multinomial fallback 会先解码 bfloat16 概率，再按目标 dtype 写回输出。
+def test_python_probability_fallback_bfloat16_decodes_probabilities(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    extreme_prob = _tensor(_bf16_bits(np.array([0.0, 1.0, 1.0, 0.0], dtype=np.float32)), "bfloat16")
+    bernoulli = Bernoulli(["p"], ["y"], dtype="bfloat16", seed=37.0).forward(extreme_prob)["tensor"]
+    assert bernoulli.dtype == "bfloat16"
+    np.testing.assert_array_equal(bernoulli.data, _bf16_bits(np.array([0.0, 1.0, 1.0, 0.0], dtype=np.float32)))
+
+    skewed_prob = _tensor(_bf16_bits(np.array([[1.0e-8, 1.0, 0.0]], dtype=np.float32)), "bfloat16")
+    samples = Multinomial(["p"], ["y"], dtype=TensorProto.INT64, sample_size=64, seed=41.0).forward(skewed_prob)["tensor"]
+    assert samples.dtype == "int64"
+    np.testing.assert_array_equal(samples.data, np.ones((1, 64), dtype=np.int64))
+
+
 # 验证 Dropout 推理和训练模式与 ONNX reference 在固定 seed 下完全一致。
 def test_dropout_inference_and_training_match_onnx_reference_with_seed():
     x = np.arange(6, dtype=np.float32).reshape(2, 3)
@@ -181,3 +248,22 @@ def test_dropout_inference_and_training_match_onnx_reference_with_seed():
     )
     np.testing.assert_array_equal(training_actual[1].data, training_expected[1])
     np.testing.assert_allclose(training_actual[0].data, training_expected[0], rtol=1e-7, atol=1e-7)
+
+
+# 验证 Dropout 训练模式在 bfloat16 下先解码输入再缩放，并把输出重新编码为位模式。
+def test_dropout_training_bfloat16_decodes_and_encodes_bit_storage():
+    x_values = np.array([[1.0, 2.0, -3.0], [0.5, -0.25, 4.0]], dtype=np.float32)
+    ratio = np.array(0.25, dtype=np.float32)
+    training_mode = np.array(True, dtype=np.bool_)
+    actual_y, actual_mask = Dropout(["x", "ratio", "training_mode"], ["y", "mask"], seed=53).forward(
+        _tensor(_bf16_bits(x_values), "bfloat16"),
+        _tensor(_bf16_bits(ratio), "bfloat16"),
+        _tensor(training_mode, "bool"),
+    )["tensor"]
+
+    mask = np.random.RandomState(53).uniform(0.0, 1.0, x_values.shape) >= float(ratio)
+    expected = _bf16_bits(x_values * mask.astype(np.float32) / (1.0 - float(ratio)))
+    assert actual_y.dtype == "bfloat16"
+    assert actual_y.data.dtype == np.uint16
+    np.testing.assert_array_equal(actual_mask.data, mask)
+    np.testing.assert_array_equal(actual_y.data, expected)

@@ -616,7 +616,7 @@ class Cast(Ops):
         np_dtype = nn.DTYPE_TO_NUMPY.get(self.dtype)
         if np_dtype is None:
             raise ValueError(f"Cast target dtype {self.dtype!r} is not supported")
-        out_data = np.asarray(input.data).astype(np_dtype)
+        out_data = _cast_numeric_to_dtype(_tensor_data_as_numeric(input), self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
     # 执行 `Cast` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input: Tensor_) -> dict:
@@ -648,7 +648,7 @@ class CastLike(Ops):
         np_dtype = nn.DTYPE_TO_NUMPY.get(out_dtype)
         if np_dtype is None:
             raise ValueError(f"CastLike target dtype {out_dtype!r} is not supported")
-        out_data = input.data.astype(np_dtype)
+        out_data = _cast_numeric_to_dtype(_tensor_data_as_numeric(input), out_dtype)
         return {"tensor": Tensor(*input.size, dtype=out_dtype, data=out_data), "parameters": None, "graph": None}
 
     # 执行 `CastLike` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。

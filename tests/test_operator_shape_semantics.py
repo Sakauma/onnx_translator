@@ -12,6 +12,7 @@
 from onnx import numpy_helper
 from onnx.reference import ReferenceEvaluator
 
+from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import (
     Compress,
@@ -70,6 +71,35 @@ def _assert_tensor_matches(actual, expected):
         np.testing.assert_allclose(actual.data, expected, rtol=1e-3, atol=1e-3)
     else:
         np.testing.assert_array_equal(actual.data, expected)
+
+
+# 将 float32 数值转换为 bfloat16 的 uint16 位模式，匹配 Tensor 内部存储。
+def _bf16_bits(values):
+    data = np.asarray(values, dtype=np.float32)
+    bits = data.view(np.uint32)
+    lsb = (bits >> 16) & 1
+    guard = (bits >> 15) & 1
+    sticky = (bits & 0x7FFF) != 0
+    rounded = bits + ((guard & (sticky | lsb)).astype(np.uint32) << 16)
+    rounded = np.where(np.isnan(data), bits, rounded)
+    return (rounded >> 16).astype(np.uint16)
+
+
+def _bf16_to_float32(values):
+    bits = np.asarray(values, dtype=np.uint16).astype(np.uint32) << 16
+    return bits.view(np.float32)
+
+
+# 验证 Range 的 Python fallback 会解码 bfloat16 起止和步长，并按 bfloat16 位模式写回。
+def test_python_range_fallback_bfloat16_decodes_scalar_inputs(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    start = _tensor(_bf16_bits(np.array(-1.0, dtype=np.float32)), "bfloat16")
+    limit = _tensor(_bf16_bits(np.array(1.0, dtype=np.float32)), "bfloat16")
+    delta = _tensor(_bf16_bits(np.array(0.5, dtype=np.float32)), "bfloat16")
+    actual = Range(["start", "limit", "delta"], ["y"], dtype="bfloat16").forward(start, limit, delta)["tensor"]
+    np.testing.assert_array_equal(actual.data, _bf16_bits(np.array([-1.0, -0.5, 0.0, 0.5], dtype=np.float32)))
+    np.testing.assert_allclose(_bf16_to_float32(actual.data), np.array([-1.0, -0.5, 0.0, 0.5], dtype=np.float32))
 
 
 # 验证基础 shape transform 算子在 float16 数据上与 ONNX reference 对齐。

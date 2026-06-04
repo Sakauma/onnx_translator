@@ -129,10 +129,13 @@ class RNN(Ops):
 
     # 执行 `RNN` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, w, r, b=None, sequence_lens=None, initial_h=None):
-        x_time = _recurrent_time_major(np.asarray(x.data), self.layout)
+        x_data = _tensor_data_as_numeric(x)
+        w_data = _tensor_data_as_numeric(w)
+        r_data = _tensor_data_as_numeric(r)
+        x_time = _recurrent_time_major(x_data, self.layout)
         seq_len, batch_size = x_time.shape[0], x_time.shape[1]
-        num_dirs = w.data.shape[0]
-        hidden = self.hidden_size or r.data.shape[-1]
+        num_dirs = w_data.shape[0]
+        hidden = self.hidden_size or r_data.shape[-1]
         if self._c_supported(x, w, r, b, sequence_lens, initial_h):
             y_shape = (batch_size, seq_len, num_dirs, hidden) if self.layout == 1 else (seq_len, num_dirs, batch_size, hidden)
             y_h_shape = (num_dirs, batch_size, hidden)
@@ -161,8 +164,8 @@ class RNN(Ops):
             outputs = (Tensor(*y_shape, dtype=self.dtype, data=y_data), Tensor(*y_h_shape, dtype=self.dtype, data=yh_data))
             return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
 
-        bias = b.data if b is not None else np.zeros((num_dirs, 2 * hidden), dtype=x_time.dtype)
-        h_prev = initial_h.data.copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
+        bias = _tensor_data_as_numeric(b) if b is not None else np.zeros((num_dirs, 2 * hidden), dtype=x_time.dtype)
+        h_prev = _tensor_data_as_numeric(initial_h).copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
         y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=x_time.dtype)
         for direction_index in range(num_dirs):
             reverse = self.direction == "reverse" or (self.direction == "bidirectional" and direction_index == 1)
@@ -171,14 +174,14 @@ class RNN(Ops):
             wb, rb = np.split(bias[direction_index], 2)
             h_t = h_prev[direction_index]
             for t in time_indices:
-                pre = x_time[t] @ w.data[direction_index].T + h_t @ r.data[direction_index].T + wb + rb
+                pre = x_time[t] @ w_data[direction_index].T + h_t @ r_data[direction_index].T + wb + rb
                 h_new = act(_clip_if_needed(pre, self.clip))
                 active = _sequence_mask(sequence_lens, t, batch_size)
                 h_t = np.where(active, h_new, h_t)
                 y[t, direction_index] = h_t
             h_prev[direction_index] = h_t
-        y = _recurrent_output_layout(y, self.layout).astype(nn.DTYPE_TO_NUMPY.get(self.dtype, x_time.dtype), copy=False)
-        y_h = h_prev.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, x_time.dtype), copy=False)
+        y = _cast_numeric_to_dtype(_recurrent_output_layout(y, self.layout), self.dtype)
+        y_h = _cast_numeric_to_dtype(h_prev, self.dtype)
         outputs = (Tensor(*y.shape, dtype=self.dtype, data=y), Tensor(*y_h.shape, dtype=self.dtype, data=y_h))
         return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
 
@@ -240,10 +243,13 @@ class GRU(RNN):
 
     # 执行 `GRU` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, w, r, b=None, sequence_lens=None, initial_h=None):
-        x_time = _recurrent_time_major(np.asarray(x.data), self.layout)
+        x_data = _tensor_data_as_numeric(x)
+        w_data = _tensor_data_as_numeric(w)
+        r_data = _tensor_data_as_numeric(r)
+        x_time = _recurrent_time_major(x_data, self.layout)
         seq_len, batch_size = x_time.shape[0], x_time.shape[1]
-        num_dirs = w.data.shape[0]
-        hidden = self.hidden_size or r.data.shape[-1]
+        num_dirs = w_data.shape[0]
+        hidden = self.hidden_size or r_data.shape[-1]
         if self._c_supported(x, w, r, b, sequence_lens, initial_h):
             y_shape = (batch_size, seq_len, num_dirs, hidden) if self.layout == 1 else (seq_len, num_dirs, batch_size, hidden)
             y_h_shape = (num_dirs, batch_size, hidden)
@@ -273,16 +279,16 @@ class GRU(RNN):
             outputs = (Tensor(*y_shape, dtype=self.dtype, data=y_data), Tensor(*y_h_shape, dtype=self.dtype, data=yh_data))
             return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
 
-        bias = b.data if b is not None else np.zeros((num_dirs, 6 * hidden), dtype=x_time.dtype)
-        h_prev = initial_h.data.copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
+        bias = _tensor_data_as_numeric(b) if b is not None else np.zeros((num_dirs, 6 * hidden), dtype=x_time.dtype)
+        h_prev = _tensor_data_as_numeric(initial_h).copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
         y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=x_time.dtype)
         for direction_index in range(num_dirs):
             reverse = self.direction == "reverse" or (self.direction == "bidirectional" and direction_index == 1)
             time_indices = range(seq_len - 1, -1, -1) if reverse else range(seq_len)
             f = _activation_at(self.activations, self.activation_alpha, self.activation_beta, direction_index * 2, "Sigmoid")
             g = _activation_at(self.activations, self.activation_alpha, self.activation_beta, direction_index * 2 + 1, "Tanh")
-            wz, wr, wh = np.split(w.data[direction_index], 3)
-            rz, rr, rh = np.split(r.data[direction_index], 3)
+            wz, wr, wh = np.split(w_data[direction_index], 3)
+            rz, rr, rh = np.split(r_data[direction_index], 3)
             wbz, wbr, wbh, rbz, rbr, rbh = np.split(bias[direction_index], 6)
             h_t = h_prev[direction_index]
             for t in time_indices:
@@ -297,8 +303,8 @@ class GRU(RNN):
                 h_t = np.where(active, h_new, h_t)
                 y[t, direction_index] = h_t
             h_prev[direction_index] = h_t
-        y = _recurrent_output_layout(y, self.layout).astype(nn.DTYPE_TO_NUMPY.get(self.dtype, x_time.dtype), copy=False)
-        y_h = h_prev.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, x_time.dtype), copy=False)
+        y = _cast_numeric_to_dtype(_recurrent_output_layout(y, self.layout), self.dtype)
+        y_h = _cast_numeric_to_dtype(h_prev, self.dtype)
         outputs = (Tensor(*y.shape, dtype=self.dtype, data=y), Tensor(*y_h.shape, dtype=self.dtype, data=y_h))
         return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
 
@@ -349,10 +355,13 @@ class LSTM(RNN):
 
     # 执行 `LSTM` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, w, r, b=None, sequence_lens=None, initial_h=None, initial_c=None, p=None):
-        x_time = _recurrent_time_major(np.asarray(x.data), self.layout)
+        x_data = _tensor_data_as_numeric(x)
+        w_data = _tensor_data_as_numeric(w)
+        r_data = _tensor_data_as_numeric(r)
+        x_time = _recurrent_time_major(x_data, self.layout)
         seq_len, batch_size = x_time.shape[0], x_time.shape[1]
-        num_dirs = w.data.shape[0]
-        hidden = self.hidden_size or r.data.shape[-1]
+        num_dirs = w_data.shape[0]
+        hidden = self.hidden_size or r_data.shape[-1]
         if self._c_supported(x, w, r, b, sequence_lens, initial_h, initial_c, p):
             y_shape = (batch_size, seq_len, num_dirs, hidden) if self.layout == 1 else (seq_len, num_dirs, batch_size, hidden)
             y_h_shape = (num_dirs, batch_size, hidden)
@@ -391,10 +400,10 @@ class LSTM(RNN):
             selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
             return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
 
-        bias = b.data if b is not None else np.zeros((num_dirs, 8 * hidden), dtype=x_time.dtype)
-        peepholes = p.data if p is not None else np.zeros((num_dirs, 3 * hidden), dtype=x_time.dtype)
-        h_prev = initial_h.data.copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
-        c_prev = initial_c.data.copy() if initial_c is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
+        bias = _tensor_data_as_numeric(b) if b is not None else np.zeros((num_dirs, 8 * hidden), dtype=x_time.dtype)
+        peepholes = _tensor_data_as_numeric(p) if p is not None else np.zeros((num_dirs, 3 * hidden), dtype=x_time.dtype)
+        h_prev = _tensor_data_as_numeric(initial_h).copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
+        c_prev = _tensor_data_as_numeric(initial_c).copy() if initial_c is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
         y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=x_time.dtype)
         for direction_index in range(num_dirs):
             reverse = self.direction == "reverse" or (self.direction == "bidirectional" and direction_index == 1)
@@ -407,7 +416,7 @@ class LSTM(RNN):
             c_t = c_prev[direction_index]
             bias_sum = np.add(*np.split(bias[direction_index], 2))
             for t in time_indices:
-                i, o, forget, c = np.split(x_time[t] @ w.data[direction_index].T + h_t @ r.data[direction_index].T + bias_sum, 4, axis=-1)
+                i, o, forget, c = np.split(x_time[t] @ w_data[direction_index].T + h_t @ r_data[direction_index].T + bias_sum, 4, axis=-1)
                 i = f_act(_clip_if_needed(i + p_i * c_t, self.clip))
                 forget = 1.0 - i if self.input_forget else f_act(_clip_if_needed(forget + p_f * c_t, self.clip))
                 c_bar = g_act(_clip_if_needed(c, self.clip))
@@ -420,9 +429,9 @@ class LSTM(RNN):
                 y[t, direction_index] = h_t
             h_prev[direction_index] = h_t
             c_prev[direction_index] = c_t
-        y = _recurrent_output_layout(y, self.layout).astype(nn.DTYPE_TO_NUMPY.get(self.dtype, x_time.dtype), copy=False)
-        y_h = h_prev.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, x_time.dtype), copy=False)
-        y_c = c_prev.astype(nn.DTYPE_TO_NUMPY.get(self.dtype, x_time.dtype), copy=False)
+        y = _cast_numeric_to_dtype(_recurrent_output_layout(y, self.layout), self.dtype)
+        y_h = _cast_numeric_to_dtype(h_prev, self.dtype)
+        y_c = _cast_numeric_to_dtype(c_prev, self.dtype)
         outputs = (
             Tensor(*y.shape, dtype=self.dtype, data=y),
             Tensor(*y_h.shape, dtype=self.dtype, data=y_h),
@@ -495,12 +504,20 @@ class Clip(Ops):
         # 此时 input_data, min_data, max_data 的 shape 应该完全一致
         out_shape = input_data.shape
         if self.lib is None or self.dtype not in nn.DTYPE_MAP:
-            out_data = input_data
+            numeric_inputs = [_tensor_data_as_numeric(input)]
+            if min_val is not None:
+                numeric_inputs.append(_tensor_data_as_numeric(min_val))
+            if max_val is not None:
+                numeric_inputs.append(_tensor_data_as_numeric(max_val))
+            numeric_broadcasted = np.broadcast_arrays(*numeric_inputs)
+            out_data = numeric_broadcasted[0]
+            idx = 1
             if min_data is not None:
-                out_data = np.maximum(out_data, min_data)
+                out_data = np.maximum(out_data, numeric_broadcasted[idx])
+                idx += 1
             if max_data is not None:
-                out_data = np.minimum(out_data, max_data)
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+                out_data = np.minimum(out_data, numeric_broadcasted[idx])
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
             return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
         
         input_c = self._numpy_to_ctensor(input_data, self.dtype) # 使用广播后的数据
