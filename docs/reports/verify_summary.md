@@ -6,6 +6,7 @@
   * @brief       记录阶段性算子数值验证和图结构验证总结。
   * @details     2026.06.02  V1.0.0  创建
   * @details     2026.06.05  V1.0.1  补充完整 numerical 收尾验证记录
+  * @details     2026.06.05  V1.0.2  补充 Transpose CUDA 数值门禁记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -137,11 +138,13 @@
 
 - 命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`
 - 结果：全部通过，无失败算子。
-- 覆盖：默认 active numerical plan 覆盖 75 个唯一算子名称、199 条默认计划，其中混合精度计划 122 条。
+- 覆盖：默认 active numerical plan 覆盖 76 个唯一算子名称、204 条默认计划，其中混合精度计划 126 条。
 - 覆盖 dtype：包含 float32、float16、bfloat16、float8_e4m3、float8_e5m2，以及 int8、uint8、int64、bool 等量化、索引和比较相关类型。
 - 高风险算子：MaxRoiPool、RoiAlign、RNN、GRU、LSTM、DFT、STFT 已进入完整 numerical 默认门禁，并在本轮一轮验证中通过。
 
 本轮同时修正 `QuantizeLinear` 在 float32 scale 下的 nearest-even 舍入细节：当输入和 scale 均不是 float64 时，C 后端使用 float32 中间值与 `rintf`，避免将 float32 scale 提升到 double 后改变 ONNX 参考实现的半点舍入结果。新增回归测试覆盖 `axis=-1` 的 per-axis uint8/int8 量化，并使用 ONNX `ReferenceEvaluator` 对齐官方参考输出。
+
+后续补充 `Transpose` 的 CUDA 参考验证程序，并将 float32、float16、bfloat16、float8_e4m3、float8_e5m2 五条计划接入默认 numerical 门禁。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op transpose --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
 
 ### 剩余风险
 

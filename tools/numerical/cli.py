@@ -27,7 +27,7 @@ from nn.Operators import (
     Gather, GatherElements, GatherND, COS, LOG, EXP, SIGMOID, TANH,
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min, Not, And, Or, Xor, IsNaN,
     CumSum, Softmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
-    QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
+    QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM, Transpose,
 )
 
 from . import cuda as cuda_backend
@@ -151,6 +151,10 @@ def build_mixed_precision_plans():
         (Resize, "resize", [(1, 2, 4, 4), (0,), (0,), (4,)], ["bfloat16", "bfloat16", "bfloat16", "int64"], "bfloat16", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1, 2, 8, 8]}),
         (Resize, "resize", [(1, 2, 4, 4), (0,), (0,), (4,)], ["float8_e4m3", "float8_e4m3", "float8_e4m3", "int64"], "float8_e4m3", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1, 2, 8, 8]}),
         (Resize, "resize", [(1, 2, 4, 4), (0,), (0,), (4,)], ["float8_e5m2", "float8_e5m2", "float8_e5m2", "int64"], "float8_e5m2", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1, 2, 8, 8]}),
+        (Transpose, "transpose", [(2, 3, 4)], ["float16"], "float16", {"perm": [2, 0, 1]}),
+        (Transpose, "transpose", [(2, 3, 4)], ["bfloat16"], "bfloat16", {"perm": [2, 0, 1]}),
+        (Transpose, "transpose", [(2, 3, 4)], ["float8_e4m3"], "float8_e4m3", {"perm": [2, 0, 1]}),
+        (Transpose, "transpose", [(2, 3, 4)], ["float8_e5m2"], "float8_e5m2", {"perm": [2, 0, 1]}),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["float16", "float16", "int8"], "int8"),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["bfloat16", "bfloat16", "int8"], "int8"),
         (DequantizeLinear, "dequantize_linear", [(32, 32), (1,), (1,)], ["int8", "float16", "int8"], "float16"),
@@ -274,6 +278,8 @@ def build_default_plans():
 
     # Resize: x, roi, scales, sizes
     (Resize, "resize", [(1,3,8,8), (0,), (0,), (4,)], ["float32", "float32", "float32", "int64"], "float32", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1,3,16,16]}),
+
+    (Transpose, "transpose", [(2, 3, 4)], ["float32"], "float32", {"perm": [2, 0, 1]}),
 
     # Einsum: 当前固定主路径 ij,jk->ik
     (Einsum, "einsum", [(16,32), (32,8)], ["float32", "float32"], "float32", {"equation": "ij,jk->ik"}),
