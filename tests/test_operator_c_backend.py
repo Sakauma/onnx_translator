@@ -13,6 +13,27 @@ from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 
 
+def test_c_backend_einsum_ellipsis_uses_stride_planner(monkeypatch):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    left_data = (np.arange(1 * 3 * 4, dtype=np.float32).reshape(1, 3, 4) + 1.0) / 10.0
+    right_data = (np.arange(2 * 4 * 5, dtype=np.float32).reshape(2, 4, 5) - 3.0) / 7.0
+    expected = np.einsum("...ij,...jk->...ik", left_data, right_data).astype(np.float32)
+
+    def fail_einsum(*_args, **_kwargs):
+        raise AssertionError("Einsum ellipsis path should be handled by the C stride planner")
+
+    monkeypatch.setattr(np, "einsum", fail_einsum)
+    actual = Einsum(["left", "right"], ["out"], equation="...ij,...jk->...ik", dtype="float32").forward(
+        Tensor(*left_data.shape, dtype="float32", data=left_data),
+        Tensor(*right_data.shape, dtype="float32", data=right_data),
+    )["tensor"]
+
+    assert actual.size == expected.shape
+    np.testing.assert_allclose(actual.data, expected, rtol=1e-6, atol=1e-6)
+
+
 def test_global_pooling_and_dropout_optional_mask(monkeypatch):
     _disable_c_backend(monkeypatch)
 

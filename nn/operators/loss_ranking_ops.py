@@ -524,25 +524,17 @@ class Einsum(Ops):
     # 封装 `_parse_equation` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _parse_equation(self, shapes):
         equation = self.equation.replace(" ", "")
-        if "->" in self.equation:
+        if "->" in equation:
             lhs, rhs = equation.split("->")
-            input_labels = lhs.split(",")
-            output_labels = rhs
+            input_labels, output_labels, ellipsis_labels = self._expand_ellipsis_labels(lhs.split(","), shapes, rhs)
         else:
-            input_labels = equation.split(",")
-            counts = {}
-            for label in "".join(input_labels):
-                counts[label] = counts.get(label, 0) + 1
-            output_labels = "".join(sorted(label for label, count in counts.items() if count == 1))
-
+            input_labels, output_labels, ellipsis_labels = self._expand_ellipsis_labels(equation.split(","), shapes, None)
         if len(input_labels) != len(shapes):
             raise ValueError(f"Einsum: Equation expects {len(input_labels)} inputs, got {len(shapes)}")
-        if "." in "".join(input_labels) + output_labels:
-            raise ValueError("Einsum: Ellipsis parsing is not supported by the C stride planner")
         if len(set(output_labels)) != len(output_labels):
             raise ValueError(f"Einsum: Output labels cannot repeat: {output_labels}")
             
-        # 收集所有唯一标签及其维度大小
+        # 收集所有唯一标签及其维度大小；ellipsis 标签允许广播，显式标签必须维度完全一致。
         unique_labels = sorted(list(set("".join(input_labels) + output_labels)))
         unique_labels = [l for l in unique_labels if l.strip()] # 去除空格
         
@@ -553,9 +545,19 @@ class Einsum(Ops):
             if len(labels) != len(shape):
                 raise ValueError(f"Einsum: Labels {labels} mismatch shape {shape}")
             for l, dim in zip(labels, shape):
-                if l in label_to_dim and label_to_dim[l] != dim:
+                dim = int(dim)
+                if l not in label_to_dim:
+                    label_to_dim[l] = dim
+                    continue
+                if l in ellipsis_labels:
+                    old_dim = label_to_dim[l]
+                    if old_dim == dim or dim == 1:
+                        continue
+                    if old_dim == 1:
+                        label_to_dim[l] = dim
+                        continue
+                if label_to_dim[l] != dim:
                     raise ValueError(f"Einsum: Label {l!r} has inconsistent dimensions {label_to_dim[l]} and {dim}")
-                label_to_dim[l] = dim
 
         for label in output_labels:
             if label not in label_to_dim:
@@ -586,9 +588,15 @@ class Einsum(Ops):
             current_tensor_strides = []
             for u_label in unique_labels:
                 if u_label in labels:
-                    # Repeated labels in one operand select a diagonal; the offset
-                    # stride is the sum of every matching axis stride.
-                    stride = sum(native_strides[idx] for idx, label in enumerate(labels) if label == u_label)
+                    # 同一个输入中的重复标签表示取对角线，偏移步长需要累加所有匹配轴的 stride。
+                    # ellipsis 展开的轴在原始维度为 1 时按广播处理，不参与实际地址递增。
+                    stride = 0
+                    for idx, label in enumerate(labels):
+                        if label != u_label:
+                            continue
+                        if u_label in ellipsis_labels and int(shapes[i][idx]) == 1 and label_to_dim[u_label] != 1:
+                            continue
+                        stride += native_strides[idx]
                     current_tensor_strides.append(stride)
                 else:
                     current_tensor_strides.append(0) # 广播/无关维度
@@ -607,6 +615,67 @@ class Einsum(Ops):
         out_shape = tuple([label_to_dim[l] for l in output_labels])
         
         return unique_labels, loop_limits, input_strides_flat, output_strides_flat, out_shape
+
+    # 将官方 Einsum ellipsis 语法展开成内部单字符标签，便于复用 C 后端 stride planner。
+    def _expand_ellipsis_labels(self, input_specs, shapes, output_spec):
+        if len(input_specs) != len(shapes):
+            raise ValueError(f"Einsum: Equation expects {len(input_specs)} inputs, got {len(shapes)}")
+        used_labels = set("".join(input_specs) + (output_spec or ""))
+        used_labels.discard(".")
+        label_pool = [label for label in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" if label not in used_labels]
+
+        parsed_inputs = []
+        max_ellipsis_rank = 0
+        for labels, shape in zip(input_specs, shapes):
+            if labels.count("...") > 1:
+                raise ValueError(f"Einsum: Operand {labels!r} contains multiple ellipses")
+            if "..." not in labels:
+                if "." in labels:
+                    raise ValueError(f"Einsum: Invalid ellipsis syntax in operand {labels!r}")
+                if len(labels) != len(shape):
+                    raise ValueError(f"Einsum: Labels {labels} mismatch shape {shape}")
+                parsed_inputs.append((labels, "", 0, False))
+                continue
+            prefix, suffix = labels.split("...")
+            if "." in prefix + suffix:
+                raise ValueError(f"Einsum: Invalid ellipsis syntax in operand {labels!r}")
+            ellipsis_rank = len(shape) - len(prefix) - len(suffix)
+            if ellipsis_rank < 0:
+                raise ValueError(f"Einsum: Labels {labels} mismatch shape {shape}")
+            max_ellipsis_rank = max(max_ellipsis_rank, ellipsis_rank)
+            parsed_inputs.append((prefix, suffix, ellipsis_rank, True))
+
+        if len(label_pool) < max_ellipsis_rank:
+            raise ValueError("Einsum: Not enough internal labels to expand ellipsis")
+        ellipsis_labels = "".join(label_pool[:max_ellipsis_rank])
+
+        expanded_inputs = []
+        for prefix, suffix, ellipsis_rank, has_ellipsis in parsed_inputs:
+            if has_ellipsis:
+                expanded_inputs.append(prefix + ellipsis_labels[max_ellipsis_rank - ellipsis_rank:] + suffix)
+            else:
+                expanded_inputs.append(prefix)
+
+        if output_spec is None:
+            counts = {}
+            for label in "".join(expanded_inputs):
+                if label in ellipsis_labels:
+                    continue
+                counts[label] = counts.get(label, 0) + 1
+            return expanded_inputs, ellipsis_labels + "".join(sorted(label for label, count in counts.items() if count == 1)), set(ellipsis_labels)
+
+        if output_spec.count("...") > 1:
+            raise ValueError(f"Einsum: Output {output_spec!r} contains multiple ellipses")
+        if "..." in output_spec:
+            prefix, suffix = output_spec.split("...")
+            if "." in prefix + suffix:
+                raise ValueError(f"Einsum: Invalid ellipsis syntax in output {output_spec!r}")
+            output_labels = prefix + ellipsis_labels + suffix
+        else:
+            if "." in output_spec:
+                raise ValueError(f"Einsum: Invalid ellipsis syntax in output {output_spec!r}")
+            output_labels = output_spec
+        return expanded_inputs, output_labels, set(ellipsis_labels)
 
     # 封装 `_forward_ij_jk_to_ik` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _forward_ij_jk_to_ik(self, left, right):

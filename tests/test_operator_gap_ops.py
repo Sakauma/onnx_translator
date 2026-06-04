@@ -13,6 +13,17 @@ from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 
 
+def _bf16_bits(values):
+    data = np.asarray(values, dtype=np.float32)
+    bits = data.view(np.uint32)
+    lsb = (bits >> 16) & 1
+    guard = (bits >> 15) & 1
+    sticky = (bits & 0x7FFF) != 0
+    rounded = bits + ((guard & (sticky | lsb)).astype(np.uint32) << 16)
+    rounded = np.where(np.isnan(data), bits, rounded)
+    return (rounded >> 16).astype(np.uint16)
+
+
 def test_independent_onnx17_gap_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)
 
@@ -372,6 +383,7 @@ def test_onnx17_probability_loss_and_spectral_ops(monkeypatch, tmp_path):
     expected_stft = np.stack([expected_stft_complex.real, expected_stft_complex.imag], axis=-1).astype(np.float32)
     np.testing.assert_allclose(stft.data, expected_stft, rtol=1e-6, atol=1e-6)
 
+
     window_size = Tensor(dtype="int64", data=np.array(5, dtype=np.int64))
     assert HannWindow(["size"], ["hann"]).forward_(window_size)["tensor"].size == (5,)
     hamming_shape = HammingWindow(["size"], ["hamming"], output_datatype=TensorProto.DOUBLE).forward_(window_size)["tensor"]
@@ -451,6 +463,33 @@ def test_onnx17_probability_loss_and_spectral_ops(monkeypatch, tmp_path):
         "Multinomial", "NegativeLogLikelihoodLoss", "SoftmaxCrossEntropyLoss", "MelWeightMatrix",
         "DFT", "STFT", "HannWindow", "HammingWindow", "BlackmanWindow"
     ]
+
+
+def test_spectral_bfloat16_python_fallback_decodes_bit_storage(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    signal_values = np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32)
+    signal = Tensor(*signal_values.shape, dtype="bfloat16", data=_bf16_bits(signal_values))
+    dft_length = Tensor(dtype="int64", data=np.array(4, dtype=np.int64))
+
+    dft = DFT(["x", "dft_len"], ["y"], axis=1, onesided=1, dtype="bfloat16").forward(
+        signal, dft_length
+    )["tensor"]
+    expected_fft = np.fft.fft(signal_values.squeeze(-1), n=4, axis=1)[:, :3]
+    expected_dft = np.stack([expected_fft.real, expected_fft.imag], axis=-1).astype(np.float32)
+    np.testing.assert_array_equal(dft.data, _bf16_bits(expected_dft))
+
+    stft = STFT(["x", "step", "window", "length"], ["y"], onesided=1, dtype="bfloat16").forward(
+        signal,
+        Tensor(dtype="int64", data=np.array(2, dtype=np.int64)),
+        Tensor(2, dtype="bfloat16", data=_bf16_bits(np.ones((2,), dtype=np.float32))),
+        Tensor(dtype="int64", data=np.array(2, dtype=np.int64)),
+    )["tensor"]
+    expected_frames = np.array([[[[1.0], [2.0]], [[3.0], [4.0]]]], dtype=np.float32)
+    expected_stft_complex = np.fft.fft(expected_frames.squeeze(-1), n=2, axis=-1)[..., :2]
+    expected_stft = np.stack([expected_stft_complex.real, expected_stft_complex.imag], axis=-1).astype(np.float32)
+    np.testing.assert_array_equal(stft.data, _bf16_bits(expected_stft))
+
 
 def test_onnx17_recurrent_ops(monkeypatch, tmp_path):
     _disable_c_backend(monkeypatch)

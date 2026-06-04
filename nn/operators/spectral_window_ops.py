@@ -11,6 +11,28 @@
 
 from .common import *
 
+
+# 将 Python 侧以 uint16 位模式存储的 bfloat16 解码成 float32 数值，避免谱算子 fallback 把位模式误当整数幅值。
+def _bfloat16_bits_to_float32(values):
+    bits = np.asarray(values, dtype=np.uint16).astype(np.uint32) << 16
+    return bits.view(np.float32)
+
+
+# 将 ONNX 混合精度输入统一提升为可参与 FFT 的实数数组；bfloat16 需要先按位解码。
+def _spectral_real_values(values, dtype):
+    if dtype == "bfloat16":
+        return _bfloat16_bits_to_float32(values)
+    target = np.float64 if dtype == "float64" else np.float32
+    return np.asarray(values, dtype=target)
+
+
+# 将谱算子的浮点结果写回目标 ONNX dtype；bfloat16 输出仍以 uint16 位模式保存。
+def _cast_spectral_output(values, dtype):
+    if dtype == "bfloat16":
+        return _float32_to_bfloat16_bits(values)
+    return np.asarray(values, dtype=nn.DTYPE_TO_NUMPY.get(dtype, np.float32))
+
+
 class MelWeightMatrix(Ops):
     # 初始化 `MelWeightMatrix` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, output_datatype=1, version="17"):
@@ -128,11 +150,12 @@ class DFT(Ops):
 
     # 封装 `_as_complex` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
-    def _as_complex(data):
-        if data.shape[-1] == 1:
-            return np.squeeze(data, axis=-1).astype(np.complex128)
-        if data.shape[-1] == 2:
-            return data[..., 0].astype(np.complex128) + 1j * data[..., 1].astype(np.complex128)
+    def _as_complex(data, dtype):
+        real_data = _spectral_real_values(data, dtype)
+        if real_data.shape[-1] == 1:
+            return np.squeeze(real_data, axis=-1).astype(np.complex128)
+        if real_data.shape[-1] == 2:
+            return real_data[..., 0].astype(np.complex128) + 1j * real_data[..., 1].astype(np.complex128)
         raise ValueError(f"DFT expects the last dimension to be 1 or 2, got {data.shape[-1]}")
 
     # 封装 `_from_complex` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
@@ -142,7 +165,7 @@ class DFT(Ops):
             out = np.real(data)[..., np.newaxis]
         else:
             out = np.stack([np.real(data), np.imag(data)], axis=-1)
-        return out.astype(nn.DTYPE_TO_NUMPY.get(dtype, np.float32), copy=False)
+        return _cast_spectral_output(out, dtype)
 
     # 封装 `_output_shape` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _output_shape(self, input_shape, dft_length=None):
@@ -190,7 +213,7 @@ class DFT(Ops):
             self.lib.free_tensor(output_c)
             return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-        complex_data = self._as_complex(data)
+        complex_data = self._as_complex(data, input.dtype)
         if self.inverse:
             if self.onesided:
                 transformed = np.fft.irfft(complex_data, n=fft_len, axis=axis)
@@ -248,7 +271,7 @@ class STFT(Ops):
 
     # 执行 `STFT` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, signal, frame_step, window=None, frame_length=None):
-        data = np.asarray(signal.data)
+        data = _spectral_real_values(signal.data, signal.dtype)
         if data.ndim < 2 or data.shape[-1] not in (1, 2):
             raise ValueError(f"STFT expects input shape [..., signal_length, 1|2], got {signal.size}")
         step = self._scalar(frame_step)
@@ -302,11 +325,12 @@ class STFT(Ops):
         if window is None:
             win = np.ones((length,), dtype=data.dtype)
         else:
-            win = np.asarray(window.data, dtype=data.dtype)
+            win = _spectral_real_values(window.data, window.dtype).astype(data.dtype, copy=False)
         window_shape = (1,) * (frames.ndim - 2) + (length, 1)
         weighted = frames * win.reshape(window_shape)
+        dft_input_dtype = "float64" if signal.dtype == "float64" else "float32"
         out_data = DFT([], [], axis=-2, onesided=int(self.onesided), dtype=self.dtype).forward(
-            Tensor(*weighted.shape, dtype=signal.dtype, data=weighted)
+            Tensor(*weighted.shape, dtype=dft_input_dtype, data=weighted.astype(nn.DTYPE_TO_NUMPY[dft_input_dtype], copy=False))
         )["tensor"].data
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
