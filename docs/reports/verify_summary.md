@@ -14,6 +14,7 @@
   * @details     2026.06.05  V1.0.7  补充 Mean 与 Sum CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.8  补充 Cast 与 CastLike CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.9  补充 Ceil、Reciprocal、Softplus、Softsign 与 HardSigmoid CUDA 数值门禁记录
+  * @details     2026.06.05  V1.0.10  补充最终完整 numerical 复跑记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -179,6 +180,8 @@
 继续补充 `Cast` 与 `CastLike` 的 CUDA 参考验证程序，并将二者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2、int64、bool 计划接入默认 numerical 门禁。`CastLike` 的 runner 路径同步调整为按第二个 target tensor 的 dtype 决定输出类型，避免用构造参数绕开核心语义。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op cast --op cast_like --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
 
 继续补充 `Ceil`、`Reciprocal`、`Softplus`、`Softsign` 与 `HardSigmoid` 的 CUDA 参考验证程序，并将五者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。数值计划使用有限固定样本，避免 `Reciprocal` 零点和 `Softplus` 随机极大值干扰主路径验证；`HardSigmoid` 覆盖 ONNX 默认 `alpha=0.2`、`beta=0.5`。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op ceil --op reciprocal --op softplus --op softsign --op hard_sigmoid --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
+
+最终按收尾要求再次执行完整 numerical：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`。本次复跑覆盖 93 个默认数值验证算子、295 条默认计划和 198 条混合精度计划，所有计划均通过，无失败算子。随后重新执行 `tools/audit_ops.py`，并将最新覆盖报告落盘到 `docs/reports/operator_coverage.md`。
 
 ### 剩余风险
 
