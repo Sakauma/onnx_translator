@@ -69,6 +69,51 @@ def test_c_backend_max_min_propagate_nan_like_onnx_reference():
     assert decoded_min[3] == np.float32(-3.0)
 
 
+def test_c_backend_quantize_linear_per_axis_rounds_like_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    from onnx.reference import ReferenceEvaluator
+
+    # 0.75 / float32(0.1) 是一个容易暴露 double 中间值偏差的 nearest-even 半点样本。
+    x = np.array(
+        [
+            [-1.2, -0.2, 0.2, 1.2],
+            [2.4, -2.4, 0.75, -0.75],
+        ],
+        dtype=np.float32,
+    )
+    scale = np.array([0.2, 0.25, 0.1, 0.5], dtype=np.float32)
+
+    for zero_point, proto, dtype in [
+        (np.array([10, 20, 30, 40], dtype=np.uint8), TensorProto.UINT8, "uint8"),
+        (np.array([-5, -2, 2, 5], dtype=np.int8), TensorProto.INT8, "int8"),
+    ]:
+        graph = helper.make_graph(
+            [helper.make_node("QuantizeLinear", ["x", "scale", "zp"], ["y"], axis=-1)],
+            "quantize_axis_rounding",
+            [
+                helper.make_tensor_value_info("x", TensorProto.FLOAT, list(x.shape)),
+                helper.make_tensor_value_info("scale", TensorProto.FLOAT, list(scale.shape)),
+                helper.make_tensor_value_info("zp", proto, list(zero_point.shape)),
+            ],
+            [helper.make_tensor_value_info("y", proto, list(x.shape))],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)], ir_version=8)
+        expected = ReferenceEvaluator(model).run(
+            None,
+            {"x": x, "scale": scale, "zp": zero_point},
+        )[0]
+
+        actual = QuantizeLinear(["x", "scale", "zp"], ["y"], axis=-1, dtype=dtype).forward(
+            Tensor(*x.shape, dtype="float32", data=x),
+            Tensor(*scale.shape, dtype="float32", data=scale),
+            Tensor(*zero_point.shape, dtype=dtype, data=zero_point),
+        )["tensor"]
+
+        np.testing.assert_array_equal(actual.data, expected)
+
+
 def test_c_backend_einsum_ellipsis_uses_stride_planner(monkeypatch):
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")

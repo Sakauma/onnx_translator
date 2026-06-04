@@ -20,13 +20,21 @@ void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor*
 
     #pragma omp parallel for
     for (size_t i = 0; i < loop_size; i++) {
-        double x_val = get_value_as_double(X, i);
-        double s_val = get_value_as_double(Scale, i);
         double zp_val = get_value_as_double(ZeroPoint, i);
         
         double res = zp_val; 
-        if (s_val != 0.0) {
-            res = rint(x_val / s_val) + zp_val;
+        if (X->dtype == DTYPE_FLOAT64 || Scale->dtype == DTYPE_FLOAT64) {
+            double x_val = get_value_as_double(X, i);
+            double s_val = get_value_as_double(Scale, i);
+            if (s_val != 0.0) {
+                res = rint(x_val / s_val) + zp_val;
+            }
+        } else {
+            float x_val = get_value_as_float(X, i);
+            float s_val = get_value_as_float(Scale, i);
+            if (s_val != 0.0f) {
+                res = (double)rintf(x_val / s_val) + zp_val;
+            }
         }
         set_tensor_value_from_float(Y, i, res);
     }

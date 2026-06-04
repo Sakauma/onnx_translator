@@ -5,6 +5,7 @@
   * @author      Egor Izmaylov
   * @brief       记录阶段性算子数值验证和图结构验证总结。
   * @details     2026.06.02  V1.0.0  创建
+  * @details     2026.06.05  V1.0.1  补充完整 numerical 收尾验证记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -127,3 +128,23 @@
 - 验证模型图能够正确生成且无报错
 
 图结构与 shape 验证通过 `python tools/cli.py create-graph-model` 构造覆盖 Cast / Shape / ConstantOfShape / Unsqueeze / Squeeze / Slice / Transpose / Concat / Reshape / Expand / Where / Range 等算子的 ONNX 模型，并使用 `python tools/cli.py verify-graph` 完成图导入、节点连接与 shape 推导验证，生成图结构可视化结果（result/nps_verification/nps_verification.pdf）
+
+---
+
+## 四、2026.06.05 完整 numerical 收尾记录
+
+本轮收尾前已完成一次完整数值门禁：
+
+- 命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`
+- 结果：全部通过，无失败算子。
+- 覆盖：默认 active numerical plan 覆盖 75 个唯一算子名称、199 条默认计划，其中混合精度计划 122 条。
+- 覆盖 dtype：包含 float32、float16、bfloat16、float8_e4m3、float8_e5m2，以及 int8、uint8、int64、bool 等量化、索引和比较相关类型。
+- 高风险算子：MaxRoiPool、RoiAlign、RNN、GRU、LSTM、DFT、STFT 已进入完整 numerical 默认门禁，并在本轮一轮验证中通过。
+
+本轮同时修正 `QuantizeLinear` 在 float32 scale 下的 nearest-even 舍入细节：当输入和 scale 均不是 float64 时，C 后端使用 float32 中间值与 `rintf`，避免将 float32 scale 提升到 double 后改变 ONNX 参考实现的半点舍入结果。新增回归测试覆盖 `axis=-1` 的 per-axis uint8/int8 量化，并使用 ONNX `ReferenceEvaluator` 对齐官方参考输出。
+
+### 剩余风险
+
+- 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
+- QuantizeLinear/DequantizeLinear 的新版属性，例如 block quantization、output_dtype、precision、saturate 等，仍需结合目标 opset 再决定是否扩展。
+- ROI、序列和谱算子已进入默认门禁，但仍建议后续继续补充更多 corner case，例如多方向序列、不同布局、异常轴、空张量和边界 window 参数。
