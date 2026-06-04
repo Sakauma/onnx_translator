@@ -22,6 +22,7 @@
   * @details     2026.06.05  V1.0.15  补充 Reduce 公式类算子 CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.16  补充一元数学算子 CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.17  补充基础元素级算子 ONNX reference 语义记录
+  * @details     2026.06.05  V1.0.18  修复 Reduce keepdims 坐标映射并补充语义记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -229,6 +230,8 @@
 继续补充 `Round`、`Erf`、`Acos`、`Asin`、`Cosh`、`Sinh`、`Asinh`、`Acosh` 与 `Atanh` 的 CUDA 参考验证程序，并将九者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。数值计划为 `Acos`/`Asin`/`Atanh`/`Acosh` 使用受控定义域样本，避免随机输入越界产生 NaN 干扰主路径；`Round` 覆盖 `±0.5`、`±1.5`、`±2.5` 等 ties-to-even 舍入样本。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op round --op erf --op acos --op asin --op cosh --op sinh --op asinh --op acosh --op atanh --iterations 3 --skip-plots`、相关激活语义 pytest 和完整一轮 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 均已通过。本轮后默认 active numerical plan 覆盖 119 个唯一算子名称、430 条默认计划，其中混合精度计划 306 条。
 
 继续补充基础元素级算子的 ONNX reference pytest 语义覆盖，新增 `tests/test_operator_elementwise_semantics.py`，覆盖 `Add`、`Sub`、`Mul`、`Div`、`Pow`、`Max`、`Min`、比较算子、布尔逻辑算子、`Relu`、`Abs`、`Neg`、`Floor`、`Sign`、`IsNaN`、`Sin`、`Cos`、`Tan`、`Atan`、`Exp`、`Log`、`Sqrt`、`Sigmoid`、`Tanh` 与 `Softmax`。测试同时覆盖 ONNX 广播、variadic 输入、bool 输出、负 axis，以及 bfloat16 位存储读写路径。`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_elementwise_semantics.py` 与完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests` 均已通过。本轮后 ONNX reference pytest 语义/混合精度覆盖增至 101 个算子。
+
+继续补充基础 Reduce 算子的 ONNX reference pytest 语义覆盖，新增 `tests/test_operator_reduce_semantics.py`，覆盖 `ReduceMean`、`ReduceSum`、`ReduceMax`、`ReduceMin` 与 `ReduceProd` 的属性 axes、运行时 axes 输入、空 axes、`noop_with_empty_axes`、默认 `keepdims=1` 和 bfloat16 位存储路径。新增测试暴露并修复了 C 后端在 keepdims 输出布局下的归约坐标映射问题：保留维度时输出坐标需要与输入维度对齐，只有非 keepdims 输出才压缩非归约维度坐标。`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests`、Reduce 定向 numerical 和完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 均已通过。本轮后 ONNX reference pytest 语义/混合精度覆盖增至 106 个算子。
 
 ### 剩余风险
 

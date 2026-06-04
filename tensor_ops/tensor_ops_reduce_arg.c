@@ -35,6 +35,13 @@ static inline void prepare_reduce_coords(
     int out_coords[MAX_NDIM];
     get_coords_from_index(out_index, out_coords, output->shape, output->ndim);
 
+    if (params->keepdims) {
+        for (int d = 0; d < input->ndim; d++) {
+            coords[d] = is_axis_reduced(d, params->axes, params->num_axes) ? 0 : out_coords[d];
+        }
+        return;
+    }
+
     int out_dim_idx = 0;
     for (int d = 0; d < input->ndim; d++) {
         if (is_axis_reduced(d, params->axes, params->num_axes)) {

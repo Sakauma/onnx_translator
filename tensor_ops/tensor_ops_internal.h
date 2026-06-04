@@ -1780,12 +1780,18 @@ void FUNC_NAME(const Tensor* input, Tensor* output, ReduceParams* params) { \
         get_coords_from_index(i, out_coords, output->shape, output->ndim); \
         \
         /* 初始化输入坐标：保留维度填入 out_coords，归约维度填 0 */ \
-        int out_dim_idx = 0; \
-        for (int d = 0; d < ndim; d++) { \
-            if (is_axis_reduced(d, axes, num_axes)) { \
-                coords[d] = 0; /* 归约轴初始化为 0 */ \
-            } else { \
-                coords[d] = out_coords[out_dim_idx++]; \
+        if (params->keepdims) { \
+            for (int d = 0; d < ndim; d++) { \
+                coords[d] = is_axis_reduced(d, axes, num_axes) ? 0 : out_coords[d]; \
+            } \
+        } else { \
+            int out_dim_idx = 0; \
+            for (int d = 0; d < ndim; d++) { \
+                if (is_axis_reduced(d, axes, num_axes)) { \
+                    coords[d] = 0; /* 归约轴初始化为 0 */ \
+                } else { \
+                    coords[d] = out_coords[out_dim_idx++]; \
+                } \
             } \
         } \
         \
