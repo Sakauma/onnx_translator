@@ -20,6 +20,7 @@
   * @details     2026.06.05  V1.0.13  补充 Gelu approximate=tanh 官方属性语义和完整 numerical 收尾记录
   * @details     2026.06.05  V1.0.14  补充 Hardmax 与 LogSoftmax CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.15  补充 Reduce 公式类算子 CUDA 数值门禁记录
+  * @details     2026.06.05  V1.0.16  补充一元数学算子 CUDA 数值门禁记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -109,6 +110,15 @@
 - Shrink
 - Gelu
 - Mish
+- Round
+- Erf
+- Acos
+- Asin
+- Cosh
+- Sinh
+- Asinh
+- Acosh
+- Atanh
 
 #### 线性代数 / 卷积 / 池化 / Softmax
 - Conv
@@ -214,6 +224,8 @@
 继续补充 `Hardmax` 与 `LogSoftmax` 的 CUDA 参考验证程序，复用 Softmax 族的 `outer/inner/remaining` axis 参数布局，并将二者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。`Hardmax` 覆盖 ONNX 第一最大值 one-hot 语义，`LogSoftmax` 使用稳定形式 `x - max - log(sum(exp(x - max)))`。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op hardmax --op log_softmax --iterations 3 --skip-plots` 与完整一轮 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 均已通过。本轮后默认 active numerical plan 覆盖 105 个唯一算子名称、360 条默认计划，其中混合精度计划 250 条。
 
 继续补充 `ReduceL1`、`ReduceL2`、`ReduceLogSum`、`ReduceLogSumExp` 与 `ReduceSumSquare` 的 CUDA 参考验证程序，并将五者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。当前数值计划覆盖 axes=None、keepdims=0 的全量归约主路径；`ReduceLogSum` 使用正输入样本，`ReduceLogSumExp` 使用稳定公式避免指数溢出。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op reduce_l1 --op reduce_l2 --op reduce_log_sum --op reduce_log_sum_exp --op reduce_sum_square --iterations 3 --skip-plots`、相关 pytest 公式语义测试和完整一轮 numerical 均已通过。本轮后默认 active numerical plan 覆盖 110 个唯一算子名称、385 条默认计划，其中混合精度计划 270 条。
+
+继续补充 `Round`、`Erf`、`Acos`、`Asin`、`Cosh`、`Sinh`、`Asinh`、`Acosh` 与 `Atanh` 的 CUDA 参考验证程序，并将九者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。数值计划为 `Acos`/`Asin`/`Atanh`/`Acosh` 使用受控定义域样本，避免随机输入越界产生 NaN 干扰主路径；`Round` 覆盖 `±0.5`、`±1.5`、`±2.5` 等 ties-to-even 舍入样本。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op round --op erf --op acos --op asin --op cosh --op sinh --op asinh --op acosh --op atanh --iterations 3 --skip-plots`、相关激活语义 pytest 和完整一轮 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 均已通过。本轮后默认 active numerical plan 覆盖 119 个唯一算子名称、430 条默认计划，其中混合精度计划 306 条。
 
 ### 剩余风险
 

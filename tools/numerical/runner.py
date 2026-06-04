@@ -151,10 +151,22 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             "ceil", "reciprocal", "softplus", "softsign", "hard_sigmoid",
             "elu", "leaky_relu", "selu", "celu", "thresholded_relu", "prelu",
             "hard_swish", "shrink", "gelu", "mish",
+            "round", "erf", "acos", "asin", "cosh", "sinh", "asinh", "acosh", "atanh",
         }:
             # 常见数学/激活类计划使用有限样本，避免极端随机值掩盖主语义和低精度写回路径。
             total = int(np.prod(shapes[0]))
             values = np.linspace(-6.0, 6.0, total, dtype=np.float32).reshape(shapes[0])
+            if op_name in {"erf", "cosh", "sinh", "asinh"}:
+                values = np.linspace(-2.0, 2.0, total, dtype=np.float32).reshape(shapes[0])
+            if op_name in {"acos", "asin"}:
+                values = np.linspace(-0.95, 0.95, total, dtype=np.float32).reshape(shapes[0])
+            if op_name == "acosh":
+                values = np.linspace(1.0, 4.0, total, dtype=np.float32).reshape(shapes[0])
+            if op_name == "atanh":
+                values = np.linspace(-0.8, 0.8, total, dtype=np.float32).reshape(shapes[0])
+            if op_name == "round":
+                values = np.linspace(-4.0, 4.0, total, dtype=np.float32).reshape(shapes[0])
+                values.reshape(-1)[:8] = np.array([-2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, -3.5], dtype=np.float32)
             if op_name == "reciprocal":
                 values = np.where(np.abs(values) < 0.5, np.sign(values + 0.01) * 0.5, values)
             if op_name == "hard_swish":
