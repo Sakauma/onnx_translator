@@ -703,10 +703,18 @@ class Einsum(Ops):
     def forward(self, *inputs):
         equation = self.equation.replace(" ", "")
         out_data = None
+        out_data_is_storage = False
         if self.lib is not None and self.dtype in nn.DTYPE_MAP and all(x.dtype in nn.DTYPE_MAP for x in inputs):
             try:
                 _labels, loop_limits, input_strides, output_strides, out_shape = self._parse_equation([x.size for x in inputs])
-                input_ctensors = [self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype) for x in inputs]
+                input_ctensors = []
+                for x in inputs:
+                    if x.dtype in {"float16", "bfloat16", "float8_e4m3", "float8_e5m2"}:
+                        # 低精度 Tensor 的 Python 存储是位模式，先解码成 float32 临时输入，
+                        # 再交给 C stride planner 累加，避免把位模式当作数值参与乘加。
+                        input_ctensors.append(self._numpy_to_ctensor(np.ascontiguousarray(_tensor_data_as_numeric(x).astype(np.float32)), "float32"))
+                    else:
+                        input_ctensors.append(self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype))
                 input_array = (ctypes.POINTER(CTensor) * len(input_ctensors))(*input_ctensors)
                 output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
                 output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
@@ -723,6 +731,7 @@ class Einsum(Ops):
                     output_strides_c,
                 )
                 out_data = self._ctensor_to_numpy(output_c, self.dtype)
+                out_data_is_storage = True
                 for c_tensor in input_ctensors:
                     self.lib.free_tensor(c_tensor)
                 self.lib.free_tensor(output_c)
@@ -732,7 +741,8 @@ class Einsum(Ops):
             out_data = self._forward_ij_jk_to_ik(inputs[0], inputs[1])
         if out_data is None:
             out_data = np.einsum(self.equation, *(_tensor_data_as_numeric(x) for x in inputs))
-        out_data = _cast_numeric_to_dtype(out_data, self.dtype)
+        if not out_data_is_storage:
+            out_data = _cast_numeric_to_dtype(out_data, self.dtype)
         return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
     # 执行 `Einsum` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。

@@ -920,8 +920,8 @@ void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output,
     for (int i = 0; i < iter_dims; i++) total_ops *= loop_limits[i];
     size_t out_size = output->size;
     
-    size_t elem_size = get_dtype_size(output->dtype);
-    memset(output->data, 0, out_size * elem_size);
+    double* accum = (double*)calloc(out_size, sizeof(double));
+    if (!accum) return;
     
     // 并行化大循环
     #pragma omp parallel for
@@ -957,12 +957,16 @@ void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output,
             out_idx += counters[d] * output_strides[d];
         }
         
-        #pragma omp critical
-        {
-            double old_val = get_value_as_double(output, out_idx);
-            set_tensor_value_from_float(output, out_idx, old_val + product);
-        }
+        #pragma omp atomic
+        accum[out_idx] += product;
     }
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < out_size; i++) {
+        set_tensor_value_from_float(output, i, accum[i]);
+    }
+
+    free(accum);
 }
 
 
