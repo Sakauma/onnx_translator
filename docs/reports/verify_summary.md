@@ -17,6 +17,7 @@
   * @details     2026.06.05  V1.0.10  补充最终完整 numerical 复跑记录
   * @details     2026.06.05  V1.0.11  补充 Elu、LeakyRelu、PRelu、Selu、Celu 与 ThresholdedRelu CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.12  补充 HardSwish、Shrink、Gelu 与 Mish CUDA 数值门禁记录
+  * @details     2026.06.05  V1.0.13  补充 Gelu approximate=tanh 官方属性语义和完整 numerical 收尾记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -199,9 +200,11 @@
 
 继续补充 `HardSwish`、`Shrink`、`Gelu` 与 `Mish` 的 CUDA 参考验证程序，并将四者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。`HardSwish` 固定样本覆盖 `-3/3` 分段边界，`Shrink` 固定样本覆盖 `±lambd` 分段边界且通过 params.bin 传递 `bias/lambd` 属性，`Gelu` 当前 numerical 覆盖精确 erf 公式路径，`Mish` 覆盖 `x * tanh(softplus(x))` 主路径。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op hard_swish --op shrink --op gelu --op mish --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。本轮后默认 active numerical plan 覆盖 103 个唯一算子名称、345 条默认计划，其中混合精度计划 238 条。
 
+随后补齐 `Gelu` 的 ONNX opset 20 `approximate` 属性语义：导入器保留 `approximate="tanh"`，Python runtime 优先调用 C 后端新增的 `gelu_forward_mode`，CUDA verifier 通过 params.bin 区分 exact erf 与 tanh 近似路径。新增 pytest 使用 ONNX `ReferenceEvaluator` 校验 importer 与 bfloat16 混合精度路径，并将 tanh 近似的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。按收尾要求再次执行完整 numerical：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`，所有计划均通过，无失败算子。本轮后默认 active numerical plan 覆盖 103 个唯一算子名称、350 条默认计划，其中混合精度计划 242 条。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
 - QuantizeLinear/DequantizeLinear 的新版属性，例如 block quantization、output_dtype、precision、saturate 等，仍需结合目标 opset 再决定是否扩展。
-- `Gelu` numerical 当前覆盖精确 erf 公式；ONNX 新版 `approximate="tanh"` 属性仍需后续补齐到导入器、Python/C 后端和 CUDA verifier。
+- `Gelu` 的 exact erf 与 `approximate="tanh"` 已接入导入器、Python/C 后端、CUDA verifier、pytest 和默认 mixed precision numerical；后续风险主要在更多极端输入分布和跨 opset 兼容性穷尽。
 - ROI、序列和谱算子已进入默认门禁，但仍建议后续继续补充更多 corner case，例如多方向序列、不同布局、异常轴、空张量和边界 window 参数。

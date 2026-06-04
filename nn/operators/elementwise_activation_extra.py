@@ -297,12 +297,44 @@ class Atanh(Ops):
 
 class Gelu(Ops):
     # 初始化 `Gelu` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+    def __init__(self, inputs, outputs, approximate="none", dtype="float32", version="17"):
         super().__init__(inputs, outputs)
+        self.approximate = (approximate or "none").lower()
+        if self.approximate not in {"none", "tanh"}:
+            raise ValueError(f"Gelu approximate must be 'none' or 'tanh', got {approximate!r}")
         self.dtype = dtype
         self.version = version
+        self._gelu_mode_func = None
+        if self.lib:
+            try:
+                self._gelu_mode_func = self.lib.gelu_forward_mode
+                self._gelu_mode_func.argtypes = [
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int
+                ]
+            except AttributeError:
+                self._gelu_mode_func = None
     # 执行 `Gelu` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
-    def forward(self, x): return {"tensor": self._execute_unary(x, "gelu_forward"), "parameters": None}
+    def forward(self, x):
+        if self.approximate == "none":
+            return {"tensor": self._execute_unary(x, "gelu_forward"), "parameters": None}
+
+        if self._gelu_mode_func is None:
+            values = _tensor_data_as_numeric(x).astype(np.float64, copy=False)
+            out_data = 0.5 * values * (
+                1.0 + np.tanh(0.7978845608028654 * (values + 0.044715 * values * values * values))
+            )
+            return {
+                "tensor": Tensor(*x.size, dtype=self.dtype, data=_cast_numeric_to_dtype(out_data, self.dtype)),
+                "parameters": None,
+            }
+
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self._gelu_mode_func(x_c, out_c, ctypes.c_int(1))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
     # 执行 `Gelu` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 

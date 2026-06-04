@@ -723,6 +723,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 dtype=np.float32,
             ).tobytes()
 
+        elif op_name == "gelu" and init_args.get("approximate", "none") == "tanh":
+            params_bin = np.array([1], dtype=np.int32).tobytes()
+
         elif op_name == "shrink":
             params_bin = np.array(
                 [float(init_args.get("bias", 0.0)), float(init_args.get("lambd", 0.5))],

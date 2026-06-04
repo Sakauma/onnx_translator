@@ -173,6 +173,10 @@ def build_mixed_precision_plans():
         (Gelu, "gelu", [(16, 16)], ["bfloat16"], "bfloat16"),
         (Gelu, "gelu", [(16, 16)], ["float8_e4m3"], "float8_e4m3"),
         (Gelu, "gelu", [(16, 16)], ["float8_e5m2"], "float8_e5m2"),
+        (Gelu, "gelu", [(16, 16)], ["float16"], "float16", {"approximate": "tanh"}),
+        (Gelu, "gelu", [(16, 16)], ["bfloat16"], "bfloat16", {"approximate": "tanh"}),
+        (Gelu, "gelu", [(16, 16)], ["float8_e4m3"], "float8_e4m3", {"approximate": "tanh"}),
+        (Gelu, "gelu", [(16, 16)], ["float8_e5m2"], "float8_e5m2", {"approximate": "tanh"}),
         (Mish, "mish", [(16, 16)], ["float16"], "float16"),
         (Mish, "mish", [(16, 16)], ["bfloat16"], "bfloat16"),
         (Mish, "mish", [(16, 16)], ["float8_e4m3"], "float8_e4m3"),
@@ -398,6 +402,7 @@ def build_default_plans():
     (HardSwish, "hard_swish", [(64, 64)], ["float32"], "float32"),
     (Shrink, "shrink", [(64, 64)], ["float32"], "float32", {"bias": 0.2, "lambd": 0.5}),
     (Gelu, "gelu", [(64, 64)], ["float32"], "float32"),
+    (Gelu, "gelu", [(64, 64)], ["float32"], "float32", {"approximate": "tanh"}),
     (Mish, "mish", [(64, 64)], ["float32"], "float32"),
 
     # 索引

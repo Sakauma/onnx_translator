@@ -850,7 +850,27 @@ UNARY_OP_IMPL(erf_forward, erf(val))
 
 
 // Gelu
-UNARY_OP_IMPL(gelu_forward, 0.5 * val * (1.0 + erf(val * M_SQRT1_2)))
+static inline double gelu_exact_value(double val) {
+    return 0.5 * val * (1.0 + erf(val * M_SQRT1_2));
+}
+
+static inline double gelu_tanh_value(double val) {
+    const double sqrt_2_over_pi = 0.7978845608028654;
+    return 0.5 * val * (1.0 + tanh(sqrt_2_over_pi * (val + 0.044715 * val * val * val)));
+}
+
+UNARY_OP_IMPL(gelu_forward, gelu_exact_value(val))
+
+// 实现 `gelu` 算子的近似模式入口，0 使用精确 erf 公式，1 使用 ONNX tanh 近似公式。
+void gelu_forward_mode(const Tensor* input, Tensor* output, int approximate_mode) {
+    if (!input || !output) return;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        double res = approximate_mode == 1 ? gelu_tanh_value(val) : gelu_exact_value(val);
+        set_tensor_value_from_float(output, i, res);
+    }
+}
 
 
 // 实现 `mish` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。

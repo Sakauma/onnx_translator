@@ -672,8 +672,11 @@ void bernoulli_forward(const Tensor* input, Tensor* output, float seed);
 // training_mode: 1=True, 0=False.目前只推理模式的逻辑
 void dropout_forward(const Tensor* input, Tensor* output, float ratio, int training_mode);
 
-// Gelu Activation: 0.5 * x * (1 + erf(x / sqrt(2)))
+// Gelu 精确公式：0.5 * x * (1 + erf(x / sqrt(2)))
 void gelu_forward(const Tensor* input, Tensor* output);
+
+// Gelu 带近似模式入口：0=none，1=tanh。
+void gelu_forward_mode(const Tensor* input, Tensor* output, int approximate_mode);
 
 // Mish Activation: x * tanh(ln(1 + e^x))
 void mish_forward(const Tensor* input, Tensor* output);

@@ -462,10 +462,20 @@ def test_c_backend_extra_formula_ops_match_expected_mixed_precision():
     values = np.array([-2.0, -0.5, 0.0, 1.5], dtype=np.float32)
     bf16_input = Tensor(*values.shape, dtype="bfloat16", data=_bf16_bits(values))
     gelu_expected = 0.5 * values * (1.0 + np.vectorize(math.erf)(values / math.sqrt(2.0)))
+    gelu_tanh_expected = _onnx_reference(
+        "Gelu",
+        [values],
+        [TensorProto.FLOAT],
+        {"approximate": "tanh"},
+        [values.shape],
+        opset=20,
+    )[0]
     mish_expected = values * np.tanh(np.log1p(np.exp(values)))
     gelu = Gelu(["x"], ["y"], dtype="bfloat16").forward(bf16_input)["tensor"]
+    gelu_tanh = Gelu(["x"], ["y"], approximate="tanh", dtype="bfloat16").forward(bf16_input)["tensor"]
     mish = Mish(["x"], ["y"], dtype="bfloat16").forward(bf16_input)["tensor"]
     np.testing.assert_allclose(_bf16_to_float32(gelu.data), gelu_expected, rtol=2e-2, atol=2e-2)
+    np.testing.assert_allclose(_bf16_to_float32(gelu_tanh.data), gelu_tanh_expected, rtol=2e-2, atol=2e-2)
     np.testing.assert_allclose(_bf16_to_float32(mish.data), mish_expected, rtol=2e-2, atol=2e-2)
 
     binarizer = Binarizer(["x"], ["y"], threshold=0.25, dtype="float32").forward(_tensor(values, "float32"))["tensor"]
@@ -478,6 +488,25 @@ def test_c_backend_extra_formula_ops_match_expected_mixed_precision():
         _tensor(x, "float32"), _tensor(scale, "float32"), _tensor(bias, "float32")
     )["tensor"]
     np.testing.assert_allclose(group.data, _group_norm_formula(x, scale, bias, 2, 1e-4), rtol=1e-5, atol=1e-5)
+
+
+# 验证 ONNX 导入器会保留 Gelu approximate 属性，避免导入后退回默认精确公式。
+def test_onnx_import_preserves_gelu_approximate_tanh(tmp_path):
+    x_info = helper.make_tensor_value_info("x", TensorProto.FLOAT, [4])
+    y_info = helper.make_tensor_value_info("y", TensorProto.FLOAT, [4])
+    graph = helper.make_graph(
+        [helper.make_node("Gelu", ["x"], ["y"], approximate="tanh")],
+        "gelu_tanh_import",
+        [x_info],
+        [y_info],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 20)])
+    model_path = tmp_path / "gelu_tanh.onnx"
+    onnx.save(model, model_path)
+
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, Gelu)]
+    assert len(imported) == 1
+    assert imported[0].approximate == "tanh"
 
 
 # 验证 Det、Tril/Triu 和 Unique 的确定性张量语义。

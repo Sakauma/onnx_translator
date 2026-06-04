@@ -168,7 +168,6 @@ def _factory_056_equal_greater_less(node, import_context):
 @register_factory("Asinh")
 @register_factory("Acosh")
 @register_factory("Atanh")
-@register_factory("Gelu")
 @register_factory("Mish")
 def _factory_057_sin_tan_atan(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
@@ -181,6 +180,27 @@ def _factory_057_sin_tan_atan(node, import_context):
         "Gelu": nn.Operators.Gelu, "Mish": nn.Operators.Mish
     }
     onnx_graph_list.append(cls_map[node.op_type](node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+    return onnx_graph_list[-1]
+
+
+@register_factory("Gelu")
+def _factory_058_gelu(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    approximate = "none"
+    for attr in node.attribute:
+        if attr.name == "approximate":
+            approximate = attr.s.decode("utf-8") if isinstance(attr.s, bytes) else str(attr.s)
+    elem_type = get_dtype(node.output[0])
+    onnx_graph_list.append(
+        nn.Operators.Gelu(
+            node.input,
+            node.output,
+            approximate=approximate,
+            dtype=onnx_dtype_mapping[elem_type],
+            version="20",
+        )
+    )
     return onnx_graph_list[-1]
 
 
@@ -642,5 +662,4 @@ def _factory_092_randomuniform(node, import_context):
         elif attr.name == "shape": shape = attr.ints
     onnx_graph_list.append(nn.Operators.RandomUniform(node.input, node.output, high=high, low=low, seed=seed, dtype=dtype_attr, shape=shape, version="17"))
     return onnx_graph_list[-1]
-
 
