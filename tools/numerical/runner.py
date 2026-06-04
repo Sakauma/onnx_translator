@@ -133,13 +133,20 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             values.reshape(-1)[total // 2] = 0.0
             inputs_np[0] = from_float32(values, dtypes[0])
 
-        if op_name in {"ceil", "reciprocal", "softplus", "softsign", "hard_sigmoid"}:
-            # 常见数学/激活类计划使用有限样本，避免 reciprocal 零点和 softplus 随机大数溢出掩盖主语义。
+        if op_name in {
+            "ceil", "reciprocal", "softplus", "softsign", "hard_sigmoid",
+            "elu", "leaky_relu", "selu", "celu", "thresholded_relu", "prelu",
+        }:
+            # 常见数学/激活类计划使用有限样本，避免极端随机值掩盖主语义和低精度写回路径。
             total = int(np.prod(shapes[0]))
             values = np.linspace(-6.0, 6.0, total, dtype=np.float32).reshape(shapes[0])
             if op_name == "reciprocal":
                 values = np.where(np.abs(values) < 0.5, np.sign(values + 0.01) * 0.5, values)
             inputs_np[0] = from_float32(values, dtypes[0])
+            if op_name == "prelu":
+                slope_total = int(np.prod(shapes[1]))
+                slope_values = np.linspace(0.05, 0.65, slope_total, dtype=np.float32).reshape(shapes[1])
+                inputs_np[1] = from_float32(slope_values, dtypes[1])
 
         if op_name == "expand":
             inputs_np[1] = np.array(init_args.get("target_shape", list(shapes[0])), dtype=np.int64)
@@ -695,6 +702,15 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         elif op_name == "hard_sigmoid":
             params_bin = np.array(
                 [float(init_args.get("alpha", 0.2)), float(init_args.get("beta", 0.5))],
+                dtype=np.float32,
+            ).tobytes()
+
+        elif op_name in {"elu", "leaky_relu", "celu", "thresholded_relu"}:
+            params_bin = np.array([float(init_args.get("alpha", 1.0))], dtype=np.float32).tobytes()
+
+        elif op_name == "selu":
+            params_bin = np.array(
+                [float(init_args.get("alpha", 1.67326)), float(init_args.get("gamma", 1.0507))],
                 dtype=np.float32,
             ).tobytes()
 

@@ -15,6 +15,7 @@
   * @details     2026.06.05  V1.0.8  补充 Cast 与 CastLike CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.9  补充 Ceil、Reciprocal、Softplus、Softsign 与 HardSigmoid CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.10  补充最终完整 numerical 复跑记录
+  * @details     2026.06.05  V1.0.11  补充 Elu、LeakyRelu、PRelu、Selu、Celu 与 ThresholdedRelu CUDA 数值门禁记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -94,6 +95,12 @@
 - Softplus
 - Softsign
 - HardSigmoid
+- Elu
+- LeakyRelu
+- PRelu
+- Selu
+- Celu
+- ThresholdedRelu
 
 #### 线性代数 / 卷积 / 池化 / Softmax
 - Conv
@@ -182,6 +189,8 @@
 继续补充 `Ceil`、`Reciprocal`、`Softplus`、`Softsign` 与 `HardSigmoid` 的 CUDA 参考验证程序，并将五者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。数值计划使用有限固定样本，避免 `Reciprocal` 零点和 `Softplus` 随机极大值干扰主路径验证；`HardSigmoid` 覆盖 ONNX 默认 `alpha=0.2`、`beta=0.5`。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op ceil --op reciprocal --op softplus --op softsign --op hard_sigmoid --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
 
 最终按收尾要求再次执行完整 numerical：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`。本次复跑覆盖 93 个默认数值验证算子、295 条默认计划和 198 条混合精度计划，所有计划均通过，无失败算子。随后重新执行 `tools/audit_ops.py`，并将最新覆盖报告落盘到 `docs/reports/operator_coverage.md`。
+
+继续补充 `Elu`、`LeakyRelu`、`PRelu`、`Selu`、`Celu` 与 `ThresholdedRelu` 的 CUDA 参考验证程序，并将六者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。`PRelu` 数值计划使用输入 `(2, 3, 4)` 与 slope `(1, 3, 1)`，覆盖 ONNX 多向广播主路径；其余激活算子通过 params.bin 传递 alpha/gamma 属性，避免用固定默认值绕过属性语义。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op elu --op leaky_relu --op prelu --op selu --op celu --op thresholded_relu --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。本轮后默认 active numerical plan 覆盖 99 个唯一算子名称、325 条默认计划，其中混合精度计划 222 条。
 
 ### 剩余风险
 
