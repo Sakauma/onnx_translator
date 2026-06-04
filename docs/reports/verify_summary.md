@@ -13,6 +13,7 @@
   * @details     2026.06.05  V1.0.6  补充 ConstantOfShape 与 EyeLike CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.7  补充 Mean 与 Sum CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.8  补充 Cast 与 CastLike CUDA 数值门禁记录
+  * @details     2026.06.05  V1.0.9  补充 Ceil、Reciprocal、Softplus、Softsign 与 HardSigmoid CUDA 数值门禁记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -87,6 +88,11 @@
 - Log
 - Sqrt
 - Pow
+- Ceil
+- Reciprocal
+- Softplus
+- Softsign
+- HardSigmoid
 
 #### 线性代数 / 卷积 / 池化 / Softmax
 - Conv
@@ -152,7 +158,7 @@
 
 - 命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`
 - 结果：全部通过，无失败算子。
-- 覆盖：默认 active numerical plan 覆盖 88 个唯一算子名称、270 条默认计划，其中混合精度计划 178 条。
+- 覆盖：默认 active numerical plan 覆盖 93 个唯一算子名称、295 条默认计划，其中混合精度计划 198 条。
 - 覆盖 dtype：包含 float32、float16、bfloat16、float8_e4m3、float8_e5m2，以及 int8、uint8、int64、bool 等量化、索引和比较相关类型。
 - 高风险算子：MaxRoiPool、RoiAlign、RNN、GRU、LSTM、DFT、STFT 已进入完整 numerical 默认门禁，并在本轮一轮验证中通过。
 
@@ -171,6 +177,8 @@
 继续补充 `Mean` 与 `Sum` 的 CUDA 参考验证程序，并将二者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。两者的数值计划均使用三输入互相广播的形状组合，覆盖 ONNX variadic elementwise 与 multidirectional broadcast 主路径。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op mean --op sum --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
 
 继续补充 `Cast` 与 `CastLike` 的 CUDA 参考验证程序，并将二者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2、int64、bool 计划接入默认 numerical 门禁。`CastLike` 的 runner 路径同步调整为按第二个 target tensor 的 dtype 决定输出类型，避免用构造参数绕开核心语义。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op cast --op cast_like --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
+
+继续补充 `Ceil`、`Reciprocal`、`Softplus`、`Softsign` 与 `HardSigmoid` 的 CUDA 参考验证程序，并将五者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。数值计划使用有限固定样本，避免 `Reciprocal` 零点和 `Softplus` 随机极大值干扰主路径验证；`HardSigmoid` 覆盖 ONNX 默认 `alpha=0.2`、`beta=0.5`。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op ceil --op reciprocal --op softplus --op softsign --op hard_sigmoid --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
 
 ### 剩余风险
 

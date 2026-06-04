@@ -29,7 +29,7 @@ from nn.Operators import (
     CumSum, Softmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
     Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, ConstantOfShape, EyeLike,
-    Mean, Sum, Cast, CastLike,
+    Mean, Sum, Cast, CastLike, Ceil, Reciprocal, Softplus, Softsign, HardSigmoid,
 )
 
 from . import cuda as cuda_backend
@@ -115,6 +115,26 @@ def build_mixed_precision_plans():
         (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "bfloat16"], "bfloat16"),
         (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "float8_e4m3"], "float8_e4m3"),
         (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "float8_e5m2"], "float8_e5m2"),
+        (Ceil, "ceil", [(16, 16)], ["float16"], "float16"),
+        (Ceil, "ceil", [(16, 16)], ["bfloat16"], "bfloat16"),
+        (Ceil, "ceil", [(16, 16)], ["float8_e4m3"], "float8_e4m3"),
+        (Ceil, "ceil", [(16, 16)], ["float8_e5m2"], "float8_e5m2"),
+        (Reciprocal, "reciprocal", [(16, 16)], ["float16"], "float16"),
+        (Reciprocal, "reciprocal", [(16, 16)], ["bfloat16"], "bfloat16"),
+        (Reciprocal, "reciprocal", [(16, 16)], ["float8_e4m3"], "float8_e4m3"),
+        (Reciprocal, "reciprocal", [(16, 16)], ["float8_e5m2"], "float8_e5m2"),
+        (Softplus, "softplus", [(16, 16)], ["float16"], "float16"),
+        (Softplus, "softplus", [(16, 16)], ["bfloat16"], "bfloat16"),
+        (Softplus, "softplus", [(16, 16)], ["float8_e4m3"], "float8_e4m3"),
+        (Softplus, "softplus", [(16, 16)], ["float8_e5m2"], "float8_e5m2"),
+        (Softsign, "softsign", [(16, 16)], ["float16"], "float16"),
+        (Softsign, "softsign", [(16, 16)], ["bfloat16"], "bfloat16"),
+        (Softsign, "softsign", [(16, 16)], ["float8_e4m3"], "float8_e4m3"),
+        (Softsign, "softsign", [(16, 16)], ["float8_e5m2"], "float8_e5m2"),
+        (HardSigmoid, "hard_sigmoid", [(16, 16)], ["float16"], "float16", {"alpha": 0.2, "beta": 0.5}),
+        (HardSigmoid, "hard_sigmoid", [(16, 16)], ["bfloat16"], "bfloat16", {"alpha": 0.2, "beta": 0.5}),
+        (HardSigmoid, "hard_sigmoid", [(16, 16)], ["float8_e4m3"], "float8_e4m3", {"alpha": 0.2, "beta": 0.5}),
+        (HardSigmoid, "hard_sigmoid", [(16, 16)], ["float8_e5m2"], "float8_e5m2", {"alpha": 0.2, "beta": 0.5}),
 
         # ---- 混合精度矩阵、卷积、池化和 ROI ----
         (MatMul, "matmul", [(16, 32), (32, 8)], ["float16", "float16"], "float16"),
@@ -322,6 +342,11 @@ def build_default_plans():
     (Cast, "cast", [(8, 8)], ["float32"], "bool"),
     (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "int64"], "int64"),
     (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "bool"], "bool"),
+    (Ceil, "ceil", [(64, 64)], ["float32"], "float32"),
+    (Reciprocal, "reciprocal", [(64, 64)], ["float32"], "float32"),
+    (Softplus, "softplus", [(64, 64)], ["float32"], "float32"),
+    (Softsign, "softsign", [(64, 64)], ["float32"], "float32"),
+    (HardSigmoid, "hard_sigmoid", [(64, 64)], ["float32"], "float32", {"alpha": 0.2, "beta": 0.5}),
 
     # 索引
     (GatherElements, "gather_elements", [(64,64), (64,64)], ["float32", "int64"], "float32", {"axis":1}),
