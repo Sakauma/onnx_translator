@@ -315,6 +315,7 @@ REFERENCE_PARITY_PYTEST_COVERAGE = {
     "Softplus",
     "Softsign",
     "SoftmaxCrossEntropyLoss",
+    "Swish",
     "SpaceToDepth",
     "Split",
     "SQRT",

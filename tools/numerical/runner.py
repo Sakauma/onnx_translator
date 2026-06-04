@@ -150,7 +150,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if op_name in {
             "ceil", "reciprocal", "softplus", "softsign", "hard_sigmoid",
             "elu", "leaky_relu", "selu", "celu", "thresholded_relu", "prelu",
-            "hard_swish", "shrink", "gelu", "mish",
+            "hard_swish", "swish", "shrink", "gelu", "mish",
             "round", "erf", "acos", "asin", "cosh", "sinh", "asinh", "acosh", "atanh",
         }:
             # 常见数学/激活类计划使用有限样本，避免极端随机值掩盖主语义和低精度写回路径。
@@ -171,6 +171,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 values = np.where(np.abs(values) < 0.5, np.sign(values + 0.01) * 0.5, values)
             if op_name == "hard_swish":
                 values.reshape(-1)[:6] = np.array([-4.0, -3.0, -2.0, 0.0, 3.0, 4.0], dtype=np.float32)
+            if op_name == "swish":
+                values.reshape(-1)[:7] = np.array([-6.0, -3.0, -1.0, 0.0, 1.0, 3.0, 6.0], dtype=np.float32)
             if op_name == "shrink":
                 lambd = float(init_args.get("lambd", 0.5))
                 values.reshape(-1)[:7] = np.array(
@@ -747,6 +749,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             ).tobytes()
 
         elif op_name in {"elu", "leaky_relu", "celu", "thresholded_relu"}:
+            params_bin = np.array([float(init_args.get("alpha", 1.0))], dtype=np.float32).tobytes()
+
+        elif op_name == "swish":
             params_bin = np.array([float(init_args.get("alpha", 1.0))], dtype=np.float32).tobytes()
 
         elif op_name == "selu":

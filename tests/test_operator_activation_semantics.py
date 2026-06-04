@@ -14,6 +14,7 @@ import math
 from onnx.reference import ReferenceEvaluator
 
 from operator_test_context import *  # noqa: F401,F403
+from nn.ONNXImport import ONNXImport
 from nn.Operators import (
     Acos,
     Acosh,
@@ -33,6 +34,7 @@ from nn.Operators import (
     Sinh,
     Softplus,
     Softsign,
+    Swish,
     ThresholdedRelu,
 )
 
@@ -56,14 +58,14 @@ def _bf16_to_float32(values):
 
 
 # 调用 ONNX reference evaluator，获得指定 op 在对应 dtype 下的官方参考输出。
-def _onnx_reference(op_name, values, proto_dtype, attrs):
+def _onnx_reference(op_name, values, proto_dtype, attrs, opset=17):
     graph = helper.make_graph(
         [helper.make_node(op_name, ["x"], ["y"], **attrs)],
         f"{op_name}_reference",
         [helper.make_tensor_value_info("x", proto_dtype, list(values.shape))],
         [helper.make_tensor_value_info("y", proto_dtype, list(values.shape))],
     )
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
     return ReferenceEvaluator(model).run(None, {"x": values})[0]
 
 
@@ -133,3 +135,38 @@ def test_c_backend_bfloat16_unary_ops_decode_and_write_bit_storage():
     erf_expected = np.vectorize(math.erf, otypes=[np.float32])(values).astype(np.float32)
     erf = Erf(["x"], ["y"], dtype="bfloat16").forward(bf16_input)["tensor"]
     np.testing.assert_allclose(_bf16_to_float32(erf.data), erf_expected, rtol=1e-2, atol=1e-2)
+
+
+# 验证 Swish 的 opset 24 官方公式、alpha 属性和混合精度写回。
+def test_c_backend_swish_opset24_alpha_and_bfloat16_match_reference(tmp_path):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    values = np.array([-4.0, -1.0, 0.0, 1.5, 4.0], dtype=np.float32)
+    expected_default = _onnx_reference("Swish", values, TensorProto.FLOAT, {}, opset=24)
+    actual_default = Swish(["x"], ["y"], dtype="float32").forward(Tensor(*values.shape, dtype="float32", data=values))["tensor"]
+    np.testing.assert_allclose(actual_default.data, expected_default, rtol=1e-6, atol=1e-6)
+
+    alpha = 1.5
+    expected_alpha = _onnx_reference("Swish", values, TensorProto.FLOAT, {"alpha": alpha}, opset=24)
+    actual_alpha = Swish(["x"], ["y"], alpha=alpha, dtype="float32").forward(
+        Tensor(*values.shape, dtype="float32", data=values)
+    )["tensor"]
+    np.testing.assert_allclose(actual_alpha.data, expected_alpha, rtol=1e-6, atol=1e-6)
+
+    bf16_input = Tensor(*values.shape, dtype="bfloat16", data=_bf16_bits(values))
+    bf16_actual = Swish(["x"], ["y"], alpha=alpha, dtype="bfloat16").forward(bf16_input)["tensor"]
+    bf16_expected = values * (1.0 / (1.0 + np.exp(-alpha * values)))
+    np.testing.assert_allclose(_bf16_to_float32(bf16_actual.data), bf16_expected, rtol=1e-2, atol=1e-2)
+
+    graph = helper.make_graph(
+        [helper.make_node("Swish", ["x"], ["y"], alpha=alpha)],
+        "swish_import",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, list(values.shape))],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, list(values.shape))],
+    )
+    model_path = tmp_path / "swish.onnx"
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 24)]), model_path)
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, Swish)]
+    assert len(imported) == 1
+    assert imported[0].alpha == pytest.approx(alpha)

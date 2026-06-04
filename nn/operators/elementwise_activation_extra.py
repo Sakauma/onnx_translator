@@ -211,6 +211,32 @@ class HardSwish(Ops):
     def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 
+class Swish(Ops):
+    # 初始化 `Swish` 的构造参数，保存 alpha、dtype 和版本信息，后续前向计算会走 C 后端。
+    def __init__(self, inputs, outputs, alpha=1.0, dtype="float32", version="24"):
+        super().__init__(inputs, outputs)
+        self.alpha = alpha
+        self.dtype = dtype
+        self.version = version
+        if self.lib:
+            self.lib.swish_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float
+            ]
+
+    # 执行 `Swish` 的真实张量计算路径，按 ONNX 定义计算 x * sigmoid(alpha * x)。
+    def forward(self, x):
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+        x_c = self._numpy_to_ctensor(x.data, x.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+        self.lib.swish_forward(x_c, out_c, ctypes.c_float(self.alpha))
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+        return {"tensor": out_tensor, "parameters": None}
+
+    # 执行 `Swish` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
+    def forward_(self, x): return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+
 class Acos(Ops):
     # 初始化 `Acos` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):

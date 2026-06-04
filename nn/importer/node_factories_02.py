@@ -161,6 +161,7 @@ def _factory_056_equal_greater_less(node, import_context):
 @register_factory("Softplus")
 @register_factory("Softsign")
 @register_factory("HardSwish")
+@register_factory("Swish")
 @register_factory("Acos")
 @register_factory("Asin")
 @register_factory("Cosh")
@@ -176,10 +177,21 @@ def _factory_057_sin_tan_atan(node, import_context):
     cls_map = {
         "Sin": nn.Operators.Sin, "Tan": nn.Operators.Tan, "Atan": nn.Operators.Atan, "Sign": nn.Operators.Sign, "Identity": nn.Operators.Identity,
         "Round": nn.Operators.Round, "Erf": nn.Operators.Erf, "Softplus": nn.Operators.Softplus, "Softsign": nn.Operators.Softsign, "HardSwish": nn.Operators.HardSwish,
-        "Acos": nn.Operators.Acos, "Asin": nn.Operators.Asin, "Cosh": nn.Operators.Cosh, "Sinh": nn.Operators.Sinh, "Asinh": nn.Operators.Asinh, "Acosh": nn.Operators.Acosh, "Atanh": nn.Operators.Atanh,
+        "Swish": nn.Operators.Swish, "Acos": nn.Operators.Acos, "Asin": nn.Operators.Asin, "Cosh": nn.Operators.Cosh, "Sinh": nn.Operators.Sinh, "Asinh": nn.Operators.Asinh, "Acosh": nn.Operators.Acosh, "Atanh": nn.Operators.Atanh,
         "Gelu": nn.Operators.Gelu, "Mish": nn.Operators.Mish
     }
-    onnx_graph_list.append(cls_map[node.op_type](node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
+    if node.op_type == "Swish":
+        alpha = 1.0
+        for attr in node.attribute:
+            if attr.name == "alpha":
+                alpha = attr.f
+        onnx_graph_list.append(
+            cls_map[node.op_type](
+                node.input, node.output, alpha=alpha, dtype=onnx_dtype_mapping[elem_type], version="24"
+            )
+        )
+    else:
+        onnx_graph_list.append(cls_map[node.op_type](node.input, node.output, dtype=onnx_dtype_mapping[elem_type], version="17"))
     return onnx_graph_list[-1]
 
 
@@ -662,4 +674,3 @@ def _factory_092_randomuniform(node, import_context):
         elif attr.name == "shape": shape = attr.ints
     onnx_graph_list.append(nn.Operators.RandomUniform(node.input, node.output, high=high, low=low, seed=seed, dtype=dtype_attr, shape=shape, version="17"))
     return onnx_graph_list[-1]
-

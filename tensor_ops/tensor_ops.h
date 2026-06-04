@@ -611,6 +611,7 @@ void softplus_forward(const Tensor* input, Tensor* output);
 void softsign_forward(const Tensor* input, Tensor* output);
 void celu_forward(const Tensor* input, Tensor* output, float alpha);
 void hard_swish_forward(const Tensor* input, Tensor* output);
+void swish_forward(const Tensor* input, Tensor* output, float alpha);
 void shrink_forward(const Tensor* input, Tensor* output, float bias, float lambd);
 void acos_forward(const Tensor* input, Tensor* output);
 void asin_forward(const Tensor* input, Tensor* output);

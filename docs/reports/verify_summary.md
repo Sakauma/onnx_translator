@@ -29,6 +29,7 @@
   * @details     2026.06.05  V1.0.22  补充复杂属性算子官方语义和 Einsum 混合精度修复记录
   * @details     2026.06.05  V1.0.23  补充当前工作结束前完整 numerical 一轮记录
   * @details     2026.06.05  V1.0.24  补充 AveragePool 覆盖登记和最新 ONNX schema 风险审计记录
+  * @details     2026.06.05  V1.0.25  补充 Swish opset 24 官方语义和混合精度验证记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -250,6 +251,8 @@
 按当前结束要求执行完整一轮 numerical：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`。本次验证覆盖默认 active numerical plan 中的基础数值、卷积、池化、量化、归约、索引、形状变换、谱、序列和混合精度路径，所有计划均通过，无失败算子；MaxRoiPool、RoiAlign、RNN、GRU、LSTM、DFT、STFT 等此前标记为高风险的算子也在本次完整一轮中通过。当前收尾未新增运行逻辑，仅将本次验证结果落盘，作为提交前状态记录。
 
 继续校准覆盖审计口径：`AveragePool` 已在 `tests/test_operator_core_numeric_semantics.py` 中通过 ONNX reference 覆盖 padding、ceil_mode、count_include_pad 和 bfloat16 位存储路径，本轮将其补入审计登记，`tools/audit_ops.py` 当前显示 186 个算子类均已有 pytest 语义/混合精度覆盖记录。审计脚本同时新增“当前安装 ONNX 最新官方覆盖”段，除既有 opset 17 官方名称级覆盖 178/178 外，额外暴露当前环境最新默认 domain schema 的 15 个高版本缺口：AffineGrid、Attention、BitCast、CenterCropPad、Col2Im、CumProd、DeformConv、ImageDecoder、RegexFullMatch、RMSNormalization、RotaryEmbedding、StringConcat、StringSplit、Swish、TensorScatter。
+
+继续处理当前安装 ONNX 最新 schema 缺口，补齐 `Swish` opset 24：导入器读取 `alpha` 属性并构造 `Swish` 算子，Python runtime 调用 C 后端新增 `swish_forward`，C 后端按 `x * sigmoid(alpha * x)` 写回目标 dtype，CUDA verifier 通过 `params.bin` 读取 alpha 并作为 numerical reference。默认 numerical plan 新增 float32、float16、bfloat16、float8_e4m3、float8_e5m2 五条计划，pytest 使用 ONNX `ReferenceEvaluator` 校验默认 alpha、非默认 alpha、导入器属性保留和 bfloat16 位存储路径。验证命令：`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_activation_semantics.py`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op swish --iterations 3 --skip-plots` 均已通过；随后完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests` 结果为 241 passed、1 skipped，完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 也全部通过。本轮后当前安装 ONNX 最新官方名称级覆盖从 185/200 提升到 186/200，最新 schema 缺口从 15 个降至 14 个。
 
 ### 剩余风险
 

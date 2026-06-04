@@ -718,6 +718,20 @@ UNARY_OP_IMPL(softsign_forward, val / (1.0 + fabs(val)))
 UNARY_OP_IMPL(hard_swish_forward, val * fmax(0.0, fmin(1.0, val / 6.0 + 0.5)))
 
 
+// 实现 `swish` 算子的 C 后端入口，按 ONNX 公式 x * sigmoid(alpha * x) 写回目标 dtype。
+void swish_forward(const Tensor* input, Tensor* output, float alpha) {
+    if (!input || !output) return;
+    double a = (double)alpha;
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < input->size; i++) {
+        double val = get_value_as_double(input, i);
+        double z = a * val;
+        double sigmoid = z >= 0.0 ? 1.0 / (1.0 + exp(-z)) : exp(z) / (1.0 + exp(z));
+        set_tensor_value_from_float(output, i, val * sigmoid);
+    }
+}
+
+
 // Shrink: x < -lambd ? x + bias : (x > lambd ? x - bias : 0)
 // 实现 `shrink` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void shrink_forward(const Tensor* input, Tensor* output, float bias, float lambd) {
