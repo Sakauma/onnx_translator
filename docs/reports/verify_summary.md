@@ -8,6 +8,7 @@
   * @details     2026.06.05  V1.0.1  补充完整 numerical 收尾验证记录
   * @details     2026.06.05  V1.0.2  补充 Transpose CUDA 数值门禁记录
   * @details     2026.06.05  V1.0.3  补充 Flatten 与 Reshape CUDA 数值门禁记录
+  * @details     2026.06.05  V1.0.4  补充 Tile 与 Concat CUDA 数值门禁记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -139,7 +140,7 @@
 
 - 命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`
 - 结果：全部通过，无失败算子。
-- 覆盖：默认 active numerical plan 覆盖 78 个唯一算子名称、214 条默认计划，其中混合精度计划 134 条。
+- 覆盖：默认 active numerical plan 覆盖 80 个唯一算子名称、224 条默认计划，其中混合精度计划 142 条。
 - 覆盖 dtype：包含 float32、float16、bfloat16、float8_e4m3、float8_e5m2，以及 int8、uint8、int64、bool 等量化、索引和比较相关类型。
 - 高风险算子：MaxRoiPool、RoiAlign、RNN、GRU、LSTM、DFT、STFT 已进入完整 numerical 默认门禁，并在本轮一轮验证中通过。
 
@@ -148,6 +149,8 @@
 后续补充 `Transpose` 的 CUDA 参考验证程序，并将 float32、float16、bfloat16、float8_e4m3、float8_e5m2 五条计划接入默认 numerical 门禁。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op transpose --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
 
 继续补充 `Flatten` 与 `Reshape` 的 CUDA 参考验证程序，并将二者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。`Reshape` 的数值计划使用 `[0, -1]` 目标 shape，覆盖 ONNX 中 0 复制输入维度和 -1 自动推断维度的主路径。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op flatten --op reshape --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
+
+继续补充 `Tile` 与 `Concat` 的 CUDA 参考验证程序，并将二者的 float32、float16、bfloat16、float8_e4m3、float8_e5m2 计划接入默认 numerical 门禁。`Tile` 的 CUDA 参考按输出坐标对输入维度取模，`Concat` 的 CUDA 参考按 concat axis 段落定位来源输入。`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op tile --op concat --iterations 3 --skip-plots` 与完整一轮 numerical 均已通过。
 
 ### 剩余风险
 

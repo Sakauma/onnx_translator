@@ -28,7 +28,7 @@ from nn.Operators import (
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min, Not, And, Or, Xor, IsNaN,
     CumSum, Softmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
-    Flatten, Reshape, Transpose,
+    Flatten, Reshape, Transpose, Tile, Concat,
 )
 
 from . import cuda as cuda_backend
@@ -164,6 +164,14 @@ def build_mixed_precision_plans():
         (Transpose, "transpose", [(2, 3, 4)], ["bfloat16"], "bfloat16", {"perm": [2, 0, 1]}),
         (Transpose, "transpose", [(2, 3, 4)], ["float8_e4m3"], "float8_e4m3", {"perm": [2, 0, 1]}),
         (Transpose, "transpose", [(2, 3, 4)], ["float8_e5m2"], "float8_e5m2", {"perm": [2, 0, 1]}),
+        (Tile, "tile", [(2, 3), (2,)], ["float16", "int64"], "float16", {"repeats_value": [2, 3]}),
+        (Tile, "tile", [(2, 3), (2,)], ["bfloat16", "int64"], "bfloat16", {"repeats_value": [2, 3]}),
+        (Tile, "tile", [(2, 3), (2,)], ["float8_e4m3", "int64"], "float8_e4m3", {"repeats_value": [2, 3]}),
+        (Tile, "tile", [(2, 3), (2,)], ["float8_e5m2", "int64"], "float8_e5m2", {"repeats_value": [2, 3]}),
+        (Concat, "concat", [(2, 2, 4), (2, 3, 4)], ["float16", "float16"], "float16", {"axis": 1}),
+        (Concat, "concat", [(2, 2, 4), (2, 3, 4)], ["bfloat16", "bfloat16"], "bfloat16", {"axis": 1}),
+        (Concat, "concat", [(2, 2, 4), (2, 3, 4)], ["float8_e4m3", "float8_e4m3"], "float8_e4m3", {"axis": 1}),
+        (Concat, "concat", [(2, 2, 4), (2, 3, 4)], ["float8_e5m2", "float8_e5m2"], "float8_e5m2", {"axis": 1}),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["float16", "float16", "int8"], "int8"),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["bfloat16", "bfloat16", "int8"], "int8"),
         (DequantizeLinear, "dequantize_linear", [(32, 32), (1,), (1,)], ["int8", "float16", "int8"], "float16"),
@@ -291,6 +299,8 @@ def build_default_plans():
     (Flatten, "flatten", [(2, 3, 4)], ["float32"], "float32", {"axis": -1}),
     (Reshape, "reshape", [(2, 3, 4), (2,)], ["float32", "int64"], "float32", {"target_shape": [0, -1]}),
     (Transpose, "transpose", [(2, 3, 4)], ["float32"], "float32", {"perm": [2, 0, 1]}),
+    (Tile, "tile", [(2, 3), (2,)], ["float32", "int64"], "float32", {"repeats_value": [2, 3]}),
+    (Concat, "concat", [(2, 2, 4), (2, 3, 4)], ["float32", "float32"], "float32", {"axis": 1}),
 
     # Einsum: 当前固定主路径 ij,jk->ik
     (Einsum, "einsum", [(16,32), (32,8)], ["float32", "float32"], "float32", {"equation": "ij,jk->ik"}),

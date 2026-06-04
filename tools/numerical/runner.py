@@ -129,6 +129,15 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if op_name == "reshape":
             inputs_np[1] = np.array(init_args.get("target_shape", [0, -1]), dtype=np.int64)
 
+        if op_name == "tile":
+            inputs_np[1] = np.array(init_args.get("repeats_value", [1] * len(shapes[0])), dtype=np.int64)
+
+        if op_name == "concat":
+            for idx, (shape, dtype_name) in enumerate(zip(shapes, dtypes)):
+                total = int(np.prod(shape))
+                values = np.linspace(-3.0 + idx, 3.0 + idx, total, dtype=np.float32).reshape(shape)
+                inputs_np[idx] = from_float32(values, dtype_name)
+
         if op_name == "einsum":
             pass
 
@@ -253,6 +262,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("frame_step_value", None)
             op_init_args.pop("frame_length_value", None)
             op_init_args.pop("target_shape", None)
+            op_init_args.pop("repeats_value", None)
 
             valid_tensors = [t for t in inputs_tensor if t is not None]
 
@@ -593,6 +603,21 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             perm = [axis + rank if axis < 0 else axis for axis in perm]
             params_bin = np.array([rank, *input_shape, *perm], dtype=np.int32).tobytes()
 
+        elif op_name == "tile":
+            input_shape = list(shapes[0])
+            repeats = list(map(int, init_args.get("repeats_value", [1] * len(input_shape))))
+            params_bin = np.array([len(input_shape), *input_shape, *repeats], dtype=np.int32).tobytes()
+
+        elif op_name == "concat":
+            rank = len(shapes[0])
+            axis = init_args.get("axis", 0)
+            if axis < 0:
+                axis += rank
+            shape_values = []
+            for shape in shapes:
+                shape_values.extend(shape)
+            params_bin = np.array([len(shapes), rank, axis, *shape_values], dtype=np.int32).tobytes()
+
         elif op_name == "einsum":
             M, K = shapes[0]
             K2, N = shapes[1]
@@ -627,7 +652,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             if inp is None:
                 cuda_inputs.append(None)
             else:
-                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk", "max_unpool", "roi_align", "dft", "stft", "rnn", "gru", "lstm"] and d == "int64":
+                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk", "max_unpool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "tile"] and d == "int64":
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int64)))
                     continue
 
@@ -635,7 +660,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
-                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "flatten", "reshape", "transpose"]):
+                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "flatten", "reshape", "transpose", "tile", "concat"]):
                     try:
                         if val_f32.shape != expected_shape:
                             val_f32 = np.broadcast_to(val_f32, expected_shape)
@@ -757,7 +782,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd","nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "flatten", "reshape", "transpose"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd","nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "flatten", "reshape", "transpose", "tile", "concat"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:
