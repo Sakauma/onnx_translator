@@ -25,6 +25,7 @@
   * @details     2026.06.05  V1.0.18  修复 Reduce keepdims 坐标映射并补充语义记录
   * @details     2026.06.05  V1.0.19  补充索引和排序类算子 ONNX reference 语义记录
   * @details     2026.06.05  V1.0.20  补充当前工作收尾完整 numerical 复跑记录
+  * @details     2026.06.05  V1.0.21  补充核心卷积、矩阵、池化和量化算子官方语义记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -238,6 +239,8 @@
 继续补充索引、Arg、Scatter、TopK 与 CumSum 算子的 ONNX reference pytest 语义覆盖，新增 `tests/test_operator_index_semantics.py`，覆盖 `Gather`、`GatherElements`、`GatherND`、`ScatterND`、`NonZero`、`ArgMax`、`ArgMin`、`TopK` 与 `CumSum`。测试覆盖负 axis、负索引、`GatherND batch_dims=1`、`ScatterND reduction=none/add/mul`、`Arg* select_last_index`、`TopK largest=0 sorted=1`、`CumSum exclusive+reverse` 和 bfloat16 位存储路径。`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_index_semantics.py`、完整 pytest 和索引组定向 numerical 均已通过。本轮后 ONNX reference pytest 语义/混合精度覆盖增至 115 个算子。
 
 按当前收尾要求再次执行完整 numerical：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`。本次复跑覆盖默认 active numerical plan 中的 float32、float16、bfloat16、float8_e4m3、float8_e5m2、量化、索引和布尔类型路径，所有计划均通过，无失败算子；MaxRoiPool、RoiAlign、RNN、GRU、LSTM、DFT、STFT 等高风险算子也在本次完整一轮中通过。
+
+继续补充核心数值算子的官方语义覆盖，新增 `tests/test_operator_core_numeric_semantics.py`，覆盖 `Conv`、`ConvInteger`、`QLinearConv`、`ConvTranspose`、`Gemm`、`MatMul`、`MatMulInteger`、`QLinearMatMul`、`MaxPool`、`AveragePool`、`LpPool`、`GlobalAveragePool`、`GlobalMaxPool`、`GlobalLpPool`、`QuantizeLinear`、`DequantizeLinear`、`Clip` 与 `Mod`。测试覆盖 group/dilation/pads、ConvTranspose output_padding、Gemm 转置和 alpha/beta/C 广播、MatMul batch broadcast 和一维输入、Pool ceil/pad/count_include_pad、量化负 axis per-axis、整数零点和 bfloat16 位存储路径。`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_core_numeric_semantics.py`、完整 pytest 和核心数值组定向 numerical 均已通过。本轮后 ONNX reference pytest 语义/混合精度覆盖增至 131 个算子，独立 pytest 深度语义/混合精度覆盖增至 51 个算子。
 
 ### 剩余风险
 
