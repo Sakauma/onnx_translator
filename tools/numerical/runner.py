@@ -120,11 +120,14 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[2] = np.array([], dtype=np.float32)   # scales
             inputs_np[3] = np.array(target_sizes, dtype=np.int64)
 
-        if op_name == "transpose":
-            # Transpose 是纯重排算子，使用有限且可量化的固定样本，避免随机 float8 NaN 干扰位模式验证。
+        if op_name in {"flatten", "reshape", "transpose"}:
+            # 形状变换类算子使用有限且可量化的固定样本，避免随机 float8 NaN 干扰位模式验证。
             total = int(np.prod(shapes[0]))
             values = np.linspace(-3.0, 3.0, total, dtype=np.float32).reshape(shapes[0])
             inputs_np[0] = from_float32(values, dtypes[0])
+
+        if op_name == "reshape":
+            inputs_np[1] = np.array(init_args.get("target_shape", [0, -1]), dtype=np.int64)
 
         if op_name == "einsum":
             pass
@@ -249,6 +252,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("dft_length_value", None)
             op_init_args.pop("frame_step_value", None)
             op_init_args.pop("frame_length_value", None)
+            op_init_args.pop("target_shape", None)
 
             valid_tensors = [t for t in inputs_tensor if t is not None]
 
@@ -577,6 +581,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             OH, OW = init_args["sizes_value"][2], init_args["sizes_value"][3]
             params_bin = np.array([N, C, IH, IW, OH, OW], dtype=np.int32).tobytes()
 
+        elif op_name == "reshape":
+            params_bin = None
+
         elif op_name == "transpose":
             input_shape = list(shapes[0])
             rank = len(input_shape)
@@ -628,7 +635,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
-                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "transpose"]):
+                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "flatten", "reshape", "transpose"]):
                     try:
                         if val_f32.shape != expected_shape:
                             val_f32 = np.broadcast_to(val_f32, expected_shape)
@@ -750,7 +757,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd","nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "transpose"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd","nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "flatten", "reshape", "transpose"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:
