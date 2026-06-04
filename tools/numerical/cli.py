@@ -26,7 +26,7 @@ from nn.Operators import (
     Equal, Greater, Less, GreaterOrEqual, LessOrEqual,
     Gather, GatherElements, GatherND, COS, LOG, EXP, SIGMOID, TANH,
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min, Not, And, Or, Xor, IsNaN,
-    CumSum, Softmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
+    CumSum, Softmax, Hardmax, LogSoftmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
     Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, ConstantOfShape, EyeLike,
     Mean, Sum, Cast, CastLike, Ceil, Reciprocal, Softplus, Softsign, HardSigmoid,
@@ -209,6 +209,14 @@ def build_mixed_precision_plans():
         (ReduceMean, "reduce_mean", [(32, 32)], ["bfloat16"], "bfloat16"),
         (Softmax, "softmax", [(4, 16)], ["float16"], "float16", {"axis": -1}),
         (Softmax, "softmax", [(4, 16)], ["bfloat16"], "bfloat16", {"axis": -1}),
+        (Hardmax, "hardmax", [(4, 16)], ["float16"], "float16", {"axis": -1}),
+        (Hardmax, "hardmax", [(4, 16)], ["bfloat16"], "bfloat16", {"axis": -1}),
+        (Hardmax, "hardmax", [(4, 16)], ["float8_e4m3"], "float8_e4m3", {"axis": -1}),
+        (Hardmax, "hardmax", [(4, 16)], ["float8_e5m2"], "float8_e5m2", {"axis": -1}),
+        (LogSoftmax, "log_softmax", [(4, 16)], ["float16"], "float16", {"axis": -1}),
+        (LogSoftmax, "log_softmax", [(4, 16)], ["bfloat16"], "bfloat16", {"axis": -1}),
+        (LogSoftmax, "log_softmax", [(4, 16)], ["float8_e4m3"], "float8_e4m3", {"axis": -1}),
+        (LogSoftmax, "log_softmax", [(4, 16)], ["float8_e5m2"], "float8_e5m2", {"axis": -1}),
         (TopK, "topk", [(16, 16), (1,)], ["float16", "int64"], "float16", {"axis": 1, "largest": 1, "sorted": 1, "k_value": 4}),
         (TopK, "topk", [(16, 16), (1,)], ["bfloat16", "int64"], "bfloat16", {"axis": 1, "largest": 1, "sorted": 1, "k_value": 4}),
         (ArgMin, "argmin", [(16, 16)], ["float16"], "int64", {"axis": 1, "keepdims": 0, "select_last_index": 0}),
@@ -315,6 +323,8 @@ def build_default_plans():
 
     # ---- Softmax ----
     (Softmax, "softmax",[(4, 64)], ["float32"], "float32", {"axis":-1}),
+    (Hardmax, "hardmax",[(4, 64)], ["float32"], "float32", {"axis":-1}),
+    (LogSoftmax, "log_softmax",[(4, 64)], ["float32"], "float32", {"axis":-1}),
 
     # ---- Gemm ----
     (Gemm, "gemm",[(16, 32), (32, 8), (8,)], ["float32", "float32", "float32"], "float32",{"alpha":1.0, "beta":1.0, "transA":0, "transB":0}),

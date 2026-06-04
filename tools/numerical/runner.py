@@ -133,6 +133,12 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             values.reshape(-1)[total // 2] = 0.0
             inputs_np[0] = from_float32(values, dtypes[0])
 
+        if op_name in {"softmax", "hardmax", "log_softmax"}:
+            # Softmax 族算子使用有限样本，覆盖 axis 分段并避免低精度随机 NaN 干扰验证。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(-4.0, 4.0, total, dtype=np.float32).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+
         if op_name in {
             "ceil", "reciprocal", "softplus", "softsign", "hard_sigmoid",
             "elu", "leaky_relu", "selu", "celu", "thresholded_relu", "prelu",
@@ -578,7 +584,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             ints = np.array([M, N, K, tA, tB, c_type, has_c], dtype=np.int32).tobytes()
             floats = np.array([init_args['alpha'], init_args['beta']], dtype=np.float32).tobytes()
             params_bin = ints + floats
-        elif op_name == "softmax":
+        elif op_name in {"softmax", "hardmax", "log_softmax"}:
             x, axis = inputs_np[0], init_args['axis']
             if axis < 0: axis += x.ndim
             inner, outer = x.shape[axis], int(np.prod(x.shape[:axis]))
@@ -758,7 +764,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if expected_shape == ():
             expected_shape = (1,) # 统一当成 1 元素张量来跑 CUDA/读写 bin
             nps_out = np.array([nps_out], dtype=nps_out.dtype)
-        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "max_unpool", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax"] # 这些算子自己处理形状
+        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "max_unpool", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
         is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
         
         cuda_inputs = []
