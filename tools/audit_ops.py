@@ -205,6 +205,7 @@ REFERENCE_PARITY_PYTEST_COVERAGE = {
     "Asinh",
     "Atanh",
     "Atan",
+    "AveragePool",
     "ArgMax",
     "ArgMin",
     "BatchNormalization",
@@ -518,6 +519,22 @@ def parse_onnx17_official_ops() -> tuple[dict[str, str], str | None]:
     return {normalize_name(name): name for name in latest}, None
 
 
+# 实现 `parse_onnx_latest_official_ops` 步骤，读取当前安装 ONNX 中默认 domain 的最新 schema。
+def parse_onnx_latest_official_ops() -> tuple[dict[str, tuple[str, int]], str | None]:
+    try:
+        from onnx import defs
+    except Exception as exc:  # pragma: no cover - exercised when onnx is missing locally.
+        return {}, f"无法导入 onnx.defs: {exc}"
+
+    latest = {}
+    for schema in defs.get_all_schemas_with_history():
+        if schema.domain != "":
+            continue
+        if schema.name not in latest or schema.since_version > latest[schema.name].since_version:
+            latest[schema.name] = schema
+    return {normalize_name(name): (name, schema.since_version) for name, schema in latest.items()}, None
+
+
 # 实现 `parse_c_functions` 步骤，规范化输入并返回下游期望的数据或元信息。
 def parse_c_functions() -> tuple[set[str], set[str]]:
     header = (ROOT / "tensor_ops" / "tensor_ops.h").read_text(encoding="utf-8")
@@ -701,7 +718,9 @@ def audit() -> tuple[list[OperatorInfo], dict[str, object]]:
     cuda_verifiers = parse_cuda_verifiers()
     numerical_plans, numerical_plan_total_count, mixed_precision_plan_count = parse_numerical_plan_details()
     official_onnx17, official_error = parse_onnx17_official_ops()
+    official_latest, official_latest_error = parse_onnx_latest_official_ops()
     normalized_import_raw = {normalize_name(op): op for op in import_supported_raw}
+    official_latest_missing = sorted(set(official_latest) - set(normalized_import_raw))
 
     infos = []
     for class_name, data in sorted(operators.items(), key=lambda item: item[1]["line"]):
@@ -753,6 +772,13 @@ def audit() -> tuple[list[OperatorInfo], dict[str, object]]:
         "official_onnx17_supported_count": len(set(official_onnx17) & set(normalized_import_raw)),
         "official_onnx17_missing": [official_onnx17[name] for name in sorted(set(official_onnx17) - set(normalized_import_raw))],
         "supported_non_onnx17": [normalized_import_raw[name] for name in sorted(set(normalized_import_raw) - set(official_onnx17))],
+        "official_onnx_latest_count": len(official_latest),
+        "official_onnx_latest_error": official_latest_error,
+        "official_onnx_latest_supported_count": len(set(official_latest) & set(normalized_import_raw)),
+        "official_onnx_latest_missing": [official_latest[name][0] for name in official_latest_missing],
+        "official_onnx_latest_missing_with_versions": [
+            f"{official_latest[name][0]}(since_version={official_latest[name][1]})" for name in official_latest_missing
+        ],
     }
     metadata["c_runtime_count"] = sum(1 for info in infos if info.c_runtime_functions)
     metadata["python_orchestration_runtime_count"] = sum(
@@ -832,6 +858,7 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
         "- `独立 pytest 深度语义/混合精度覆盖`：使用独立公式或 ONNX reference 对高风险算子的官方语义、边界条件和低精度 dtype 路径进行 pytest 回归验证。",
         "- `ONNX reference pytest 语义/混合精度覆盖`：使用本地 ONNX reference evaluator 对普通算子的官方输出和低精度 dtype 路径进行 pytest 回归验证。",
         "- `ONNX opset 17 官方覆盖`：通过本地 `onnx.defs` 读取默认 domain 中 `since_version <= 17` 的最新 schema，并与 `ONNXImport` 的显式映射做名称级对比。",
+        "- `当前安装 ONNX 最新官方覆盖`：读取当前环境可见的最新默认 domain schema，用于暴露高版本 opset 新增算子的后续兼容风险。",
         "",
         "## 总览",
         "",
@@ -859,6 +886,7 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
             + "。"
         ),
             f"- ONNX opset 17 官方算子：{metadata['official_onnx17_count']} 个；ONNXImport 名称级覆盖：{metadata['official_onnx17_supported_count']} 个。",
+            f"- 当前安装 ONNX 最新官方算子：{metadata['official_onnx_latest_count']} 个；ONNXImport 名称级覆盖：{metadata['official_onnx_latest_supported_count']} 个。",
             "",
         "### 状态计数",
         "",
@@ -972,6 +1000,33 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
                 "### 仓库额外/非默认 domain/实验性名称",
                 "",
                 ", ".join(f"`{name}`" for name in extra) if extra else "无。",
+            ]
+        )
+
+    if metadata["official_onnx_latest_error"]:
+        lines.extend(
+            [
+                "",
+                "## 当前安装 ONNX 最新官方覆盖",
+                "",
+                f"- 无法生成最新官方覆盖对比：{metadata['official_onnx_latest_error']}",
+            ]
+        )
+    else:
+        latest_missing = metadata["official_onnx_latest_missing_with_versions"]
+        lines.extend(
+            [
+                "",
+                "## 当前安装 ONNX 最新官方覆盖",
+                "",
+                "- 该段用于暴露高版本 opset 兼容风险，不改变当前报告中 opset 17 的历史覆盖口径。",
+                f"- 当前环境默认 domain 最新官方算子：{metadata['official_onnx_latest_count']} 个。",
+                f"- `ONNXImport` 已覆盖官方名称：{metadata['official_onnx_latest_supported_count']} 个。",
+                f"- 最新官方名称级缺口：{len(latest_missing)} 个。",
+                "",
+                "### 最新官方缺口",
+                "",
+                ", ".join(f"`{name}`" for name in latest_missing) if latest_missing else "无。",
             ]
         )
 

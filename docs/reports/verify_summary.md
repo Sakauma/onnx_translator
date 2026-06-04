@@ -28,6 +28,7 @@
   * @details     2026.06.05  V1.0.21  补充核心卷积、矩阵、池化和量化算子官方语义记录
   * @details     2026.06.05  V1.0.22  补充复杂属性算子官方语义和 Einsum 混合精度修复记录
   * @details     2026.06.05  V1.0.23  补充当前工作结束前完整 numerical 一轮记录
+  * @details     2026.06.05  V1.0.24  补充 AveragePool 覆盖登记和最新 ONNX schema 风险审计记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -247,6 +248,8 @@
 继续补充复杂属性算子的官方语义覆盖，新增 `tests/test_operator_complex_attribute_semantics.py`，覆盖 `Resize`、`Pad`、`GridSample`、`MaxUnpool` 与 `Einsum` 的高风险属性组合。测试覆盖 Resize 的 `align_corners`、`nearest_mode=ceil`、cubic 与 `round_prefer_ceil` fallback，Pad 的 edge/reflect/负 pad 裁剪，GridSample 的 nearest/border 与 linear/reflection，MaxUnpool 的显式 `output_shape`，以及 Einsum 的 ellipsis、重复标签和 bfloat16 位存储路径。本轮同时修复 `Einsum` 混合精度路径：低精度输入先解码为 float32 临时 CTensor 后交给 C stride planner 累加，C 输出已按目标 dtype 写回时不再二次 `_cast_numeric_to_dtype`，并将 C 后端累加改为 double 临时缓冲后统一写回，避免低精度输出缓冲参与中间累加。`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_complex_attribute_semantics.py`、完整 pytest 和 `Resize/Pad/Einsum/MaxUnpool` 定向 numerical 均已通过。本轮后 ONNX reference pytest 语义/混合精度覆盖增至 134 个算子。
 
 按当前结束要求执行完整一轮 numerical：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`。本次验证覆盖默认 active numerical plan 中的基础数值、卷积、池化、量化、归约、索引、形状变换、谱、序列和混合精度路径，所有计划均通过，无失败算子；MaxRoiPool、RoiAlign、RNN、GRU、LSTM、DFT、STFT 等此前标记为高风险的算子也在本次完整一轮中通过。当前收尾未新增运行逻辑，仅将本次验证结果落盘，作为提交前状态记录。
+
+继续校准覆盖审计口径：`AveragePool` 已在 `tests/test_operator_core_numeric_semantics.py` 中通过 ONNX reference 覆盖 padding、ceil_mode、count_include_pad 和 bfloat16 位存储路径，本轮将其补入审计登记，`tools/audit_ops.py` 当前显示 186 个算子类均已有 pytest 语义/混合精度覆盖记录。审计脚本同时新增“当前安装 ONNX 最新官方覆盖”段，除既有 opset 17 官方名称级覆盖 178/178 外，额外暴露当前环境最新默认 domain schema 的 15 个高版本缺口：AffineGrid、Attention、BitCast、CenterCropPad、Col2Im、CumProd、DeformConv、ImageDecoder、RegexFullMatch、RMSNormalization、RotaryEmbedding、StringConcat、StringSplit、Swish、TensorScatter。
 
 ### 剩余风险
 
