@@ -35,6 +35,8 @@ typedef enum {
     DTYPE_UINT32,      // 32位无符号整数
     DTYPE_UINT64,      // 64位无符号整数
     DTYPE_BOOL,        // 布尔值
+    DTYPE_COMPLEX64,   // 64位复数
+    DTYPE_COMPLEX128,  // 128位复数
 } DataType;
 
 /**
@@ -323,6 +325,12 @@ void clip_forward(const Tensor* input, Tensor* output, const Tensor* min, const 
  * 本质上就是从 Input 读取 (自动转double) 再写入 Output (自动转目标类型)
  */
 void cast_forward(const Tensor* input, Tensor* output);
+
+/**
+ * BitCast 位重解释
+ * 保持底层字节不变，仅按等宽目标 dtype 重新解释输出。
+ */
+void bitcast_forward(const Tensor* input, Tensor* output);
 
 /**
  * Sum element-wise variadic addition.

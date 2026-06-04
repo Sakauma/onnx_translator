@@ -213,6 +213,7 @@ REFERENCE_PARITY_PYTEST_COVERAGE = {
     "ArgMax",
     "ArgMin",
     "BatchNormalization",
+    "BitCast",
     "BlackmanWindow",
     "Cast",
     "CastLike",

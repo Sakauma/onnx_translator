@@ -161,6 +161,18 @@ void cast_forward(const Tensor* input, Tensor* output) {
 }
 
 
+// BitCast 不做数值转换，只在输入输出 dtype 等宽时复制底层字节。
+void bitcast_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output || !input->data || !output->data || input->size != output->size) return;
+
+    size_t in_elem_size = get_dtype_size(input->dtype);
+    size_t out_elem_size = get_dtype_size(output->dtype);
+    if (in_elem_size != out_elem_size) return;
+
+    memcpy(output->data, input->data, input->size * in_elem_size);
+}
+
+
 // 实现 `eye like` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void eye_like_forward(Tensor* output, int k) {
     if (!output || output->ndim != 2) return;

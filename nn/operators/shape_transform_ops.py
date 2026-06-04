@@ -657,6 +657,64 @@ class CastLike(Ops):
         return {"tensor": Tensor_(*input.size, dtype=out_dtype), "parameters": None, "graph": None}
 
 
+def _bitcast_itemsize(dtype):
+    # BitCast 使用官方 bit-width 判断；当前工程的 int4 是 int8 容器存储，不能代表官方 4-bit packed 语义。
+    if dtype == "int4":
+        return None
+    np_dtype = nn.DTYPE_TO_NUMPY.get(dtype)
+    return None if np_dtype is None else np.dtype(np_dtype).itemsize
+
+
+class BitCast(Ops):
+    # 初始化 `BitCast` 的目标 dtype，后续前向执行只重解释位模式，不做数值转换。
+    def __init__(self, inputs, outputs, dtype, version="26"):
+        super(BitCast, self).__init__(inputs, outputs)
+        self.dtype = dtype
+        self.version = version
+        if self.lib:
+            self.lib.bitcast_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+
+    # 校验输入和输出 dtype 是否可以按官方 BitCast 规则做等宽位重解释。
+    def _validate_dtypes(self, input_dtype):
+        in_size = _bitcast_itemsize(input_dtype)
+        out_size = _bitcast_itemsize(self.dtype)
+        if in_size is None:
+            raise ValueError(f"BitCast input dtype {input_dtype!r} is not supported")
+        if out_size is None:
+            raise ValueError(f"BitCast target dtype {self.dtype!r} is not supported")
+        if in_size != out_size:
+            raise ValueError(
+                f"BitCast requires equal bit-width, got {input_dtype} ({in_size * 8} bits) "
+                f"and {self.dtype} ({out_size * 8} bits)"
+            )
+
+    # 执行 `BitCast` 的真实张量计算路径，保留底层字节并按目标 dtype 重新解释。
+    def forward(self, input: Tensor) -> dict:
+        self._validate_dtypes(input.dtype)
+        in_np_dtype = nn.DTYPE_TO_NUMPY[input.dtype]
+        out_np_dtype = nn.DTYPE_TO_NUMPY[self.dtype]
+
+        if self.lib is not None and input.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            input_data = np.ascontiguousarray(np.asarray(input.data, dtype=in_np_dtype))
+            input_c = self._numpy_to_ctensor(input_data, input.dtype)
+            output_shape_c = (ctypes.c_int * len(input.size))(*input.size)
+            output_c = self.lib.create_tensor(output_shape_c, len(input.size), nn.DTYPE_MAP[self.dtype])
+            self.lib.bitcast_forward(input_c, output_c)
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(input_c)
+            self.lib.free_tensor(output_c)
+        else:
+            source = np.ascontiguousarray(np.asarray(input.data, dtype=in_np_dtype))
+            out_data = source.view(out_np_dtype).reshape(input.size).copy()
+
+        return {"tensor": Tensor(*input.size, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+    # 执行 `BitCast` 的形状推断路径，输出 shape 与输入完全一致，只替换 dtype。
+    def forward_(self, input: Tensor_) -> dict:
+        self._validate_dtypes(input.dtype)
+        return {"tensor": Tensor_(*input.size, dtype=self.dtype), "parameters": None, "graph": None}
+
+
 class Sum(Ops):
     # 初始化 `Sum` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):

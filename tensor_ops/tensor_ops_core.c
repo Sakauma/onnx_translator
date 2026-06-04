@@ -79,8 +79,12 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
         case DTYPE_FLOAT32:
             elem_size = 4;  // 32位浮点数
             break;
+        case DTYPE_COMPLEX64:
         case DTYPE_FLOAT64:
             elem_size = 8;  // 64位浮点数
+            break;
+        case DTYPE_COMPLEX128:
+            elem_size = 16; // 128位复数
             break;
         case DTYPE_INT4:
             elem_size = 1;  // 4位整数

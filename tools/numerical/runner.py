@@ -14,6 +14,7 @@ import traceback
 
 import numpy as np
 
+import nn
 from nn import Tensor
 
 from .compare import check_accuracy
@@ -170,6 +171,13 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             values = np.linspace(-7.5, 7.5, total, dtype=np.float32).reshape(shapes[0])
             values.reshape(-1)[total // 2] = 0.0
             inputs_np[0] = from_float32(values, dtypes[0])
+
+        if op_name == "bitcast":
+            # BitCast 必须保留原始位模式，输入按 dtype 容器直接构造，避免数值转换改变字节。
+            input_dtype = nn.DTYPE_TO_NUMPY[dtypes[0]]
+            elem_size = np.dtype(input_dtype).itemsize
+            raw = ((np.arange(int(np.prod(shapes[0])) * elem_size, dtype=np.uint16) * 37 + 11) & 0xFF).astype(np.uint8)
+            inputs_np[0] = raw.view(input_dtype).reshape(shapes[0]).copy()
 
         if op_name == "rms_normalization":
             # RMSNormalization 使用稳定有限样本，覆盖 scale 单向广播和低精度 stash_type=FLOAT 主路径。
@@ -797,6 +805,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             output_kind = {"float": 0, "int32": 1, "int64": 2, "bool": 3}.get(out_dtype, 0)
             params_bin = np.array([output_kind], dtype=np.int32).tobytes()
 
+        elif op_name == "bitcast":
+            params_bin = np.array([np.dtype(nn.DTYPE_TO_NUMPY[out_dtype]).itemsize], dtype=np.int32).tobytes()
+
         elif op_name == "hard_sigmoid":
             params_bin = np.array(
                 [float(init_args.get("alpha", 0.2)), float(init_args.get("beta", 0.5))],
@@ -870,6 +881,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             if inp is None:
                 cuda_inputs.append(None)
             else:
+                if op_name == "bitcast":
+                    cuda_inputs.append(np.ascontiguousarray(inp.astype(nn.DTYPE_TO_NUMPY[d], copy=False)))
+                    continue
+
                 if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "affine_grid", "topk", "max_unpool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "tile", "expand", "pad", "constant_of_shape"] and d == "int64":
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int64)))
                     continue
@@ -907,6 +922,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             out_np_dtype = np.int32
         elif out_dtype == "int64":
             out_np_dtype = np.int64
+        elif op_name == "bitcast":
+            out_np_dtype = nn.DTYPE_TO_NUMPY[out_dtype]
         else:
             out_np_dtype = np.float64 if is_double_kernel else np.float32
 
@@ -961,7 +978,15 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         # 6. 对比
         # nps_f32 = to_float32(nps_out, out_dtype)
         # is_ok, max_abs, max_rel, fail_mask = check_accuracy(nps_f32, cuda_out, atol, rtol, out_dtype)
-        if out_dtype in {"int32", "int64"}:
+        if op_name == "bitcast":
+            nps_raw = np.ascontiguousarray(nps_out).view(np.uint8)
+            cuda_raw = np.ascontiguousarray(cuda_out).view(np.uint8)
+            is_ok = np.array_equal(nps_raw, cuda_raw)
+            max_abs = 0.0 if is_ok else -1.0
+            max_rel = 0.0 if is_ok else -1.0
+            fail_mask = None if is_ok else (nps_raw != cuda_raw)
+            nps_f32 = np.asarray(nps_out).reshape(expected_shape)
+        elif out_dtype in {"int32", "int64"}:
             int_dtype = np.int32 if out_dtype == "int32" else np.int64
             nps_int = np.asarray(nps_out).astype(int_dtype)
             cuda_int = np.asarray(cuda_out).astype(int_dtype)

@@ -16,6 +16,7 @@ from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import (
     AffineGrid,
+    BitCast,
     Compress,
     Constant,
     ConstantOfShape,
@@ -144,6 +145,75 @@ def test_c_backend_shape_transform_ops_float16_match_onnx_reference():
         Unsqueeze(["x", "axes"], ["y"], dtype="float16").forward(_tensor(unsqueeze_input, "float16"), _tensor(unsqueeze_axes, "int64"))["tensor"],
         _onnx_reference("Unsqueeze", [unsqueeze_input, unsqueeze_axes], [TensorProto.FLOAT16, TensorProto.INT64], {}, [(1, 2, 1, 3)])[0],
     )
+
+
+# 验证 BitCast 的 float32 到 int32 路径与 ONNX reference 的原始位重解释一致。
+def test_c_backend_bitcast_float32_to_int32_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.array([1.0, -2.5, 0.0, np.float32(np.pi)], dtype=np.float32).reshape(2, 2)
+    expected = _onnx_reference(
+        "BitCast",
+        [x],
+        [TensorProto.FLOAT],
+        {"to": TensorProto.INT32},
+        [(2, 2)],
+        [TensorProto.INT32],
+        opset=26,
+    )[0]
+    actual = BitCast(["x"], ["y"], dtype="int32").forward(_tensor(x, "float32"))["tensor"]
+    np.testing.assert_array_equal(actual.data, expected)
+
+
+# 验证 BitCast 的 int32 到 float32 路径不会执行数值转换，只重解释二进制位。
+def test_c_backend_bitcast_int32_to_float32_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    raw = np.array([0x3F800000, 0xC0200000, 0x00000000, 0x40490FDB], dtype=np.uint32).view(np.int32).reshape(2, 2)
+    expected = _onnx_reference(
+        "BitCast",
+        [raw],
+        [TensorProto.INT32],
+        {"to": TensorProto.FLOAT},
+        [(2, 2)],
+        [TensorProto.FLOAT],
+        opset=26,
+    )[0]
+    actual = BitCast(["x"], ["y"], dtype="float32").forward(_tensor(raw, "int32"))["tensor"]
+    np.testing.assert_array_equal(actual.data.view(np.uint32), expected.view(np.uint32))
+
+
+# 验证 BitCast 对 bfloat16 和 float8 混合精度位存储执行原样复制。
+def test_c_backend_bitcast_low_precision_preserves_raw_bits():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    bf16_bits = _bf16_bits(np.array([[1.0, -2.0], [0.5, 3.25]], dtype=np.float32))
+    bf16_actual = BitCast(["x"], ["y"], dtype="uint16").forward(_tensor(bf16_bits, "bfloat16"))["tensor"]
+    np.testing.assert_array_equal(bf16_actual.data, bf16_bits)
+
+    fp8_bits = np.array([[0x00, 0x3C, 0x80], [0x7E, 0x11, 0xA4]], dtype=np.uint8)
+    fp8_actual = BitCast(["x"], ["y"], dtype="uint8").forward(_tensor(fp8_bits, "float8_e4m3"))["tensor"]
+    np.testing.assert_array_equal(fp8_actual.data, fp8_bits)
+
+
+# 验证 BitCast 导入时保留官方必需的 to 属性。
+def test_onnx_import_bitcast_preserves_target_dtype(tmp_path):
+    graph = helper.make_graph(
+        [helper.make_node("BitCast", ["x"], ["y"], to=TensorProto.INT32)],
+        "bitcast_import",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 2])],
+        [helper.make_tensor_value_info("y", TensorProto.INT32, [2, 2])],
+    )
+    model_path = tmp_path / "bitcast.onnx"
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 26)]), model_path)
+
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, BitCast)]
+    assert len(imported) == 1
+    assert imported[0].dtype == "int32"
+    assert imported[0].version == "26"
 
 
 # 验证 AffineGrid 的 2D 采样网格生成与 ONNX reference 对齐。

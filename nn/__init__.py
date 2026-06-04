@@ -53,6 +53,8 @@ DTYPE_MAP = {
     "uint32": 13,
     "uint64": 14,
     "bool": 15,
+    "complex64": 16,
+    "complex128": 17,
 }
 
 # 数据类型映射到NumPy类型
@@ -125,7 +127,12 @@ onnx_dtype_mapping = {
     13: "uint64",
     14: "complex64",
     15: "complex128",
-    16: "bfloat16"
+    16: "bfloat16",
+    17: "float8_e4m3",
+    18: "float8_e4m3",
+    19: "float8_e5m2",
+    20: "float8_e5m2",
+    22: "int4",
 }
 
 class Tensor:

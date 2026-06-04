@@ -583,6 +583,22 @@ def _factory_041_castlike(node, import_context):
     return onnx_graph_list[-1]
 
 
+@register_factory("BitCast")
+def _factory_041_bitcast(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    to = None
+    for attr in node.attribute:
+        if attr.name == "to":
+            to = attr.i
+    if to is None:
+        raise ValueError("BitCast requires 'to' attribute")
+    if to not in onnx_dtype_mapping:
+        raise ValueError(f"BitCast target TensorProto dtype {to} is not supported by current dtype mapping")
+    onnx_graph_list.append(nn.Operators.BitCast(node.input, node.output, dtype=onnx_dtype_mapping[to], version="26"))
+    return onnx_graph_list[-1]
+
+
 @register_factory("Sum")
 def _factory_042_sum(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
@@ -642,5 +658,4 @@ def _factory_047_lrn(node, import_context):
     elem_type = get_dtype(node.output[0])
     onnx_graph_list.append(nn.Operators.LRN(node.input, node.output, size=size, alpha=alpha, beta=beta, bias=bias, dtype=onnx_dtype_mapping[elem_type], version="17"))
     return onnx_graph_list[-1]
-
 

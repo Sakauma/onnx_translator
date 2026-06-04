@@ -86,10 +86,13 @@ static inline size_t get_dtype_size(DataType dtype) {
         case DTYPE_INT32:
         case DTYPE_UINT32:
             return 4;
+        case DTYPE_COMPLEX64:
         case DTYPE_FLOAT64:
         case DTYPE_INT64:
         case DTYPE_UINT64:
             return 8;
+        case DTYPE_COMPLEX128:
+            return 16;
         default:
             return 4;
     }

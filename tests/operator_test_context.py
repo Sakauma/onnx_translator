@@ -51,6 +51,7 @@ from nn.Operators import (
     ArgMax,
     ArgMin,
     BatchNormalization,
+    BitCast,
     BlackmanWindow,
     Cast,
     Conv,
