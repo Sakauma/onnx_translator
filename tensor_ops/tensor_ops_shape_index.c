@@ -433,6 +433,55 @@ void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const T
 }
 
 
+// CenterCropPad
+// 根据输入和输出 shape 的差值执行官方中心裁剪/零填充，奇数 padding 额外像素落在右侧。
+void center_crop_pad_forward(const Tensor* input, Tensor* output) {
+    if (!input || !output || !input->data || !output->data) return;
+    if (input->ndim != output->ndim || input->ndim > MAX_NDIM) return;
+
+    int rank = input->ndim;
+    int crop_starts[MAX_NDIM] = {0};
+    int pad_begins[MAX_NDIM] = {0};
+
+    for (int d = 0; d < rank; d++) {
+        int input_dim = input->shape[d];
+        int output_dim = output->shape[d];
+        if (input_dim < 0 || output_dim < 0) return;
+        if (input_dim > output_dim) {
+            crop_starts[d] = (input_dim - output_dim) / 2;
+            pad_begins[d] = 0;
+        } else {
+            crop_starts[d] = 0;
+            pad_begins[d] = (output_dim - input_dim) / 2;
+        }
+    }
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        int out_coords[MAX_NDIM] = {0};
+        int in_coords[MAX_NDIM] = {0};
+        int in_bounds = 1;
+
+        get_coords_from_index(i, out_coords, output->shape, rank);
+        for (int d = 0; d < rank; d++) {
+            int src_coord = out_coords[d] - pad_begins[d] + crop_starts[d];
+            if (src_coord < 0 || src_coord >= input->shape[d]) {
+                in_bounds = 0;
+                break;
+            }
+            in_coords[d] = src_coord;
+        }
+
+        if (in_bounds) {
+            size_t in_idx = get_index_from_coords(in_coords, input->shape, rank);
+            copy_tensor_element(output, i, input, in_idx);
+        } else {
+            set_tensor_value_from_float(output, i, 0.0);
+        }
+    }
+}
+
+
 // ScatterND
 // 遍历 updates，将其值写入 data 的指定位置
 // 实现 `scatter nd` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。

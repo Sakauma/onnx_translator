@@ -549,6 +549,10 @@ void tile_forward(const Tensor* input, Tensor* output);
 // mode: 0=constant, 1=reflect, 2=edge
 void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const Tensor* constant_value, int mode);
 
+// CenterCropPad
+// 根据 input/output shape 执行居中裁剪或零填充；axes 解析由 Python 层提前体现在 output shape 中。
+void center_crop_pad_forward(const Tensor* input, Tensor* output);
+
 // Split 复用 slice
 
 void reduce_mean_forward(const Tensor* input, Tensor* output, ReduceParams* params);

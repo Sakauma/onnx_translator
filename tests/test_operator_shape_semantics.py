@@ -17,6 +17,7 @@ from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import (
     AffineGrid,
     BitCast,
+    CenterCropPad,
     Compress,
     Constant,
     ConstantOfShape,
@@ -214,6 +215,97 @@ def test_onnx_import_bitcast_preserves_target_dtype(tmp_path):
     assert len(imported) == 1
     assert imported[0].dtype == "int32"
     assert imported[0].version == "26"
+
+
+# 验证 CenterCropPad 在全 axes 路径下同时执行中心裁剪和零填充，并与 ONNX reference 对齐。
+def test_c_backend_center_crop_pad_all_axes_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
+    target = np.array([3, 2, 5], dtype=np.int64)
+    expected = _onnx_reference(
+        "CenterCropPad",
+        [x, target],
+        [TensorProto.FLOAT, TensorProto.INT64],
+        {},
+        [(3, 2, 5)],
+        [TensorProto.FLOAT],
+        opset=18,
+    )[0]
+    actual = CenterCropPad(["x", "shape"], ["y"], dtype="float32").forward(
+        _tensor(x, "float32"),
+        _tensor(target, "int64"),
+    )["tensor"]
+    _assert_tensor_matches(actual, expected)
+
+
+# 验证 CenterCropPad 的 axes 属性支持负轴，并只替换指定维度。
+def test_c_backend_center_crop_pad_axes_subset_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.arange(24, dtype=np.float16).reshape(2, 3, 4)
+    target = np.array([5, 2], dtype=np.int64)
+    expected = _onnx_reference(
+        "CenterCropPad",
+        [x, target],
+        [TensorProto.FLOAT16, TensorProto.INT64],
+        {"axes": [-1, 1]},
+        [(2, 2, 5)],
+        [TensorProto.FLOAT16],
+        opset=18,
+    )[0]
+    actual = CenterCropPad(["x", "shape"], ["y"], axes=[-1, 1], dtype="float16").forward(
+        _tensor(x, "float16"),
+        _tensor(target, "int64"),
+    )["tensor"]
+    _assert_tensor_matches(actual, expected)
+
+
+# 验证 CenterCropPad 的低精度路径只搬运已有元素位模式，padding 区域写入零位模式。
+def test_c_backend_center_crop_pad_low_precision_preserves_bits():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    target = np.array([3, 2, 5], dtype=np.int64)
+    bf16_bits = np.arange(1, 25, dtype=np.uint16).reshape(2, 3, 4)
+    bf16_expected = np.zeros((3, 2, 5), dtype=np.uint16)
+    bf16_expected[:2, :2, :4] = bf16_bits[:, :2, :]
+    bf16_actual = CenterCropPad(["x", "shape"], ["y"], dtype="bfloat16").forward(
+        _tensor(bf16_bits, "bfloat16"),
+        _tensor(target, "int64"),
+    )["tensor"]
+    np.testing.assert_array_equal(bf16_actual.data, bf16_expected)
+
+    fp8_bits = np.arange(1, 25, dtype=np.uint8).reshape(2, 3, 4)
+    fp8_expected = np.zeros((3, 2, 5), dtype=np.uint8)
+    fp8_expected[:2, :2, :4] = fp8_bits[:, :2, :]
+    fp8_actual = CenterCropPad(["x", "shape"], ["y"], dtype="float8_e4m3").forward(
+        _tensor(fp8_bits, "float8_e4m3"),
+        _tensor(target, "int64"),
+    )["tensor"]
+    np.testing.assert_array_equal(fp8_actual.data, fp8_expected)
+
+
+# 验证 CenterCropPad 导入时保留官方 axes 属性。
+def test_onnx_import_center_crop_pad_preserves_axes(tmp_path):
+    graph = helper.make_graph(
+        [helper.make_node("CenterCropPad", ["x", "shape"], ["y"], axes=[-1, 1])],
+        "center_crop_pad_import",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3, 4]),
+            helper.make_tensor_value_info("shape", TensorProto.INT64, [2]),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 2, 5])],
+    )
+    model_path = tmp_path / "center_crop_pad.onnx"
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)]), model_path)
+
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, CenterCropPad)]
+    assert len(imported) == 1
+    assert imported[0].axes == [-1, 1]
+    assert imported[0].version == "18"
 
 
 # 验证 AffineGrid 的 2D 采样网格生成与 ONNX reference 对齐。

@@ -302,6 +302,91 @@ class Pad(Ops):
         return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 
+class CenterCropPad(Ops):
+    # 初始化 `CenterCropPad` 的目标 axes 和输出 dtype，后续按官方中心裁剪或零填充语义执行。
+    def __init__(self, inputs, outputs, axes=None, dtype="float32", version="18"):
+        super().__init__(inputs, outputs)
+        self.axes = None if axes is None else list(axes)
+        self.dtype = dtype
+        self.version = version
+        if self.lib:
+            self.lib.center_crop_pad_forward.argtypes = [ctypes.POINTER(nn.CTensor), ctypes.POINTER(nn.CTensor)]
+
+    # 解析官方 axes/shape 输入，得到每个输出维度的目标长度。
+    def _calc_shape(self, data_shape, shape_values):
+        rank = len(data_shape)
+        target_values = [int(v) for v in np.asarray(shape_values, dtype=np.int64).flatten().tolist()]
+        if self.axes is None:
+            axes = list(range(rank))
+            if len(target_values) != rank:
+                raise ValueError(f"CenterCropPad expects {rank} target dimensions, got {len(target_values)}")
+        else:
+            if len(target_values) != len(self.axes):
+                raise ValueError(
+                    f"CenterCropPad expects one target dimension per axis, got {len(target_values)} and {len(self.axes)}"
+                )
+            axes = []
+            for axis in self.axes:
+                normalized = axis + rank if axis < 0 else axis
+                if normalized < 0 or normalized >= rank:
+                    raise ValueError(f"CenterCropPad axis {axis} is out of bounds for rank {rank}")
+                if normalized in axes:
+                    raise ValueError(f"CenterCropPad axis {axis} appears more than once")
+                axes.append(normalized)
+
+        out_shape = list(data_shape)
+        for axis, target_dim in zip(axes, target_values):
+            if target_dim < 0:
+                raise ValueError(f"CenterCropPad target dimension must be non-negative, got {target_dim}")
+            out_shape[axis] = target_dim
+        return tuple(out_shape)
+
+    # 用 NumPy fallback 执行中心裁剪和零填充，覆盖 string 等 C 后端不承载的 dtype。
+    def _numpy_center_crop_pad(self, data, out_shape):
+        source = np.asarray(data.data)
+        out_dtype = nn.DTYPE_TO_NUMPY.get(self.dtype, source.dtype)
+        output = np.zeros(out_shape, dtype=out_dtype)
+        if 0 in out_shape or 0 in source.shape:
+            return output
+
+        src_slices = []
+        dst_slices = []
+        for input_dim, output_dim in zip(source.shape, out_shape):
+            if input_dim >= output_dim:
+                crop_start = (input_dim - output_dim) // 2
+                src_slices.append(slice(crop_start, crop_start + output_dim))
+                dst_slices.append(slice(0, output_dim))
+            else:
+                pad_before = (output_dim - input_dim) // 2
+                src_slices.append(slice(0, input_dim))
+                dst_slices.append(slice(pad_before, pad_before + input_dim))
+        output[tuple(dst_slices)] = source[tuple(src_slices)]
+        return output
+
+    # 执行 `CenterCropPad` 的真实张量计算路径，输出按目标 shape 做中心裁剪或零填充。
+    def forward(self, data, shape):
+        out_shape = self._calc_shape(data.size, shape.data)
+        if self.lib is not None and data.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            data_c = self._numpy_to_ctensor(np.ascontiguousarray(data.data), data.dtype)
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+            self.lib.center_crop_pad_forward(data_c, output_c)
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(data_c)
+            self.lib.free_tensor(output_c)
+        else:
+            out_data = self._numpy_center_crop_pad(data, out_shape)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+    # 执行 `CenterCropPad` 的形状推断路径，只根据 shape 输入替换指定 axes 的维度。
+    def forward_(self, data, shape):
+        if hasattr(shape, "data") and shape.data is not None:
+            out_shape = self._calc_shape(data.size, shape.data)
+        else:
+            out_shape = data.size
+        return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None, "graph": None}
+
+
 class Split(Ops):
     # 初始化 `Split` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=0, dtype="float32", version="17"):

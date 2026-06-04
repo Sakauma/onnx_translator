@@ -29,7 +29,7 @@ from nn.Operators import (
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min, Not, And, Or, Xor, IsNaN,
     CumSum, CumProd, Softmax, Hardmax, LogSoftmax, NonZero, TopK, ArgMin, ArgMax, Resize, AffineGrid, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
-    Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, ConstantOfShape, EyeLike,
+    Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, CenterCropPad, ConstantOfShape, EyeLike,
     Mean, Sum, RMSNormalization, Cast, CastLike, Ceil, Reciprocal, Softplus, Softsign, HardSigmoid,
     BitCast,
     Elu, LeakyRelu, PRelu, Selu, Celu, ThresholdedRelu,
@@ -362,6 +362,10 @@ def build_mixed_precision_plans():
         (Pad, "pad", [(2, 3, 4), (6,), (1,)], ["bfloat16", "int64", "bfloat16"], "bfloat16", {"mode": "constant", "pads_value": [0, 1, 1, 0, 1, 0], "constant_value": -2.0}),
         (Pad, "pad", [(2, 3, 4), (6,), (1,)], ["float8_e4m3", "int64", "float8_e4m3"], "float8_e4m3", {"mode": "constant", "pads_value": [0, 1, 1, 0, 1, 0], "constant_value": -2.0}),
         (Pad, "pad", [(2, 3, 4), (6,), (1,)], ["float8_e5m2", "int64", "float8_e5m2"], "float8_e5m2", {"mode": "constant", "pads_value": [0, 1, 1, 0, 1, 0], "constant_value": -2.0}),
+        (CenterCropPad, "center_crop_pad", [(2, 3, 4), (2,)], ["float16", "int64"], "float16", {"axes": [-1, 1], "target_shape": [5, 2]}),
+        (CenterCropPad, "center_crop_pad", [(2, 3, 4), (2,)], ["bfloat16", "int64"], "bfloat16", {"axes": [-1, 1], "target_shape": [5, 2]}),
+        (CenterCropPad, "center_crop_pad", [(2, 3, 4), (2,)], ["float8_e4m3", "int64"], "float8_e4m3", {"axes": [-1, 1], "target_shape": [5, 2]}),
+        (CenterCropPad, "center_crop_pad", [(2, 3, 4), (2,)], ["float8_e5m2", "int64"], "float8_e5m2", {"axes": [-1, 1], "target_shape": [5, 2]}),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["float16", "float16", "int8"], "int8"),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["bfloat16", "bfloat16", "int8"], "int8"),
         (DequantizeLinear, "dequantize_linear", [(32, 32), (1,), (1,)], ["int8", "float16", "int8"], "float16"),
@@ -539,6 +543,7 @@ def build_default_plans():
     (Tile, "tile", [(2, 3), (2,)], ["float32", "int64"], "float32", {"repeats_value": [2, 3]}),
     (Concat, "concat", [(2, 2, 4), (2, 3, 4)], ["float32", "float32"], "float32", {"axis": 1}),
     (Pad, "pad", [(2, 3, 4), (6,), (1,)], ["float32", "int64", "float32"], "float32", {"mode": "constant", "pads_value": [0, 1, 1, 0, 1, 0], "constant_value": -2.0}),
+    (CenterCropPad, "center_crop_pad", [(2, 3, 4), (3,)], ["float32", "int64"], "float32", {"target_shape": [3, 2, 5]}),
 
     # Einsum: 当前固定主路径 ij,jk->ik
     (Einsum, "einsum", [(16,32), (32,8)], ["float32", "float32"], "float32", {"equation": "ij,jk->ik"}),

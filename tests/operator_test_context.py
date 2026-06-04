@@ -54,6 +54,7 @@ from nn.Operators import (
     BitCast,
     BlackmanWindow,
     Cast,
+    CenterCropPad,
     Conv,
     CumProd,
     Gather,

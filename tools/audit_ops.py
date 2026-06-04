@@ -219,6 +219,7 @@ REFERENCE_PARITY_PYTEST_COVERAGE = {
     "CastLike",
     "Celu",
     "Ceil",
+    "CenterCropPad",
     "Clip",
     "Compress",
     "Concat",

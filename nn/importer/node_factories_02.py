@@ -280,6 +280,27 @@ def _factory_063_pad(node, import_context):
     return onnx_graph_list[-1]
 
 
+@register_factory("CenterCropPad")
+def _factory_063_centercroppad(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    axes = None
+    for attr in node.attribute:
+        if attr.name == "axes":
+            axes = list(attr.ints)
+    elem_type = get_dtype(node.output[0])
+    onnx_graph_list.append(
+        nn.Operators.CenterCropPad(
+            node.input,
+            node.output,
+            axes=axes,
+            dtype=onnx_dtype_mapping[elem_type],
+            version="18",
+        )
+    )
+    return onnx_graph_list[-1]
+
+
 @register_factory("Split")
 def _factory_064_split(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
