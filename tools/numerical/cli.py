@@ -29,7 +29,7 @@ from nn.Operators import (
     CumSum, Softmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
     Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, ConstantOfShape, EyeLike,
-    Mean, Sum,
+    Mean, Sum, Cast, CastLike,
 )
 
 from . import cuda as cuda_backend
@@ -103,6 +103,18 @@ def build_mixed_precision_plans():
         (Sum, "sum", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["bfloat16", "bfloat16", "bfloat16"], "bfloat16"),
         (Sum, "sum", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["float8_e4m3", "float8_e4m3", "float8_e4m3"], "float8_e4m3"),
         (Sum, "sum", [(8, 1, 4), (1, 3, 4), (8, 3, 1)], ["float8_e5m2", "float8_e5m2", "float8_e5m2"], "float8_e5m2"),
+        (Cast, "cast", [(8, 8)], ["float32"], "float16"),
+        (Cast, "cast", [(8, 8)], ["float32"], "bfloat16"),
+        (Cast, "cast", [(8, 8)], ["float32"], "float8_e4m3"),
+        (Cast, "cast", [(8, 8)], ["float32"], "float8_e5m2"),
+        (Cast, "cast", [(8, 8)], ["float16"], "float32"),
+        (Cast, "cast", [(8, 8)], ["bfloat16"], "float32"),
+        (Cast, "cast", [(8, 8)], ["float8_e4m3"], "float32"),
+        (Cast, "cast", [(8, 8)], ["float8_e5m2"], "float32"),
+        (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "float16"], "float16"),
+        (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "bfloat16"], "bfloat16"),
+        (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "float8_e4m3"], "float8_e4m3"),
+        (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "float8_e5m2"], "float8_e5m2"),
 
         # ---- 混合精度矩阵、卷积、池化和 ROI ----
         (MatMul, "matmul", [(16, 32), (32, 8)], ["float16", "float16"], "float16"),
@@ -306,6 +318,10 @@ def build_default_plans():
     (LessOrEqual, "less_or_equal", [(256,256), (256,256)], ["float32", "float32"], "bool"),
     (Mean, "mean", [(16, 1, 8), (1, 4, 8), (16, 4, 1)], ["float32", "float32", "float32"], "float32"),
     (Sum, "sum", [(16, 1, 8), (1, 4, 8), (16, 4, 1)], ["float32", "float32", "float32"], "float32"),
+    (Cast, "cast", [(8, 8)], ["float32"], "int64"),
+    (Cast, "cast", [(8, 8)], ["float32"], "bool"),
+    (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "int64"], "int64"),
+    (CastLike, "cast_like", [(8, 8), (1,)], ["float32", "bool"], "bool"),
 
     # 索引
     (GatherElements, "gather_elements", [(64,64), (64,64)], ["float32", "int64"], "float32", {"axis":1}),

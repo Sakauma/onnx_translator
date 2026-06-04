@@ -126,6 +126,13 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             values = np.linspace(-3.0, 3.0, total, dtype=np.float32).reshape(shapes[0])
             inputs_np[0] = from_float32(values, dtypes[0])
 
+        if op_name in {"cast", "cast_like"}:
+            # Cast 类计划使用包含负数、零和小数的有限样本，覆盖向零截断、bool 和低精度写回主路径。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(-7.5, 7.5, total, dtype=np.float32).reshape(shapes[0])
+            values.reshape(-1)[total // 2] = 0.0
+            inputs_np[0] = from_float32(values, dtypes[0])
+
         if op_name == "expand":
             inputs_np[1] = np.array(init_args.get("target_shape", list(shapes[0])), dtype=np.int64)
 
@@ -320,6 +327,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     topk_ret = op.forward(valid_tensors[0], valid_tensors[1])["tensor"]
                     nps_out = topk_ret[0].data
                     nps_topk_indices = topk_ret[1].data
+
+                elif op_name == "cast_like":
+                    op = op_cls(inputs=[], outputs=[])
+                    nps_out = op.forward(valid_tensors[0], valid_tensors[1])["tensor"].data
 
                 else:
                     nps_out = op.forward(*valid_tensors)["tensor"].data
@@ -668,6 +679,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         elif op_name == "eye_like":
             rows, cols = shapes[0]
             params_bin = np.array([rows, cols, int(init_args.get("k", 0))], dtype=np.int32).tobytes()
+
+        elif op_name in {"cast", "cast_like"}:
+            output_kind = {"float": 0, "int32": 1, "int64": 2, "bool": 3}.get(out_dtype, 0)
+            params_bin = np.array([output_kind], dtype=np.int32).tobytes()
 
         elif op_name == "einsum":
             M, K = shapes[0]
