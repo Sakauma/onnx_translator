@@ -98,6 +98,14 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if op_name == "reduce_prod":
             inputs_np[0] = from_float32(np.clip(to_float32(inputs_np[0], dtypes[0]), -1.1, 1.1), dtypes[0])
 
+        if op_name in {"reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square"}:
+            # 公式归约使用有限样本，避免 LogSum 的非正输入和低精度随机 NaN 干扰主语义验证。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(-1.0, 1.0, total, dtype=np.float32).reshape(shapes[0])
+            if op_name == "reduce_log_sum":
+                values = np.abs(values) + 0.25
+            inputs_np[0] = from_float32(values, dtypes[0])
+
         if op_name == "nonzero":
             # 保证既有 0 也有非 0，避免输出全空或全满太极端
             x = to_float32(inputs_np[0], dtypes[0]).astype(np.float32)
@@ -365,7 +373,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 else:
                     nps_out = op.forward(*valid_tensors)["tensor"].data
 
-            if op_name in ["reduce_sum", "reduce_max", "reduce_min", "reduce_prod"]:
+            if op_name in [
+                "reduce_sum", "reduce_max", "reduce_min", "reduce_prod",
+                "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square",
+            ]:
                 if np.shape(nps_out) == ():
                     nps_out = np.array([float(nps_out)], dtype=np.float32)
                 else:
@@ -615,7 +626,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             (I2,) = shapes[2]        # updates: (I,)
             assert I2 == I
             params_bin = np.array([M, N, I], dtype=np.int32).tobytes()
-        elif op_name in ["reduce_sum", "reduce_max", "reduce_min", "reduce_prod"]:
+        elif op_name in [
+            "reduce_sum", "reduce_max", "reduce_min", "reduce_prod",
+            "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square",
+        ]:
             in_len = int(inputs_np[0].size) 
             params_bin = np.array([in_len], dtype=np.int64).tobytes()
 
@@ -780,7 +794,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
-                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "constant_of_shape", "eye_like"]):
+                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "constant_of_shape", "eye_like"]):
                     try:
                         if val_f32.shape != expected_shape:
                             val_f32 = np.broadcast_to(val_f32, expected_shape)
