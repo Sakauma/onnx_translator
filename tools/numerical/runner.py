@@ -136,12 +136,21 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if op_name in {
             "ceil", "reciprocal", "softplus", "softsign", "hard_sigmoid",
             "elu", "leaky_relu", "selu", "celu", "thresholded_relu", "prelu",
+            "hard_swish", "shrink", "gelu", "mish",
         }:
             # 常见数学/激活类计划使用有限样本，避免极端随机值掩盖主语义和低精度写回路径。
             total = int(np.prod(shapes[0]))
             values = np.linspace(-6.0, 6.0, total, dtype=np.float32).reshape(shapes[0])
             if op_name == "reciprocal":
                 values = np.where(np.abs(values) < 0.5, np.sign(values + 0.01) * 0.5, values)
+            if op_name == "hard_swish":
+                values.reshape(-1)[:6] = np.array([-4.0, -3.0, -2.0, 0.0, 3.0, 4.0], dtype=np.float32)
+            if op_name == "shrink":
+                lambd = float(init_args.get("lambd", 0.5))
+                values.reshape(-1)[:7] = np.array(
+                    [-lambd - 1.0, -lambd, -0.5 * lambd, 0.0, 0.5 * lambd, lambd, lambd + 1.0],
+                    dtype=np.float32,
+                )
             inputs_np[0] = from_float32(values, dtypes[0])
             if op_name == "prelu":
                 slope_total = int(np.prod(shapes[1]))
@@ -711,6 +720,12 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         elif op_name == "selu":
             params_bin = np.array(
                 [float(init_args.get("alpha", 1.67326)), float(init_args.get("gamma", 1.0507))],
+                dtype=np.float32,
+            ).tobytes()
+
+        elif op_name == "shrink":
+            params_bin = np.array(
+                [float(init_args.get("bias", 0.0)), float(init_args.get("lambd", 0.5))],
                 dtype=np.float32,
             ).tobytes()
 

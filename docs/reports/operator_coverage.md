@@ -13,7 +13,7 @@
 
 # 算子实现情况评估
 
-> 自动生成时间：2026-06-05 02:41:25
+> 自动生成时间：2026-06-05 02:53:28
 > 生成命令：`python tools/audit_ops.py --output docs/reports/operator_coverage.md`
 
 ## 评估口径
@@ -37,9 +37,9 @@
 - forward 实际接入 C 后端：167 个算子类。
 - 合理保留 Python 调度/元数据运行时：19 个算子类。
 - 普通数值/张量算子 Python-only 运行时：0 个算子类；其中当前暂缓后端化：0 个，除暂缓项外待后端化：0 个。
-- CUDA verifier：99 个。
-- active numerical plan 覆盖：99 个唯一算子名称，325 条默认计划。
-- active numerical plan 混合精度覆盖：222 条默认计划。
+- CUDA verifier：103 个。
+- active numerical plan 覆盖：103 个唯一算子名称，345 条默认计划。
+- active numerical plan 混合精度覆盖：238 条默认计划。
 - 独立 pytest 深度语义/混合精度覆盖：50 个；`Multinomial`, `SequenceEmpty`, `StringNormalizer`, `SequenceConstruct`, `RNN`, `SequenceAt`, `LRN`, `SequenceInsert`, `RandomUniformLike`, `SequenceErase`, `RandomUniform`, `SequenceLength`, `TfIdfVectorizer`, `MeanVarianceNormalization`, `ConcatFromSequence`, `DFT`, `RandomNormal`, `SplitToSequence`, `RandomNormalLike`, `GRU`, `Bernoulli`, `Optional`, `OptionalGetElement`, `STFT`, `OptionalHasElement`, `Dropout`, `If`, `ReduceL1`, `ReduceL2`, `Tril`, `ReduceLogSum`, `MaxRoiPool`, `ReduceLogSumExp`, `Loop`, `ReduceSumSquare`, `Gelu`, `Unique`, `Triu`, `Mish`, `LSTM`, `Binarizer`, `RoiAlign`, `BitwiseAnd`, `Scan`, `BitwiseOr`, `BitwiseXor`, `BitwiseNot`, `BitShift`, `SequenceMap`, `GroupNormalization`。
 - ONNX reference pytest 语义/混合精度覆盖：69 个；`Elu`, `GridSample`, `Shape`, `Expand`, `Flatten`, `EyeLike`, `MelWeightMatrix`, `Selu`, `Constant`, `LeakyRelu`, `NegativeLogLikelihoodLoss`, `Reshape`, `ConstantOfShape`, `PRelu`, `ThresholdedRelu`, `HardSigmoid`, `Det`, `Range`, `Celu`, `Shrink`, `Mean`, `Tile`, `Transpose`, `Softplus`, `Softsign`, `Pad`, `IsInf`, `HardSwish`, `SoftmaxCrossEntropyLoss`, `Acos`, `Asin`, `Identity`, `Round`, `Cosh`, `Erf`, `Squeeze`, `Size`, `Sinh`, `BatchNormalization`, `Asinh`, `Acosh`, `Atanh`, `Split`, `OneHot`, `Unsqueeze`, `Where`, `Trilu`, `InstanceNormalization`, `DynamicQuantizeLinear`, `HannWindow`, `DepthToSpace`, `HammingWindow`, `LayerNormalization`, `Concat`, `BlackmanWindow`, `NonMaxSuppression`, `SpaceToDepth`, `ReverseSequence`, `Slice`, `Hardmax`, `Compress`, `LogSoftmax`, `LpNormalization`, `ScatterElements`, `Cast`, `CastLike`, `Reciprocal`, `Ceil`, `Sum`。
 - ONNX opset 17 官方算子：178 个；ONNXImport 名称级覆盖：178 个。
@@ -48,8 +48,8 @@
 
 | 状态 | 数量 |
 | --- | ---: |
-| 已 pytest 语义验证 | 87 |
-| 已数值验证 | 99 |
+| 已 pytest 语义验证 | 83 |
+| 已数值验证 | 103 |
 
 ### 关键结论
 
@@ -61,7 +61,7 @@
 - 已补充独立 pytest 深度语义/混合精度覆盖的算子：`Multinomial`, `SequenceEmpty`, `StringNormalizer`, `SequenceConstruct`, `RNN`, `SequenceAt`, `LRN`, `SequenceInsert`, `RandomUniformLike`, `SequenceErase`, `RandomUniform`, `SequenceLength`, `TfIdfVectorizer`, `MeanVarianceNormalization`, `ConcatFromSequence`, `DFT`, `RandomNormal`, `SplitToSequence`, `RandomNormalLike`, `GRU`, `Bernoulli`, `Optional`, `OptionalGetElement`, `STFT`, `OptionalHasElement`, `Dropout`, `If`, `ReduceL1`, `ReduceL2`, `Tril`, `ReduceLogSum`, `MaxRoiPool`, `ReduceLogSumExp`, `Loop`, `ReduceSumSquare`, `Gelu`, `Unique`, `Triu`, `Mish`, `LSTM`, `Binarizer`, `RoiAlign`, `BitwiseAnd`, `Scan`, `BitwiseOr`, `BitwiseXor`, `BitwiseNot`, `BitShift`, `SequenceMap`, `GroupNormalization`。
 - 已补充 ONNX reference pytest 语义/混合精度覆盖的普通算子：`Elu`, `GridSample`, `Shape`, `Expand`, `Flatten`, `EyeLike`, `MelWeightMatrix`, `Selu`, `Constant`, `LeakyRelu`, `NegativeLogLikelihoodLoss`, `Reshape`, `ConstantOfShape`, `PRelu`, `ThresholdedRelu`, `HardSigmoid`, `Det`, `Range`, `Celu`, `Shrink`, `Mean`, `Tile`, `Transpose`, `Softplus`, `Softsign`, `Pad`, `IsInf`, `HardSwish`, `SoftmaxCrossEntropyLoss`, `Acos`, `Asin`, `Identity`, `Round`, `Cosh`, `Erf`, `Squeeze`, `Size`, `Sinh`, `BatchNormalization`, `Asinh`, `Acosh`, `Atanh`, `Split`, `OneHot`, `Unsqueeze`, `Where`, `Trilu`, `InstanceNormalization`, `DynamicQuantizeLinear`, `HannWindow`, `DepthToSpace`, `HammingWindow`, `LayerNormalization`, `Concat`, `BlackmanWindow`, `NonMaxSuppression`, `SpaceToDepth`, `ReverseSequence`, `Slice`, `Hardmax`, `Compress`, `LogSoftmax`, `LpNormalization`, `ScatterElements`, `Cast`, `CastLike`, `Reciprocal`, `Ceil`, `Sum`。
 - 未发现仍需立即后端化的 Python-only 普通数值/张量算子。
-- 默认数值门禁当前覆盖 99 个唯一算子；尚有 0 个已实现算子未进入 active numerical plan。
+- 默认数值门禁当前覆盖 103 个唯一算子；尚有 0 个已实现算子未进入 active numerical plan。
 
 ## ONNX opset 17 官方覆盖
 
@@ -142,7 +142,7 @@
 | 59 | `Xor` | yes | yes | yes | `xor_forward` | `xor_forward` | yes | yes | 已数值验证 | - |
 | 60 | `GatherElements` | yes | yes | yes | `gather_elements_forward` | `gather_elements_forward` | yes | yes | 已数值验证 | 含 Python 调度或 fallback |
 | 61 | `MatMulInteger` | yes | yes | yes | `matmul_integer_forward` | `matmul_integer_forward` | yes | yes | 已数值验证 | 含 Python 调度或 fallback |
-| 62 | `Shrink` | yes | yes | yes | `shrink_forward` | `shrink_forward` | no | no | 已 pytest 语义验证 | 已有 ONNX reference pytest 语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
+| 62 | `Shrink` | yes | yes | yes | `shrink_forward` | `shrink_forward` | yes | yes | 已数值验证 | 已有 ONNX reference pytest 语义/混合精度覆盖 |
 | 63 | `SplitToSequence` | yes | yes | yes | none | Python orchestration | no | no | 已 pytest 语义验证 | Python 调度/元数据类，不要求 C 数值后端; 已有独立 pytest 深度语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
 | 64 | `IsNaN` | yes | yes | yes | `isnan_forward` | `isnan_forward` | yes | yes | 已数值验证 | - |
 | 65 | `Mean` | yes | yes | yes | `mean_forward` | `mean_forward` | yes | yes | 已数值验证 | 含 Python 调度或 fallback; 已有 ONNX reference pytest 语义/混合精度覆盖 |
@@ -164,7 +164,7 @@
 | 81 | `Pad` | yes | yes | yes | `pad_forward` | `pad_forward` | yes | yes | 已数值验证 | 含 Python 调度或 fallback; 已有 ONNX reference pytest 语义/混合精度覆盖 |
 | 82 | `IsInf` | yes | yes | yes | `isinf_forward` | `isinf_forward` | no | no | 已 pytest 语义验证 | 已有 ONNX reference pytest 语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
 | 83 | `MaxUnpool` | yes | yes | yes | `max_unpool_forward` | `max_unpool_forward` | yes | yes | 已数值验证 | 含 Python 调度或 fallback |
-| 84 | `HardSwish` | yes | yes | yes | `hard_swish_forward` | `hard_swish_forward` | no | no | 已 pytest 语义验证 | 已有 ONNX reference pytest 语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
+| 84 | `HardSwish` | yes | yes | yes | `hard_swish_forward` | `hard_swish_forward` | yes | yes | 已数值验证 | 已有 ONNX reference pytest 语义/混合精度覆盖 |
 | 85 | `SoftmaxCrossEntropyLoss` | yes | yes | yes | `softmax_cross_entropy_loss_forward` | `softmax_cross_entropy_loss_forward` | no | no | 已 pytest 语义验证 | 含 Python 调度或 fallback; 已有 ONNX reference pytest 语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
 | 86 | `GRU` | yes | yes | yes | `gru_forward` | `gru_forward` | yes | yes | 已数值验证 | 含 Python 调度或 fallback; 已有独立 pytest 深度语义/混合精度覆盖 |
 | 87 | `Bernoulli` | yes | yes | yes | `bernoulli_forward` | `bernoulli_forward` | no | no | 已 pytest 语义验证 | 含 Python 调度或 fallback; 已有独立 pytest 深度语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
@@ -205,12 +205,12 @@
 | 122 | `Loop` | yes | yes | yes | none | Python orchestration | no | no | 已 pytest 语义验证 | Python 调度/元数据类，不要求 C 数值后端; 已有独立 pytest 深度语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
 | 123 | `ReduceSumSquare` | yes | yes | yes | `reduce_sum_square_forward` | `reduce_sum_square_forward` | no | no | 已 pytest 语义验证 | 含 Python 调度或 fallback; 已有独立 pytest 深度语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
 | 124 | `CumSum` | yes | yes | yes | `cumsum_forward` | `cumsum_forward` | yes | yes | 已数值验证 | - |
-| 125 | `Gelu` | yes | yes | yes | `gelu_forward` | `gelu_forward` | no | no | 已 pytest 语义验证 | 已有独立 pytest 深度语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
+| 125 | `Gelu` | yes | yes | yes | `gelu_forward` | `gelu_forward` | yes | yes | 已数值验证 | 已有独立 pytest 深度语义/混合精度覆盖 |
 | 126 | `Unique` | yes | yes | yes | `unique_forward` | `unique_forward` | no | no | 已 pytest 语义验证 | 含 Python 调度或 fallback; 已有独立 pytest 深度语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
 | 127 | `MUL` | yes | yes | yes | `mul_forward` | `mul_forward` | yes | yes | 已数值验证 | - |
 | 128 | `Split` | yes | yes | yes | `slice_forward` | `slice_forward` | no | no | 已 pytest 语义验证 | 含 Python 调度或 fallback; 已有 ONNX reference pytest 语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
 | 129 | `Triu` | yes | yes | yes | `triangular_forward` | `triangular_forward` | no | no | 已 pytest 语义验证 | 已有独立 pytest 深度语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
-| 130 | `Mish` | yes | yes | yes | `mish_forward` | `mish_forward` | no | no | 已 pytest 语义验证 | 已有独立 pytest 深度语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
+| 130 | `Mish` | yes | yes | yes | `mish_forward` | `mish_forward` | yes | yes | 已数值验证 | 已有独立 pytest 深度语义/混合精度覆盖 |
 | 131 | `LSTM` | yes | yes | yes | `lstm_forward` | `lstm_forward` | yes | yes | 已数值验证 | 含 Python 调度或 fallback; 已有独立 pytest 深度语义/混合精度覆盖 |
 | 132 | `Binarizer` | yes | yes | yes | `binarizer_forward` | `binarizer_forward` | no | no | 已 pytest 语义验证 | 已有独立 pytest 深度语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |
 | 133 | `OneHot` | yes | yes | yes | `one_hot_forward` | `one_hot_forward` | no | no | 已 pytest 语义验证 | 含 Python 调度或 fallback; 已有 ONNX reference pytest 语义/混合精度覆盖; 缺少 CUDA/数值验证覆盖 |

@@ -31,6 +31,7 @@ from nn.Operators import (
     Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, ConstantOfShape, EyeLike,
     Mean, Sum, Cast, CastLike, Ceil, Reciprocal, Softplus, Softsign, HardSigmoid,
     Elu, LeakyRelu, PRelu, Selu, Celu, ThresholdedRelu,
+    HardSwish, Shrink, Gelu, Mish,
 )
 
 from . import cuda as cuda_backend
@@ -160,6 +161,22 @@ def build_mixed_precision_plans():
         (ThresholdedRelu, "thresholded_relu", [(16, 16)], ["bfloat16"], "bfloat16", {"alpha": 0.3}),
         (ThresholdedRelu, "thresholded_relu", [(16, 16)], ["float8_e4m3"], "float8_e4m3", {"alpha": 0.3}),
         (ThresholdedRelu, "thresholded_relu", [(16, 16)], ["float8_e5m2"], "float8_e5m2", {"alpha": 0.3}),
+        (HardSwish, "hard_swish", [(16, 16)], ["float16"], "float16"),
+        (HardSwish, "hard_swish", [(16, 16)], ["bfloat16"], "bfloat16"),
+        (HardSwish, "hard_swish", [(16, 16)], ["float8_e4m3"], "float8_e4m3"),
+        (HardSwish, "hard_swish", [(16, 16)], ["float8_e5m2"], "float8_e5m2"),
+        (Shrink, "shrink", [(16, 16)], ["float16"], "float16", {"bias": 0.2, "lambd": 0.5}),
+        (Shrink, "shrink", [(16, 16)], ["bfloat16"], "bfloat16", {"bias": 0.2, "lambd": 0.5}),
+        (Shrink, "shrink", [(16, 16)], ["float8_e4m3"], "float8_e4m3", {"bias": 0.2, "lambd": 0.5}),
+        (Shrink, "shrink", [(16, 16)], ["float8_e5m2"], "float8_e5m2", {"bias": 0.2, "lambd": 0.5}),
+        (Gelu, "gelu", [(16, 16)], ["float16"], "float16"),
+        (Gelu, "gelu", [(16, 16)], ["bfloat16"], "bfloat16"),
+        (Gelu, "gelu", [(16, 16)], ["float8_e4m3"], "float8_e4m3"),
+        (Gelu, "gelu", [(16, 16)], ["float8_e5m2"], "float8_e5m2"),
+        (Mish, "mish", [(16, 16)], ["float16"], "float16"),
+        (Mish, "mish", [(16, 16)], ["bfloat16"], "bfloat16"),
+        (Mish, "mish", [(16, 16)], ["float8_e4m3"], "float8_e4m3"),
+        (Mish, "mish", [(16, 16)], ["float8_e5m2"], "float8_e5m2"),
 
         # ---- 混合精度矩阵、卷积、池化和 ROI ----
         (MatMul, "matmul", [(16, 32), (32, 8)], ["float16", "float16"], "float16"),
@@ -378,6 +395,10 @@ def build_default_plans():
     (Selu, "selu", [(64, 64)], ["float32"], "float32", {"alpha": 1.67326, "gamma": 1.0507}),
     (Celu, "celu", [(64, 64)], ["float32"], "float32", {"alpha": 0.7}),
     (ThresholdedRelu, "thresholded_relu", [(64, 64)], ["float32"], "float32", {"alpha": 0.3}),
+    (HardSwish, "hard_swish", [(64, 64)], ["float32"], "float32"),
+    (Shrink, "shrink", [(64, 64)], ["float32"], "float32", {"bias": 0.2, "lambd": 0.5}),
+    (Gelu, "gelu", [(64, 64)], ["float32"], "float32"),
+    (Mish, "mish", [(64, 64)], ["float32"], "float32"),
 
     # 索引
     (GatherElements, "gather_elements", [(64,64), (64,64)], ["float32", "int64"], "float32", {"axis":1}),
