@@ -634,7 +634,8 @@ def _factory_089_topk(node, import_context):
 
 
 @register_factory("CumSum")
-def _factory_090_cumsum(node, import_context):
+@register_factory("CumProd")
+def _factory_090_cumsum_cumprod(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
     onnx_graph_list = []
     exclusive, reverse = 0, 0
@@ -642,7 +643,9 @@ def _factory_090_cumsum(node, import_context):
         if attr.name == "exclusive": exclusive = attr.i
         elif attr.name == "reverse": reverse = attr.i
     elem_type = get_dtype(node.output[0])
-    onnx_graph_list.append(nn.Operators.CumSum(node.input, node.output, exclusive=exclusive, reverse=reverse, dtype=onnx_dtype_mapping[elem_type], version="17"))
+    op_cls = nn.Operators.CumProd if node.op_type == "CumProd" else nn.Operators.CumSum
+    version = "26" if node.op_type == "CumProd" else "17"
+    onnx_graph_list.append(op_cls(node.input, node.output, exclusive=exclusive, reverse=reverse, dtype=onnx_dtype_mapping[elem_type], version=version))
     return onnx_graph_list[-1]
 
 

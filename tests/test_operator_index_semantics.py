@@ -2,7 +2,7 @@
 #   ******************************************************************************
 #   * @file        test_operator_index_semantics.py
 #   * @author      Egor Izmaylov
-#   * @brief       使用 ONNX reference 验证索引、Arg、TopK、Scatter 和 CumSum 算子语义。
+#   * @brief       使用 ONNX reference 验证索引、Arg、TopK、Scatter 和扫描类算子语义。
 #   * @details     2026.06.05  V1.0.0  创建
 #   ******************************************************************************
 #   * @attention
@@ -15,6 +15,7 @@ from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import (
     ArgMax,
     ArgMin,
+    CumProd,
     CumSum,
     Gather,
     GatherElements,
@@ -266,6 +267,50 @@ def test_c_backend_cumsum_exclusive_reverse_matches_onnx_reference():
     _assert_tensor_matches(actual, expected, rtol=1e-6, atol=1e-6)
 
 
+# 验证 CumProd 的 exclusive + reverse + 负轴语义。
+def test_c_backend_cumprod_exclusive_reverse_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    data = np.linspace(0.75, 1.3, 12, dtype=np.float32).reshape(3, 4)
+    axis = np.array(-1, dtype=np.int64)
+    expected = _onnx_reference(
+        "CumProd",
+        [data, axis],
+        [TensorProto.FLOAT, TensorProto.INT64],
+        {"exclusive": 1, "reverse": 1},
+        [data.shape],
+        [TensorProto.FLOAT],
+        opset=26,
+    )[0]
+    actual = CumProd(["x", "axis"], ["y"], exclusive=1, reverse=1, dtype="float32").forward(
+        _tensor(data, "float32"),
+        _tensor(axis, "int64"),
+    )["tensor"]
+    _assert_tensor_matches(actual, expected, rtol=1e-6, atol=1e-6)
+
+
+# 验证 CumProd 导入时保留 exclusive 和 reverse 属性。
+def test_onnx_import_cumprod_preserves_scan_attributes(tmp_path):
+    graph = helper.make_graph(
+        [helper.make_node("CumProd", ["x", "axis"], ["y"], exclusive=1, reverse=1)],
+        "cumprod_import",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [3, 4]),
+            helper.make_tensor_value_info("axis", TensorProto.INT64, []),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [3, 4])],
+    )
+    model_path = tmp_path / "cumprod.onnx"
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 26)]), model_path)
+
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, CumProd)]
+    assert len(imported) == 1
+    assert imported[0].exclusive == 1
+    assert imported[0].reverse == 1
+    assert imported[0].version == "26"
+
+
 # 验证 bfloat16 的索引类算子按位读取输入并按位写回输出。
 def test_c_backend_bfloat16_index_ops_decode_and_write_bit_storage():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
@@ -293,6 +338,19 @@ def test_c_backend_bfloat16_index_ops_decode_and_write_bit_storage():
     np.testing.assert_allclose(
         _bf16_to_float32(scattered.data),
         np.array([0.0, 2.0, 0.0, -1.5], dtype=np.float32),
+        rtol=1e-2,
+        atol=1e-2,
+    )
+
+    cumprod_values = np.array([1.0, 1.5, 0.5, 2.0], dtype=np.float32)
+    cumprod_axis = _tensor(np.array(0, dtype=np.int64), "int64")
+    cumprod = CumProd(["x", "axis"], ["y"], exclusive=1, reverse=1, dtype="bfloat16").forward(
+        _tensor(_bf16_bits(cumprod_values), "bfloat16"),
+        cumprod_axis,
+    )["tensor"]
+    np.testing.assert_allclose(
+        _bf16_to_float32(cumprod.data),
+        np.array([1.5, 1.0, 2.0, 1.0], dtype=np.float32),
         rtol=1e-2,
         atol=1e-2,
     )

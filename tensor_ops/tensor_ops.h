@@ -587,6 +587,11 @@ void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis
 // reverse: 0=False(default), 1=True
 void cumsum_forward(const Tensor* input, Tensor* output, int axis, int exclusive, int reverse);
 
+// CumProd
+// exclusive: 0=False(default), 1=True
+// reverse: 0=False(default), 1=True
+void cumprod_forward(const Tensor* input, Tensor* output, int axis, int exclusive, int reverse);
+
 // RandomUniformLike
 // 生成均匀分布 [low, high)
 void random_uniform_like_forward(Tensor* output, float low, float high, float seed);

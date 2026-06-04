@@ -98,6 +98,12 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if op_name == "reduce_prod":
             inputs_np[0] = from_float32(np.clip(to_float32(inputs_np[0], dtypes[0]), -1.1, 1.1), dtypes[0])
 
+        if op_name == "cumprod":
+            # 累计乘积使用温和的正数样本，避免低精度随机值导致指数级误差放大。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(0.75, 1.25, total, dtype=np.float32).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+
         if op_name in {"reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square"}:
             # 公式归约使用有限样本，避免 LogSum 的非正输入和低精度随机 NaN 干扰主语义验证。
             total = int(np.prod(shapes[0]))
@@ -367,7 +373,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             else:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
 
-                if op_name == "cumsum":
+                if op_name in {"cumsum", "cumprod"}:
                     axis_np = np.array([0], dtype=np.int64)
                     axis_tensor = Tensor(*axis_np.shape, dtype="int64", data=axis_np)
                     nps_out = op.forward(valid_tensors[0], axis_tensor)["tensor"].data
@@ -657,7 +663,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             I, K = shapes[1]
             params_bin = np.array([A, B, I, K], dtype=np.int32).tobytes()
 
-        elif op_name == "cumsum":
+        elif op_name in {"cumsum", "cumprod"}:
             N = int(np.prod(shapes[0]))
             exclusive = int(init_args.get("exclusive", 0))
             reverse = int(init_args.get("reverse", 0))

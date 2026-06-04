@@ -27,7 +27,7 @@ from nn.Operators import (
     Equal, Greater, Less, GreaterOrEqual, LessOrEqual,
     Gather, GatherElements, GatherND, COS, LOG, EXP, SIGMOID, TANH,
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min, Not, And, Or, Xor, IsNaN,
-    CumSum, Softmax, Hardmax, LogSoftmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
+    CumSum, CumProd, Softmax, Hardmax, LogSoftmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
     Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, ConstantOfShape, EyeLike,
     Mean, Sum, Cast, CastLike, Ceil, Reciprocal, Softplus, Softsign, HardSigmoid,
@@ -301,6 +301,10 @@ def build_mixed_precision_plans():
         (GatherND, "gathernd", [(16, 16), (64, 2)], ["bfloat16", "int64"], "bfloat16"),
         (GatherND, "gathernd", [(16, 16), (64, 2)], ["float8_e4m3", "int64"], "float8_e4m3"),
         (GatherND, "gathernd", [(16, 16), (64, 2)], ["float8_e5m2", "int64"], "float8_e5m2"),
+        (CumProd, "cumprod", [(16,)], ["float16"], "float16", {"exclusive": 1, "reverse": 1}),
+        (CumProd, "cumprod", [(16,)], ["bfloat16"], "bfloat16", {"exclusive": 1, "reverse": 1}),
+        (CumProd, "cumprod", [(16,)], ["float8_e4m3"], "float8_e4m3", {"exclusive": 1, "reverse": 1}),
+        (CumProd, "cumprod", [(16,)], ["float8_e5m2"], "float8_e5m2", {"exclusive": 1, "reverse": 1}),
         (ScatterND, "scatternd", [(16, 16), (32, 2), (32,)], ["float16", "int64", "float16"], "float16"),
         (ScatterND, "scatternd", [(16, 16), (32, 2), (32,)], ["bfloat16", "int64", "bfloat16"], "bfloat16"),
         (ScatterND, "scatternd", [(16, 16), (32, 2), (32,)], ["float8_e4m3", "int64", "float8_e4m3"], "float8_e4m3"),
@@ -498,6 +502,7 @@ def build_default_plans():
 
     # 扫描
     (CumSum, "cumsum", [(1024,)], ["float32"], "float32", {"exclusive":0, "reverse":0}),
+    (CumProd, "cumprod", [(16,)], ["float32"], "float32", {"exclusive": 1, "reverse": 1}),
 
     (NonZero, "nonzero", [(64,64)], ["float32"], "int64"),
 

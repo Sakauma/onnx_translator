@@ -320,6 +320,39 @@ class CumSum(Ops):
         return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
 
 
+class CumProd(Ops):
+    # 初始化 `CumProd` 的构造参数，保存 exclusive、reverse、dtype 和版本信息。
+    def __init__(self, inputs, outputs, exclusive=0, reverse=0, dtype="float32", version="26"):
+        super().__init__(inputs, outputs)
+        self.exclusive = exclusive
+        self.reverse = reverse
+        self.dtype = dtype
+        self.version = version
+        if self.lib:
+            self.lib.cumprod_forward.argtypes = [
+                ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int, ctypes.c_int
+            ]
+
+    # 执行 `CumProd` 的真实张量计算路径，按指定轴计算累计乘积并写回原 dtype。
+    def forward(self, x, axis_tensor):
+        axis = int(axis_tensor.data.item())
+        out_tensor = Tensor(*x.size, dtype=self.dtype)
+
+        x_c = self._numpy_to_ctensor(x.data, self.dtype)
+        out_c = self._numpy_to_ctensor(out_tensor.data, self.dtype)
+
+        self.lib.cumprod_forward(x_c, out_c, ctypes.c_int(axis), ctypes.c_int(self.exclusive), ctypes.c_int(self.reverse))
+
+        out_tensor.data = self._ctensor_to_numpy(out_c, self.dtype)
+        self.lib.free_tensor(x_c); self.lib.free_tensor(out_c)
+
+        return {"tensor": out_tensor, "parameters": None}
+
+    # 执行 `CumProd` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
+    def forward_(self, x, axis_tensor):
+        return {"tensor": Tensor_(*x.size, dtype=self.dtype), "parameters": None}
+
+
 class OneHot(Ops):
     # 初始化 `OneHot` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, axis=-1, dtype="float32", version="17"):

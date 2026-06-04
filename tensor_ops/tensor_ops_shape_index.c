@@ -910,6 +910,59 @@ void cumsum_forward(const Tensor* input, Tensor* output, int axis, int exclusive
 }
 
 
+// 实现 `cumprod` 算子的 C 后端入口，按指定轴计算累计乘积并按目标 dtype 写回。
+void cumprod_forward(const Tensor* input, Tensor* output, int axis, int exclusive, int reverse) {
+    if (!input || !output) return;
+
+    int ndim = input->ndim;
+    if (axis < 0) axis += ndim;
+    if (axis < 0 || axis >= ndim) return;
+
+    int axis_dim = input->shape[axis];
+    int outer_loops = 1;
+    for (int i = 0; i < axis; i++) outer_loops *= input->shape[i];
+    int inner_loops = 1;
+    for (int i = axis + 1; i < ndim; i++) inner_loops *= input->shape[i];
+    int integer_path = is_integer_dtype(input->dtype) && is_integer_dtype(output->dtype);
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < (size_t)outer_loops * inner_loops; i++) {
+        int inner_idx = i % inner_loops;
+        int outer_idx = i / inner_loops;
+
+        double accumulator = 1.0;
+        uint64_t integer_accumulator = 1;
+
+        int start = reverse ? axis_dim - 1 : 0;
+        int end = reverse ? -1 : axis_dim;
+        int step = reverse ? -1 : 1;
+
+        for (int k = start; k != end; k += step) {
+            size_t idx = (size_t)outer_idx * axis_dim * inner_loops + (size_t)k * inner_loops + inner_idx;
+            if (integer_path) {
+                uint64_t val = get_integer_value_as_uint64(input, idx);
+                if (exclusive) {
+                    set_integer_value_wrapped(output, idx, integer_accumulator);
+                    integer_accumulator *= val;
+                } else {
+                    integer_accumulator *= val;
+                    set_integer_value_wrapped(output, idx, integer_accumulator);
+                }
+            } else {
+                double val = get_value_as_double(input, idx);
+                if (exclusive) {
+                    set_tensor_value_from_float(output, idx, accumulator);
+                    accumulator *= val;
+                } else {
+                    accumulator *= val;
+                    set_tensor_value_from_float(output, idx, accumulator);
+                }
+            }
+        }
+    }
+}
+
+
 // 实现 `einsum` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output, 
                     int iter_dims, int* loop_limits, 

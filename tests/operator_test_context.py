@@ -53,6 +53,7 @@ from nn.Operators import (
     BlackmanWindow,
     Cast,
     Conv,
+    CumProd,
     Gather,
     GatherElements,
     GatherND,
