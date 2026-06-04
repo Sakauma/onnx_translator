@@ -11,6 +11,16 @@
 
 from .common import *
 
+
+# 将 ONNX TensorProto dtype id 或本地 dtype 字符串统一解析成本项目 dtype 名称。
+def _resolve_random_dtype(dtype, default=None):
+    if dtype is None:
+        return default
+    if isinstance(dtype, str):
+        return dtype
+    return nn.onnx_dtype_mapping.get(dtype, default or "float32")
+
+
 class EyeLike(Ops):
     # 初始化 `EyeLike` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, k=0, dtype=None, version="17"):
@@ -53,7 +63,7 @@ class RandomUniformLike(Ops):
         self.high = high
         self.low = low
         self.seed = seed
-        self.dtype = dtype # None means infer from input, matching ONNX Like-op semantics.
+        self.dtype = _resolve_random_dtype(dtype) # None means infer from input, matching ONNX Like-op semantics.
         self.version = version
 
     # 执行 `RandomUniformLike` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
@@ -86,7 +96,7 @@ class RandomUniform(Ops):
         self.high = high
         self.low = low
         self.seed = seed
-        self.dtype = nn.onnx_dtype_mapping.get(dtype, "float32")
+        self.dtype = _resolve_random_dtype(dtype, "float32")
         self.shape_val = shape
         self.version = version
 
@@ -115,7 +125,7 @@ class RandomNormal(Ops):
         self.mean = mean
         self.scale = scale
         self.seed = seed
-        self.dtype = nn.onnx_dtype_mapping.get(dtype, "float32")
+        self.dtype = _resolve_random_dtype(dtype, "float32")
         self.shape_val = shape # list
         self.version = version
         if self.lib:
@@ -150,7 +160,7 @@ class RandomNormalLike(Ops):
         self.mean = mean
         self.scale = scale
         self.seed = seed
-        self.dtype = nn.onnx_dtype_mapping.get(dtype, "float32") if dtype else None
+        self.dtype = _resolve_random_dtype(dtype)
         self.version = version
         if self.lib:
             self.lib.random_normal_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.c_float, ctypes.c_float, ctypes.c_float]
@@ -180,7 +190,7 @@ class Bernoulli(Ops):
     def __init__(self, inputs, outputs, seed=0.0, dtype=None, version="17"):
         super().__init__(inputs, outputs)
         self.seed = seed
-        self.dtype = nn.onnx_dtype_mapping.get(dtype, "float32") if dtype else None
+        self.dtype = _resolve_random_dtype(dtype)
         self.version = version
         if self.lib:
             self.lib.bernoulli_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_float]

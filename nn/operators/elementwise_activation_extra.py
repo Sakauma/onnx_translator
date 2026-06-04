@@ -360,10 +360,10 @@ class DynamicQuantizeLinear(Ops):
 
     # 执行 `DynamicQuantizeLinear` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x):
-        # Outputs: y (uint8), y_scale (float), y_zp (uint8)
+        # DynamicQuantizeLinear 的 y_scale 和 y_zero_point 是标量输出，不能建成一维长度 1 张量。
         y = Tensor(*x.size, dtype="uint8")
-        y_scale = Tensor(1, dtype="float32")
-        y_zp = Tensor(1, dtype="uint8")
+        y_scale = Tensor(dtype="float32")
+        y_zp = Tensor(dtype="uint8")
         
         x_c = self._numpy_to_ctensor(x.data, x.dtype)
         y_c = self._numpy_to_ctensor(y.data, "uint8")
@@ -383,6 +383,6 @@ class DynamicQuantizeLinear(Ops):
     # 执行 `DynamicQuantizeLinear` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         return {
-            "tensor": [Tensor_(*x.size, dtype="uint8"), Tensor_(1, dtype="float32"), Tensor_(1, dtype="uint8")],
+            "tensor": [Tensor_(*x.size, dtype="uint8"), Tensor_(dtype="float32"), Tensor_(dtype="uint8")],
             "parameters": None
         }

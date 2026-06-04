@@ -381,7 +381,7 @@ def test_c_backend_unique_and_mel_weight_matrix_paths():
         Tensor(dtype="float32", data=np.array(8000.0, dtype=np.float32)),
     )["tensor"]
     expected_mel = np.array(
-        [[1.0, 1.0, 0.0], [0.0, 0.5, 0.5], [0.0, 0.0, 1.0], [0.0, 0.0, 0.5], [0.0, 0.0, 0.0]],
+        [[1.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
         dtype=np.float32,
     )
     np.testing.assert_allclose(mel.data, expected_mel, rtol=1e-6, atol=1e-6)

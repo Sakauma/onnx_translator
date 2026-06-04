@@ -185,11 +185,12 @@ void mel_weight_matrix_forward(const Tensor* num_mel_bins, const Tensor* dft_len
 
     double mel_lower = hz_to_mel(lower);
     double mel_upper = hz_to_mel(upper);
+    double mel_step = (mel_upper - mel_lower) / (double)(bins + 2);
 
     for (int i = 0; i < bins; i++) {
-        double left_mel = mel_lower + (mel_upper - mel_lower) * (double)i / (double)(bins + 1);
-        double center_mel = mel_lower + (mel_upper - mel_lower) * (double)(i + 1) / (double)(bins + 1);
-        double right_mel = mel_lower + (mel_upper - mel_lower) * (double)(i + 2) / (double)(bins + 1);
+        double left_mel = mel_lower + mel_step * (double)i;
+        double center_mel = mel_lower + mel_step * (double)(i + 1);
+        double right_mel = mel_lower + mel_step * (double)(i + 2);
 
         int left = (int)floor((double)(dft_len + 1) * mel_to_hz(left_mel) / (double)rate);
         int center = (int)floor((double)(dft_len + 1) * mel_to_hz(center_mel) / (double)rate);
@@ -702,7 +703,7 @@ void hann_window_forward(const Tensor* size_tensor, Tensor* output, int periodic
 }
 
 
-// Hamming Window: 0.54 - 0.46 * cos(2*pi*n / (N-1))
+// Hamming Window: alpha - beta * cos(2*pi*n / (N-1)), alpha=25/46, beta=21/46
 // 实现 `hamming window` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void hamming_window_forward(const Tensor* size_tensor, Tensor* output, int periodic) {
     if (!size_tensor || !output) return;
@@ -717,7 +718,7 @@ void hamming_window_forward(const Tensor* size_tensor, Tensor* output, int perio
 
     #pragma omp parallel for
     for (size_t i = 0; i < (size_t)N; i++) {
-        double val = 0.54 - 0.46 * cos(2.0 * PI * i / denom);
+        double val = (25.0 / 46.0) - (21.0 / 46.0) * cos(2.0 * PI * i / denom);
         set_tensor_value_from_float(output, i, val);
     }
 }
@@ -744,4 +745,3 @@ void blackman_window_forward(const Tensor* size_tensor, Tensor* output, int peri
         set_tensor_value_from_float(output, i, val);
     }
 }
-

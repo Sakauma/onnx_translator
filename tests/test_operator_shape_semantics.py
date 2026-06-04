@@ -15,6 +15,7 @@ from onnx.reference import ReferenceEvaluator
 from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import (
     Compress,
+    Constant,
     ConstantOfShape,
     DepthToSpace,
     Expand,
@@ -26,6 +27,7 @@ from nn.Operators import (
     Range,
     Reshape,
     ReverseSequence,
+    Shape,
     Size,
     SpaceToDepth,
     Split,
@@ -235,6 +237,26 @@ def test_c_backend_shape_value_ops_match_onnx_reference():
     _assert_tensor_matches(
         Identity(["x"], ["y"], dtype="int64").forward(_tensor(identity_input, "int64"))["tensor"],
         _onnx_reference("Identity", [identity_input], [TensorProto.INT64], {}, [(2, 2)])[0],
+    )
+
+    shape_input = np.zeros((2, 3, 4), dtype=np.float16)
+    _assert_tensor_matches(
+        Shape(["x"], ["shape"], start=1, end=-1).forward(_tensor(shape_input, "float16"))["tensor"],
+        _onnx_reference("Shape", [shape_input], [TensorProto.FLOAT16], {"start": 1, "end": -1}, [(1,)], [TensorProto.INT64])[0],
+    )
+
+    constant_values = np.array([1, 2, 3], dtype=np.int64)
+    expected_constant_node = _onnx_reference(
+        "Constant",
+        [],
+        [],
+        {"value": numpy_helper.from_array(constant_values, name="value")},
+        [(3,)],
+        [TensorProto.INT64],
+    )[0]
+    _assert_tensor_matches(
+        Constant([], ["y"], value=constant_values, dtype="int64").forward()["tensor"],
+        expected_constant_node,
     )
 
 

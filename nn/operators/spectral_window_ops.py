@@ -89,7 +89,8 @@ class MelWeightMatrix(Ops):
             self.lib.free_tensor(output_c)
             return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
 
-        mel_points = np.linspace(self._mel(lower), self._mel(upper), bins + 2)
+        mel_step = (self._mel(upper) - self._mel(lower)) / float(bins + 2)
+        mel_points = np.arange(0, bins + 2, dtype=np.float64) * mel_step + self._mel(lower)
         hz_points = self._hz(mel_points)
         frequency_bins = np.floor((dft_len + 1) * hz_points / rate).astype(int)
 
