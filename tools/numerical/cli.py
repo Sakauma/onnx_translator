@@ -28,7 +28,7 @@ from nn.Operators import (
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min, Not, And, Or, Xor, IsNaN,
     CumSum, Softmax, NonZero, TopK, ArgMin, ArgMax, Resize, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
-    Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad,
+    Flatten, Reshape, Transpose, Tile, Concat, Expand, Pad, ConstantOfShape, EyeLike,
 )
 
 from . import cuda as cuda_backend
@@ -156,6 +156,14 @@ def build_mixed_precision_plans():
         (Expand, "expand", [(2, 1, 3), (3,)], ["bfloat16", "int64"], "bfloat16", {"target_shape": [2, 4, 3]}),
         (Expand, "expand", [(2, 1, 3), (3,)], ["float8_e4m3", "int64"], "float8_e4m3", {"target_shape": [2, 4, 3]}),
         (Expand, "expand", [(2, 1, 3), (3,)], ["float8_e5m2", "int64"], "float8_e5m2", {"target_shape": [2, 4, 3]}),
+        (ConstantOfShape, "constant_of_shape", [(3,)], ["int64"], "float16", {"shape_value": [2, 3, 4], "fill_value": -1.5}),
+        (ConstantOfShape, "constant_of_shape", [(3,)], ["int64"], "bfloat16", {"shape_value": [2, 3, 4], "fill_value": -1.5}),
+        (ConstantOfShape, "constant_of_shape", [(3,)], ["int64"], "float8_e4m3", {"shape_value": [2, 3, 4], "fill_value": -1.5}),
+        (ConstantOfShape, "constant_of_shape", [(3,)], ["int64"], "float8_e5m2", {"shape_value": [2, 3, 4], "fill_value": -1.5}),
+        (EyeLike, "eye_like", [(4, 5)], ["float16"], "float16", {"k": 1}),
+        (EyeLike, "eye_like", [(4, 5)], ["bfloat16"], "bfloat16", {"k": 1}),
+        (EyeLike, "eye_like", [(4, 5)], ["float8_e4m3"], "float8_e4m3", {"k": 1}),
+        (EyeLike, "eye_like", [(4, 5)], ["float8_e5m2"], "float8_e5m2", {"k": 1}),
         (Flatten, "flatten", [(2, 3, 4)], ["float16"], "float16", {"axis": -1}),
         (Flatten, "flatten", [(2, 3, 4)], ["bfloat16"], "bfloat16", {"axis": -1}),
         (Flatten, "flatten", [(2, 3, 4)], ["float8_e4m3"], "float8_e4m3", {"axis": -1}),
@@ -305,6 +313,8 @@ def build_default_plans():
     (Resize, "resize", [(1,3,8,8), (0,), (0,), (4,)], ["float32", "float32", "float32", "int64"], "float32", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1,3,16,16]}),
 
     (Expand, "expand", [(2, 1, 3), (3,)], ["float32", "int64"], "float32", {"target_shape": [2, 4, 3]}),
+    (ConstantOfShape, "constant_of_shape", [(3,)], ["int64"], "float32", {"shape_value": [2, 3, 4], "fill_value": -1.5}),
+    (EyeLike, "eye_like", [(4, 5)], ["float32"], "float32", {"k": 1}),
     (Flatten, "flatten", [(2, 3, 4)], ["float32"], "float32", {"axis": -1}),
     (Reshape, "reshape", [(2, 3, 4), (2,)], ["float32", "int64"], "float32", {"target_shape": [0, -1]}),
     (Transpose, "transpose", [(2, 3, 4)], ["float32"], "float32", {"perm": [2, 0, 1]}),

@@ -146,6 +146,13 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             const_value = np.array([init_args.get("constant_value", 0.0)], dtype=np.float32)
             inputs_np[2] = from_float32(const_value, dtypes[2])
 
+        if op_name == "constant_of_shape":
+            inputs_np[0] = np.array(init_args.get("shape_value", list(shapes[0])), dtype=np.int64)
+
+        if op_name == "eye_like":
+            values = np.zeros(shapes[0], dtype=np.float32)
+            inputs_np[0] = from_float32(values, dtypes[0])
+
         if op_name == "einsum":
             pass
 
@@ -273,6 +280,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("repeats_value", None)
             op_init_args.pop("pads_value", None)
             op_init_args.pop("constant_value", None)
+            shape_value = op_init_args.pop("shape_value", None)
+            fill_value = op_init_args.pop("fill_value", None)
+            if op_name == "constant_of_shape" and fill_value is not None:
+                op_init_args["value"] = from_float32(np.array([fill_value], dtype=np.float32), out_dtype)
 
             valid_tensors = [t for t in inputs_tensor if t is not None]
 
@@ -646,6 +657,18 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             mode_code = {"constant": 0, "reflect": 1, "edge": 2, "wrap": 3}.get(init_args.get("mode", "constant"), 0)
             params_bin = np.array([rank, mode_code, *input_shape, *output_shape], dtype=np.int32).tobytes()
 
+        elif op_name == "constant_of_shape":
+            target_shape = list(map(int, init_args.get("shape_value", list(shapes[0]))))
+            fill_value = float(init_args.get("fill_value", 0.0))
+            params_bin = (
+                np.array([len(target_shape), *target_shape], dtype=np.int32).tobytes()
+                + np.array([fill_value], dtype=np.float32).tobytes()
+            )
+
+        elif op_name == "eye_like":
+            rows, cols = shapes[0]
+            params_bin = np.array([rows, cols, int(init_args.get("k", 0))], dtype=np.int32).tobytes()
+
         elif op_name == "einsum":
             M, K = shapes[0]
             K2, N = shapes[1]
@@ -680,7 +703,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             if inp is None:
                 cuda_inputs.append(None)
             else:
-                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk", "max_unpool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "tile", "expand", "pad"] and d == "int64":
+                if  op_name in ["gather", "scatternd", "gather_elements", "gathernd","resize", "topk", "max_unpool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "tile", "expand", "pad", "constant_of_shape"] and d == "int64":
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int64)))
                     continue
 
@@ -688,7 +711,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
-                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad"]):
+                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod","gather", "gather_elements", "gathernd","scatternd", "nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "constant_of_shape", "eye_like"]):
                     try:
                         if val_f32.shape != expected_shape:
                             val_f32 = np.broadcast_to(val_f32, expected_shape)
@@ -810,7 +833,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd","nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd","nonzero", "argmin", "argmax", "resize", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "constant_of_shape", "eye_like"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:
