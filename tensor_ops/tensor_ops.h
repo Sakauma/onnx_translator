@@ -184,6 +184,12 @@ void conv_transpose2d_forward(const Tensor* X, const Tensor* W, const Tensor* B,
 void col2im_forward(const Tensor* input, const Tensor* image_shape, const Tensor* block_shape,
                     Tensor* output, ConvParams* params);
 
+// DeformConv
+// 按 offset 和可选 mask 对输入做双线性采样后执行 2D deformable convolution。
+void deform_conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* offset,
+                           const Tensor* B, const Tensor* mask, Tensor* Y,
+                           ConvParams* params, int offset_group);
+
 void conv_integer_forward(const Tensor* X, const Tensor* W,
                           const Tensor* XZeroPoint, const Tensor* WZeroPoint,
                           Tensor* Y, ConvParams* params);

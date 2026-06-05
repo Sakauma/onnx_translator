@@ -165,8 +165,45 @@ def _factory_010_col2im(node, import_context):
     return onnx_graph_list[-1]
 
 
+@register_factory("DeformConv")
+def _factory_011_deformconv(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    attrs = {
+        "strides": None,
+        "pads": None,
+        "dilations": None,
+        "group": 1,
+        "kernel_shape": None,
+        "offset_group": 1,
+    }
+    for attr in node.attribute:
+        if attr.name in {"strides", "pads", "dilations", "kernel_shape"}:
+            attrs[attr.name] = list(attr.ints)
+        elif attr.name == "group":
+            attrs["group"] = attr.i
+        elif attr.name == "offset_group":
+            attrs["offset_group"] = attr.i
+    elem_type = get_dtype(node.output[0])
+    onnx_graph_list.append(
+        nn.Operators.DeformConv(
+            node.input,
+            node.output,
+            strides=attrs["strides"],
+            pads=attrs["pads"],
+            dilations=attrs["dilations"],
+            group=attrs["group"],
+            kernel_shape=attrs["kernel_shape"],
+            offset_group=attrs["offset_group"],
+            dtype=onnx_dtype_mapping[elem_type],
+            version="22",
+        )
+    )
+    return onnx_graph_list[-1]
+
+
 @register_factory("ConvInteger")
-def _factory_011_convinteger(node, import_context):
+def _factory_012_convinteger(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
     onnx_graph_list = []
     pads, strides, dilations, group, kernel_shape, auto_pad = None, None, None, 1, None, "NOTSET"

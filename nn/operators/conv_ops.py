@@ -387,6 +387,135 @@ class Col2Im(Ops):
         return {"tensor": Tensor_(input.size[0], 1, dtype=self.dtype), "parameters": None, "graph": None}
 
 
+class DeformConv(Ops):
+    # 初始化 `DeformConv` 的卷积、offset group 和输出 dtype 属性。
+    def __init__(
+        self,
+        inputs,
+        outputs,
+        strides=None,
+        pads=None,
+        dilations=None,
+        group=1,
+        kernel_shape=None,
+        offset_group=1,
+        dtype="float32",
+        version="22",
+    ):
+        super().__init__(inputs, outputs)
+        self.strides = list(strides) if strides is not None else None
+        self.pads = list(pads) if pads is not None else None
+        self.dilations = list(dilations) if dilations is not None else None
+        self.group = int(group)
+        self.kernel_shape = list(kernel_shape) if kernel_shape is not None else None
+        self.offset_group = int(offset_group)
+        self.dtype = dtype
+        self.version = version
+        if self.lib:
+            self.lib.deform_conv2d_forward.argtypes = [
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CConvParams),
+                ctypes.c_int,
+            ]
+
+    # 解析并校验 DeformConv 的 2D 主路径参数，供 forward、forward_ 和 C 后端复用。
+    def _params(self, x_shape, w_shape, offset_shape):
+        if len(x_shape) < 3:
+            raise ValueError(f"DeformConv input must have at least 3 dimensions, got {x_shape}")
+        spatial_rank = len(x_shape) - 2
+        kernel_shape = self.kernel_shape if self.kernel_shape is not None else list(w_shape[2:])
+        if len(kernel_shape) != spatial_rank:
+            raise ValueError(f"DeformConv kernel rank {len(kernel_shape)} does not match spatial rank {spatial_rank}")
+        strides = _conv_attr(self.strides, spatial_rank, 1)
+        dilations = _conv_attr(self.dilations, spatial_rank, 1)
+        pads = [0] * (2 * spatial_rank) if self.pads is None else list(self.pads)
+        if len(pads) != 2 * spatial_rank:
+            raise ValueError(f"DeformConv pads must contain {2 * spatial_rank} values")
+        if self.group <= 0 or self.offset_group <= 0:
+            raise ValueError("DeformConv group and offset_group must be positive")
+        if x_shape[1] != w_shape[1] * self.group or w_shape[0] % self.group != 0:
+            raise ValueError(f"DeformConv shape mismatch: X={x_shape}, W={w_shape}, group={self.group}")
+        expected_offset_channels = self.offset_group * int(np.prod(kernel_shape, dtype=np.int64)) * spatial_rank
+        if offset_shape[1] != expected_offset_channels:
+            raise ValueError(f"DeformConv offset channel dimension {offset_shape[1]} != expected {expected_offset_channels}")
+        expected_spatial = _conv_output_spatial(list(x_shape[2:]), kernel_shape, pads, strides, dilations)
+        if tuple(offset_shape[2:]) != tuple(expected_spatial):
+            raise ValueError(f"DeformConv offset spatial shape {offset_shape[2:]} != expected {expected_spatial}")
+        return kernel_shape, pads, strides, dilations, (x_shape[0], w_shape[0], *expected_spatial)
+
+    # 执行 `DeformConv` 的真实张量计算路径，按 offset 和 mask 对输入采样后累加卷积结果。
+    def forward(self, x, w, offset, b=None, mask=None):
+        kernel_shape, pads, strides, dilations, out_shape = self._params(x.size, w.size, offset.size)
+
+        if (
+            self.lib is not None
+            and len(x.size) == 4
+            and len(w.size) == 4
+            and len(offset.size) == 4
+            and x.dtype in nn.DTYPE_MAP
+            and w.dtype in nn.DTYPE_MAP
+            and offset.dtype in nn.DTYPE_MAP
+            and self.dtype in nn.DTYPE_MAP
+            and (b is None or b.dtype in nn.DTYPE_MAP)
+            and (mask is None or mask.dtype in nn.DTYPE_MAP)
+        ):
+            pads_c = (ctypes.c_int * len(pads))(*pads)
+            strides_c = (ctypes.c_int * len(strides))(*strides)
+            dilations_c = (ctypes.c_int * len(dilations))(*dilations)
+            c_params = CConvParams()
+            c_params.pads = ctypes.cast(pads_c, ctypes.POINTER(ctypes.c_int))
+            c_params.strides = ctypes.cast(strides_c, ctypes.POINTER(ctypes.c_int))
+            c_params.dilations = ctypes.cast(dilations_c, ctypes.POINTER(ctypes.c_int))
+            c_params.group = self.group
+
+            x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
+            w_c = self._numpy_to_ctensor(np.ascontiguousarray(w.data), w.dtype)
+            offset_c = self._numpy_to_ctensor(np.ascontiguousarray(offset.data), offset.dtype)
+            b_c = self._numpy_to_ctensor(np.ascontiguousarray(b.data), b.dtype) if b is not None else ctypes.POINTER(CTensor)()
+            mask_c = self._numpy_to_ctensor(np.ascontiguousarray(mask.data), mask.dtype) if mask is not None else ctypes.POINTER(CTensor)()
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            out_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+            self.lib.deform_conv2d_forward(x_c, w_c, offset_c, b_c, mask_c, out_c, ctypes.byref(c_params), ctypes.c_int(self.offset_group))
+            out_data = self._ctensor_to_numpy(out_c, self.dtype)
+            self.lib.free_tensor(x_c)
+            self.lib.free_tensor(w_c)
+            self.lib.free_tensor(offset_c)
+            if b is not None:
+                self.lib.free_tensor(b_c)
+            if mask is not None:
+                self.lib.free_tensor(mask_c)
+            self.lib.free_tensor(out_c)
+            return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+        from onnx.reference.ops.op_deform_conv import _deform_conv_implementation
+
+        out = _deform_conv_implementation(
+            _tensor_data_as_numeric(x),
+            _tensor_data_as_numeric(w),
+            _tensor_data_as_numeric(offset),
+            None if b is None else _tensor_data_as_numeric(b),
+            None if mask is None else _tensor_data_as_numeric(mask),
+            dilations,
+            self.group,
+            kernel_shape,
+            self.offset_group,
+            pads,
+            strides,
+        )
+        out_data = _cast_numeric_to_dtype(out, self.dtype)
+        return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+    # 执行 `DeformConv` 的形状推断路径，输出 shape 由 offset 的空间维和 W 的输出通道确定。
+    def forward_(self, x, w, offset, b=None, mask=None):
+        _kernel_shape, _pads, _strides, _dilations, out_shape = self._params(x.size, w.size, offset.size)
+        return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None, "graph": None}
+
+
 class ConvInteger(Ops):
     # 初始化 `ConvInteger` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(

@@ -58,6 +58,7 @@ from nn.Operators import (
     Col2Im,
     Conv,
     CumProd,
+    DeformConv,
     Gather,
     GatherElements,
     GatherND,
