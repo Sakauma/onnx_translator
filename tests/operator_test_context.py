@@ -55,6 +55,7 @@ from nn.Operators import (
     BlackmanWindow,
     Cast,
     CenterCropPad,
+    Col2Im,
     Conv,
     CumProd,
     Gather,

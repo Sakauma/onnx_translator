@@ -168,6 +168,101 @@ void conv_transpose2d_forward(const Tensor* X, const Tensor* W, const Tensor* B,
 }
 
 
+// 将线性下标展开成指定形状的坐标，用于 Col2Im 的 kernel/block 坐标映射。
+static void col2im_unravel_index(size_t index, const int* shape, int rank, int* coords) {
+    for (int axis = rank - 1; axis >= 0; --axis) {
+        coords[axis] = (int)(index % (size_t)shape[axis]);
+        index /= (size_t)shape[axis];
+    }
+}
+
+
+// 实现 `col2im` 算子的 C 后端入口，按 N-D fold 语义把列块累加回图像。
+void col2im_forward(const Tensor* input, const Tensor* image_shape, const Tensor* block_shape,
+                    Tensor* output, ConvParams* params) {
+    if (!input || !image_shape || !block_shape || !output || !params) return;
+    if (!input->data || !image_shape->data || !block_shape->data || !output->data) return;
+    if (input->ndim != 3 || output->ndim < 4 || output->ndim > MAX_NDIM) return;
+
+    int spatial_rank = output->ndim - 2;
+    if (image_shape->size != (size_t)spatial_rank || block_shape->size != (size_t)spatial_rank) return;
+
+    int image_dims[MAX_NDIM] = {0};
+    int block_dims[MAX_NDIM] = {0};
+    int n_blocks[MAX_NDIM] = {0};
+
+    size_t kernel_size = 1;
+    size_t block_count = 1;
+    for (int axis = 0; axis < spatial_rank; ++axis) {
+        image_dims[axis] = (int)get_value_as_int64(image_shape, (size_t)axis);
+        block_dims[axis] = (int)get_value_as_int64(block_shape, (size_t)axis);
+        if (image_dims[axis] <= 0 || block_dims[axis] <= 0) return;
+        int pad_begin = params->pads ? params->pads[axis] : 0;
+        int pad_end = params->pads ? params->pads[axis + spatial_rank] : 0;
+        int stride = params->strides ? params->strides[axis] : 1;
+        int dilation = params->dilations ? params->dilations[axis] : 1;
+        if (stride <= 0 || dilation <= 0) return;
+        n_blocks[axis] = (image_dims[axis] + pad_begin + pad_end - dilation * (block_dims[axis] - 1) - 1) / stride + 1;
+        if (n_blocks[axis] <= 0) return;
+        kernel_size *= (size_t)block_dims[axis];
+        block_count *= (size_t)n_blocks[axis];
+        if (output->shape[axis + 2] != image_dims[axis]) return;
+    }
+
+    int batch = input->shape[0];
+    int planes = input->shape[1];
+    int columns = input->shape[2];
+    if ((size_t)columns != block_count || kernel_size == 0 || planes % (int)kernel_size != 0) return;
+    int channels = planes / (int)kernel_size;
+    if (output->shape[0] != batch || output->shape[1] != channels) return;
+
+    double* accum = (double*)calloc(output->size == 0 ? 1 : output->size, sizeof(double));
+    if (!accum) return;
+
+    #pragma omp parallel for collapse(2)
+    for (int n = 0; n < batch; ++n) {
+        for (int c = 0; c < channels; ++c) {
+            int local_kernel_coords[MAX_NDIM] = {0};
+            int local_block_coords[MAX_NDIM] = {0};
+            for (size_t k = 0; k < kernel_size; ++k) {
+                col2im_unravel_index(k, block_dims, spatial_rank, local_kernel_coords);
+                for (size_t col = 0; col < block_count; ++col) {
+                    col2im_unravel_index(col, n_blocks, spatial_rank, local_block_coords);
+                    size_t out_spatial_index = 0;
+                    int inside = 1;
+                    for (int axis = 0; axis < spatial_rank; ++axis) {
+                        int pad_begin = params->pads ? params->pads[axis] : 0;
+                        int stride = params->strides ? params->strides[axis] : 1;
+                        int dilation = params->dilations ? params->dilations[axis] : 1;
+                        int image_coord = local_block_coords[axis] * stride - pad_begin + local_kernel_coords[axis] * dilation;
+                        if (image_coord < 0 || image_coord >= image_dims[axis]) {
+                            inside = 0;
+                            break;
+                        }
+                        out_spatial_index = out_spatial_index * (size_t)image_dims[axis] + (size_t)image_coord;
+                    }
+                    if (!inside) continue;
+
+                    size_t input_index = ((size_t)n * (size_t)planes + (size_t)c * kernel_size + k) * block_count + col;
+                    size_t output_index = ((size_t)n * (size_t)channels + (size_t)c);
+                    for (int axis = 0; axis < spatial_rank; ++axis) output_index *= (size_t)image_dims[axis];
+                    output_index += out_spatial_index;
+                    double value = get_value_as_double(input, input_index);
+                    #pragma omp atomic
+                    accum[output_index] += value;
+                }
+            }
+        }
+    }
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; ++i) {
+        set_tensor_value_from_float(output, i, accum[i]);
+    }
+    free(accum);
+}
+
+
 // 实现 `conv integer` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void conv_integer_forward(const Tensor* X, const Tensor* W,
                           const Tensor* XZeroPoint, const Tensor* WZeroPoint,
@@ -763,4 +858,3 @@ void global_lp_pool_forward(const Tensor* input, Tensor* output, int p) {
         set_tensor_value_from_float(output, n, res);
     }
 }
-

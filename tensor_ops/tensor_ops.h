@@ -179,6 +179,11 @@ void conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y
 
 void conv_transpose2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params);
 
+// Col2Im
+// 将列块张量按 image_shape/block_shape 累加还原为图像张量。
+void col2im_forward(const Tensor* input, const Tensor* image_shape, const Tensor* block_shape,
+                    Tensor* output, ConvParams* params);
+
 void conv_integer_forward(const Tensor* X, const Tensor* W,
                           const Tensor* XZeroPoint, const Tensor* WZeroPoint,
                           Tensor* Y, ConvParams* params);

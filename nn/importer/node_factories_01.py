@@ -138,8 +138,35 @@ def _factory_009_convtranspose(node, import_context):
     return onnx_graph_list[-1]
 
 
+@register_factory("Col2Im")
+def _factory_010_col2im(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    pads, strides, dilations = None, None, None
+    for attr in node.attribute:
+        if attr.name == "pads":
+            pads = list(attr.ints)
+        elif attr.name == "strides":
+            strides = list(attr.ints)
+        elif attr.name == "dilations":
+            dilations = list(attr.ints)
+    elem_type = get_dtype(node.output[0])
+    onnx_graph_list.append(
+        nn.Operators.Col2Im(
+            node.input,
+            node.output,
+            pads=pads,
+            strides=strides,
+            dilations=dilations,
+            dtype=onnx_dtype_mapping[elem_type],
+            version="18",
+        )
+    )
+    return onnx_graph_list[-1]
+
+
 @register_factory("ConvInteger")
-def _factory_010_convinteger(node, import_context):
+def _factory_011_convinteger(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
     onnx_graph_list = []
     pads, strides, dilations, group, kernel_shape, auto_pad = None, None, None, 1, None, "NOTSET"
@@ -658,4 +685,3 @@ def _factory_047_lrn(node, import_context):
     elem_type = get_dtype(node.output[0])
     onnx_graph_list.append(nn.Operators.LRN(node.input, node.output, size=size, alpha=alpha, beta=beta, bias=bias, dtype=onnx_dtype_mapping[elem_type], version="17"))
     return onnx_graph_list[-1]
-

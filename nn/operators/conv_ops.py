@@ -278,6 +278,115 @@ class ConvTranspose(Ops):
         return {"tensor": Tensor_(x.size[0], out_channels, *out_spatial, dtype=self.dtype), "parameters": None}
 
 
+class Col2Im(Ops):
+    # 初始化 `Col2Im` 的构造参数，保存 pads、strides、dilations 和输出 dtype。
+    def __init__(self, inputs, outputs, pads=None, strides=None, dilations=None, dtype="float32", version="18"):
+        super().__init__(inputs, outputs)
+        self.pads = list(pads) if pads is not None else None
+        self.strides = list(strides) if strides is not None else None
+        self.dilations = list(dilations) if dilations is not None else None
+        self.dtype = dtype
+        self.version = version
+        if self.lib:
+            self.lib.col2im_forward.argtypes = [
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CTensor),
+                ctypes.POINTER(CConvParams),
+            ]
+
+    # 解析 image_shape、block_shape 和滑动块数量，统一 forward 与 forward_ 的校验逻辑。
+    def _params(self, input_shape, image_shape_value, block_shape_value):
+        if len(input_shape) != 3:
+            raise ValueError(f"Col2Im input must be rank 3 [N, C*prod(block_shape), L], got {input_shape}")
+        image_shape = [int(v) for v in np.asarray(image_shape_value, dtype=np.int64).reshape(-1).tolist()]
+        block_shape = [int(v) for v in np.asarray(block_shape_value, dtype=np.int64).reshape(-1).tolist()]
+        spatial_rank = len(image_shape)
+        if spatial_rank < 2 or len(block_shape) != spatial_rank:
+            raise ValueError(f"Col2Im image_shape and block_shape must have the same rank >= 2, got {image_shape} and {block_shape}")
+        strides = _conv_attr(self.strides, spatial_rank, 1)
+        dilations = _conv_attr(self.dilations, spatial_rank, 1)
+        pads = [0] * (2 * spatial_rank) if self.pads is None else list(self.pads)
+        if len(pads) != 2 * spatial_rank:
+            raise ValueError(f"Col2Im pads must contain {2 * spatial_rank} values")
+        block_size = int(np.prod(block_shape, dtype=np.int64))
+        if block_size <= 0 or input_shape[1] % block_size != 0:
+            raise ValueError(f"Col2Im input channel dimension {input_shape[1]} is not divisible by block size {block_size}")
+        channels = input_shape[1] // block_size
+        n_blocks = []
+        for axis in range(spatial_rank):
+            block_count = (
+                image_shape[axis]
+                + pads[axis]
+                + pads[axis + spatial_rank]
+                - dilations[axis] * (block_shape[axis] - 1)
+                - 1
+            ) // strides[axis] + 1
+            if block_count <= 0:
+                raise ValueError(f"Col2Im calculated non-positive block count {block_count} on axis {axis}")
+            n_blocks.append(int(block_count))
+        expected_l = int(np.prod(n_blocks, dtype=np.int64))
+        if input_shape[2] != expected_l:
+            raise ValueError(f"Col2Im input L={input_shape[2]} does not match sliding block count {expected_l}")
+        return image_shape, block_shape, pads, strides, dilations, channels, tuple(n_blocks)
+
+    # 执行 `Col2Im` 的真实张量计算路径，将列块按官方 fold 语义累加回图像张量。
+    def forward(self, input, image_shape, block_shape):
+        image_values = np.asarray(image_shape.data, dtype=np.int64)
+        block_values = np.asarray(block_shape.data, dtype=np.int64)
+        image_dims, block_dims, pads, strides, dilations, channels, _n_blocks = self._params(input.size, image_values, block_values)
+        out_shape = (input.size[0], channels, *image_dims)
+
+        if self.lib is not None and input.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
+            pads_c = (ctypes.c_int * len(pads))(*pads)
+            strides_c = (ctypes.c_int * len(strides))(*strides)
+            dilations_c = (ctypes.c_int * len(dilations))(*dilations)
+            c_params = CConvParams()
+            c_params.pads = ctypes.cast(pads_c, ctypes.POINTER(ctypes.c_int))
+            c_params.strides = ctypes.cast(strides_c, ctypes.POINTER(ctypes.c_int))
+            c_params.dilations = ctypes.cast(dilations_c, ctypes.POINTER(ctypes.c_int))
+            c_params.group = 1
+            input_c = self._numpy_to_ctensor(np.ascontiguousarray(input.data), input.dtype)
+            image_c = self._numpy_to_ctensor(np.ascontiguousarray(image_shape.data), image_shape.dtype)
+            block_c = self._numpy_to_ctensor(np.ascontiguousarray(block_shape.data), block_shape.dtype)
+            output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
+            out_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[self.dtype])
+            self.lib.col2im_forward(input_c, image_c, block_c, out_c, ctypes.byref(c_params))
+            out_data = self._ctensor_to_numpy(out_c, self.dtype)
+            self.lib.free_tensor(input_c)
+            self.lib.free_tensor(image_c)
+            self.lib.free_tensor(block_c)
+            self.lib.free_tensor(out_c)
+            return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+        from onnx.reference.ops.op_col2im import col2im_naive_implementation
+
+        data = _tensor_data_as_numeric(input)
+        block_size = int(np.prod(block_dims, dtype=np.int64))
+        reshaped = data.reshape(input.size[0], channels, block_size, input.size[2])
+        out = np.empty(out_shape, dtype=np.float32)
+        for n in range(input.size[0]):
+            for c in range(channels):
+                out[n, c] = col2im_naive_implementation(
+                    reshaped[n, c],
+                    image_dims,
+                    tuple(block_dims),
+                    dilations,
+                    pads,
+                    strides,
+                )
+        out_data = _cast_numeric_to_dtype(out, self.dtype)
+        return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+    # 执行 `Col2Im` 的形状推断路径，只生成输出图像张量元数据。
+    def forward_(self, input, image_shape, block_shape):
+        if hasattr(image_shape, "data") and image_shape.data is not None and hasattr(block_shape, "data") and block_shape.data is not None:
+            image_dims, _block_dims, _pads, _strides, _dilations, channels, _n_blocks = self._params(input.size, image_shape.data, block_shape.data)
+            return {"tensor": Tensor_(input.size[0], channels, *image_dims, dtype=self.dtype), "parameters": None, "graph": None}
+        return {"tensor": Tensor_(input.size[0], 1, dtype=self.dtype), "parameters": None, "graph": None}
+
+
 class ConvInteger(Ops):
     # 初始化 `ConvInteger` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(
