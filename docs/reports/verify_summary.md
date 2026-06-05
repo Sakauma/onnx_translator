@@ -39,6 +39,7 @@
   * @details     2026.06.05  V1.0.32  补充 RegexFullMatch、StringConcat 和 StringSplit opset 20 语义验证记录
   * @details     2026.06.05  V1.0.33  补充当前工作结束前完整 numerical 收尾记录
   * @details     2026.06.05  V1.0.34  补充 RotaryEmbedding opset 23 语义和混合精度验证记录
+  * @details     2026.06.05  V1.0.35  补充 GridSample CUDA 数值门禁和完整 numerical 复跑记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -293,6 +294,8 @@
 
 按当前收尾要求再次执行完整默认 numerical 一轮。首次复跑时暴露 `QuantizeLinear` 的 CUDA verifier 在 float32 输入下使用 double 中间除法，和 C 后端/ONNX reference 的 float32 中间舍入规则在半点附近可能差 1；本轮已修正 CUDA verifier，并由 runner 显式传递量化计算精度模式。修复后执行 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op quantize_linear --iterations 3 --skip-plots`，float32、float16、bfloat16 三组均通过；随后执行完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`，默认 active numerical plan 的 130 个唯一算子、478 条默认计划和 342 条混合精度计划全部通过，无失败算子。
 
+继续补强已有 C 后端但未进入 CUDA numerical 的高风险数值算子，补充 `GridSample` CUDA 参考验证程序，并将 float32、float16、bfloat16 三条计划接入默认 numerical 门禁。CUDA reference 覆盖 4D NCHW 输入、`mode="linear"`、`padding_mode="reflection"`、`align_corners=0`、归一化坐标映射和低精度写回；pytest 仍覆盖 nearest/border、linear/reflection 等官方属性组合。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op grid_sample --iterations 3 --skip-plots`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_complex_attribute_semantics.py -k grid_sample` 均已通过。随后执行完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`，默认 active numerical plan 提升到 131 个唯一算子、481 条默认计划和 344 条混合精度计划，全部通过，无失败算子；当前安装 ONNX 最新默认 domain schema 名称级覆盖保持 200/200。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
@@ -301,4 +304,5 @@
 - `Gelu` 的 exact erf 与 `approximate="tanh"` 已接入导入器、Python/C 后端、CUDA verifier、pytest 和默认 mixed precision numerical；后续风险主要在更多极端输入分布和跨 opset 兼容性穷尽。
 - `DeformConv` 当前 C/CUDA 数值门禁覆盖 2D 主路径，fallback 跟随本地 ONNX reference；如果后续目标模型需要更高维 deformable convolution，需要再扩展 C/CUDA reference 和 pytest 边界集合。
 - `Attention` 当前 C/CUDA 数值门禁覆盖 4D 主路径，完整 cache、nonpad 和 qk 中间输出语义由 Python fallback 跟随本地 ONNX reference；后续可继续把 cache 更新和 nonpad 剪枝路径下沉到 C/CUDA。
+- `GridSample` 已进入默认 C/CUDA mixed precision numerical，当前数值门禁覆盖 4D linear/reflection/align_corners=0 主路径；bicubic、nearest、border 等组合仍主要由 ONNX reference pytest 覆盖。
 - ROI、序列和谱算子已进入默认门禁，但仍建议后续继续补充更多 corner case，例如多方向序列、不同布局、异常轴、空张量和边界 window 参数。
