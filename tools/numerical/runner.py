@@ -63,6 +63,32 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[0] = from_float32(base, dtypes[0])
             inputs_np[1] = from_float32(base + offsets, dtypes[1])
 
+        if op_name == "isinf":
+            # IsInf 使用显式 +/-Inf 与有限值样本，覆盖 detect_positive/detect_negative 标志。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(-4.0, 4.0, total, dtype=np.float32).reshape(shapes[0])
+            flat = values.reshape(-1)
+            flat[0] = np.inf
+            flat[1] = -np.inf
+            flat[2] = 0.0
+            inputs_np[0] = from_float32(values, dtypes[0])
+
+        if op_name == "identity":
+            # Identity 使用有限可量化样本，覆盖低精度位模式经 C 后端原样传递的路径。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(-3.0, 3.0, total, dtype=np.float32).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+
+        if op_name == "where":
+            # Where 使用固定 bool 条件和两组不同值，覆盖条件选择、广播前物化和低精度写回。
+            total = int(np.prod(shapes[0]))
+            cond = ((np.arange(total).reshape(shapes[0]) % 3) != 1)
+            x_values = np.linspace(-2.5, 2.5, total, dtype=np.float32).reshape(shapes[1])
+            y_values = np.linspace(3.0, -3.0, total, dtype=np.float32).reshape(shapes[2])
+            inputs_np[0] = cond.astype(np.bool_)
+            inputs_np[1] = from_float32(x_values, dtypes[1])
+            inputs_np[2] = from_float32(y_values, dtypes[2])
+
         if op_name == "gather":
             M, N = shapes[0]      # data shape (M,N)
             idx_shape = shapes[1] # indices shape (I,)
@@ -188,7 +214,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             values = np.linspace(-1.2, 1.3, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
             inputs_np[0] = from_float32(values, dtypes[0])
 
-        if op_name in {"expand", "flatten", "reshape", "transpose", "pad", "center_crop_pad"}:
+        if op_name in {"expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "pad", "center_crop_pad"}:
             # 形状变换类算子使用有限且可量化的固定样本，避免随机 float8 NaN 干扰位模式验证。
             total = int(np.prod(shapes[0]))
             values = np.linspace(-3.0, 3.0, total, dtype=np.float32).reshape(shapes[0])
@@ -1005,6 +1031,12 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         elif op_name == "reshape":
             params_bin = None
 
+        elif op_name == "squeeze":
+            params_bin = None
+
+        elif op_name == "unsqueeze":
+            params_bin = None
+
         elif op_name == "transpose":
             input_shape = list(shapes[0])
             rank = len(input_shape)
@@ -1060,6 +1092,15 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
 
         elif op_name == "bitcast":
             params_bin = np.array([np.dtype(nn.DTYPE_TO_NUMPY[out_dtype]).itemsize], dtype=np.int32).tobytes()
+
+        elif op_name == "isinf":
+            params_bin = np.array(
+                [int(init_args.get("detect_positive", 1)), int(init_args.get("detect_negative", 1))],
+                dtype=np.int32,
+            ).tobytes()
+
+        elif op_name == "size":
+            params_bin = np.array([int(np.prod(inputs_np[0].shape, dtype=np.int64))], dtype=np.int64).tobytes()
 
         elif op_name == "hard_sigmoid":
             params_bin = np.array(
@@ -1277,7 +1318,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
-                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "tensor_scatter", "nonzero", "argmin", "argmax", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "center_crop_pad", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
+                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "tensor_scatter", "nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
                     try:
                         if val_f32.shape != expected_shape:
                             val_f32 = np.broadcast_to(val_f32, expected_shape)
@@ -1409,7 +1450,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter","nonzero", "argmin", "argmax", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "center_crop_pad", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter","nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:
