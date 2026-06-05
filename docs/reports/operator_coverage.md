@@ -13,7 +13,7 @@
 
 # 算子实现情况评估
 
-> 自动生成时间：2026-06-05 08:25:20
+> 自动生成时间：2026-06-05 08:33:30
 > 生成命令：`python tools/audit_ops.py --output docs/reports/operator_coverage.md`
 
 ## 评估口径
