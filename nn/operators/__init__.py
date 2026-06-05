@@ -49,10 +49,12 @@ from . import spectral_window_ops as _spectral_window_ops
 from .spectral_window_ops import *
 from . import text as _text
 from .text import *
+from . import embedding_ops as _embedding_ops
+from .embedding_ops import *
 from . import misc as _misc
 from .misc import *
 
-_MODULES = [_elementwise_basic, _elementwise_compare_logic, _elementwise_activation_extra, _quantization, _conv_ops, _matrix_ops, _pooling_roi, _shape_transform_ops, _shape_constant_ops, _index_scatter_ops, _shape_extra_ops, _reduce_arg, _sequence_optional_control, _normalization_ops, _random_ops, _loss_ranking_ops, _spectral_window_ops, _text, _misc]
+_MODULES = [_elementwise_basic, _elementwise_compare_logic, _elementwise_activation_extra, _quantization, _conv_ops, _matrix_ops, _pooling_roi, _shape_transform_ops, _shape_constant_ops, _index_scatter_ops, _shape_extra_ops, _reduce_arg, _sequence_optional_control, _normalization_ops, _random_ops, _loss_ranking_ops, _spectral_window_ops, _text, _embedding_ops, _misc]
 _PUBLIC_SYMBOLS = {name: value for name, value in globals().items() if not name.startswith('_')}
 _SHARED_SYMBOLS = {name: value for name, value in globals().items() if not name.startswith('__')}
 for _module in _MODULES:

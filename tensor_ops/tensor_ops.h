@@ -685,6 +685,12 @@ void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
 void rms_normalization_forward(const Tensor* input, const Tensor* scale, Tensor* output,
                                int axis, float epsilon, int stash_type);
 
+// RotaryEmbedding
+// 按 ONNX RoPE 语义旋转 3D/4D 输入的每个 head 前缀维度。
+void rotary_embedding_forward(const Tensor* input, const Tensor* cos_cache, const Tensor* sin_cache,
+                              const Tensor* position_ids, Tensor* output,
+                              int num_heads, int rotary_embedding_dim, int interleaved);
+
 void round_forward(const Tensor* input, Tensor* output);
 void erf_forward(const Tensor* input, Tensor* output);
 

@@ -38,6 +38,7 @@
   * @details     2026.06.05  V1.0.31  补充 TensorScatter opset 24 语义和混合精度验证记录
   * @details     2026.06.05  V1.0.32  补充 RegexFullMatch、StringConcat 和 StringSplit opset 20 语义验证记录
   * @details     2026.06.05  V1.0.33  补充当前工作结束前完整 numerical 收尾记录
+  * @details     2026.06.05  V1.0.34  补充 RotaryEmbedding opset 23 语义和混合精度验证记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -280,10 +281,12 @@
 
 按当前收尾要求执行完整默认 numerical 一轮：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`。本次执行覆盖默认 active numerical plan 的 126 个唯一算子、466 条默认计划和 334 条混合精度计划，466/466 全部通过，无失败算子；覆盖 dtype 包含 float32、float16、bfloat16、float8_e4m3、float8_e5m2、int8、uint8、int64 和 bool。随后执行 `tools/audit_ops.py --output docs/reports/operator_coverage.md` 刷新覆盖报告，当前安装 ONNX 最新默认 domain schema 覆盖保持 195/200，剩余缺口保持为 `Attention(since_version=24)`、`Col2Im(since_version=18)`、`DeformConv(since_version=22)`、`ImageDecoder(since_version=20)`、`RotaryEmbedding(since_version=23)`。本轮未新增运行逻辑，仅将结束前完整验证结果落盘。
 
+继续处理当前安装 ONNX 最新 schema 缺口，补齐 `RotaryEmbedding` opset 23：新增 `nn/operators/embedding_ops.py` 分组并实现 3D/4D 输入、`position_ids` 查表、无 position 的 3D cache、`interleaved` 和 partial `rotary_embedding_dim` 语义；导入器读取 `num_heads`、`rotary_embedding_dim` 和 `interleaved` 属性；C 后端新增 `rotary_embedding_forward`，按原始输入布局写回结果，并对未旋转尾部维度直接复制元素位模式；CUDA verifier 新增 `verify_rotary_embedding.cu`，作为 numerical 的独立参考。默认 numerical plan 新增 float32、float16、bfloat16 三条计划，未添加 float8 计划，因为官方 type constraint 只声明 float32、float16、bfloat16。验证命令：`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_rotary_embedding_semantics.py`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op rotary_embedding --iterations 3 --skip-plots`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests` 和完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 均已通过。本轮后默认 active numerical plan 覆盖 127 个唯一算子、469 条默认计划和 336 条混合精度计划，当前安装 ONNX 最新默认 domain schema 覆盖提升到 196/200。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
-- 当前安装 ONNX 最新默认 domain schema 仍有 5 个名称级缺口：Attention、Col2Im、DeformConv、ImageDecoder、RotaryEmbedding。
+- 当前安装 ONNX 最新默认 domain schema 仍有 4 个名称级缺口：Attention、Col2Im、DeformConv、ImageDecoder。
 - QuantizeLinear/DequantizeLinear 的新版属性，例如 block quantization、output_dtype、precision、saturate 等，仍需结合目标 opset 再决定是否扩展。
 - `Gelu` 的 exact erf 与 `approximate="tanh"` 已接入导入器、Python/C 后端、CUDA verifier、pytest 和默认 mixed precision numerical；后续风险主要在更多极端输入分布和跨 opset 兼容性穷尽。
 - ROI、序列和谱算子已进入默认门禁，但仍建议后续继续补充更多 corner case，例如多方向序列、不同布局、异常轴、空张量和边界 window 参数。

@@ -158,3 +158,30 @@ def _factory_148_stringsplit(node, import_context):
         )
     )
     return onnx_graph_list[-1]
+
+
+@register_factory("RotaryEmbedding")
+def _factory_149_rotaryembedding(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    num_heads, rotary_embedding_dim, interleaved = 0, 0, 0
+    for attr in node.attribute:
+        if attr.name == "num_heads":
+            num_heads = attr.i
+        elif attr.name == "rotary_embedding_dim":
+            rotary_embedding_dim = attr.i
+        elif attr.name == "interleaved":
+            interleaved = attr.i
+    elem_type = get_dtype(node.output[0])
+    onnx_graph_list.append(
+        nn.Operators.RotaryEmbedding(
+            node.input,
+            node.output,
+            num_heads=num_heads,
+            rotary_embedding_dim=rotary_embedding_dim,
+            interleaved=interleaved,
+            dtype=onnx_dtype_mapping[elem_type],
+            version="23",
+        )
+    )
+    return onnx_graph_list[-1]

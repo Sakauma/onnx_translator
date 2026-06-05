@@ -145,6 +145,7 @@ from nn.Operators import (
     STFT,
     SUB,
     RegexFullMatch,
+    RotaryEmbedding,
     StringConcat,
     StringSplit,
     StringNormalizer,

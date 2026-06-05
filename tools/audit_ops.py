@@ -84,6 +84,7 @@ MANUAL_ALIASES = {
     "RandomUniformLike": {"random_uniform_like"},
     "RandomNormalLike": {"random_normal_like"},
     "RMSNormalization": {"rms_normalization", "rms_norm"},
+    "RotaryEmbedding": {"rotary_embedding"},
     "BatchNormalization": {"batch_normalization", "batch_norm"},
     "InstanceNormalization": {"instance_normalization", "instance_norm"},
     "LayerNormalization": {"layer_normalization", "layer_norm"},
@@ -310,6 +311,7 @@ REFERENCE_PARITY_PYTEST_COVERAGE = {
     "Reshape",
     "Resize",
     "RMSNormalization",
+    "RotaryEmbedding",
     "ReverseSequence",
     "Round",
     "ScatterElements",
@@ -818,18 +820,18 @@ def audit() -> tuple[list[OperatorInfo], dict[str, object]]:
     metadata["deferred_c_backend_runtime"] = [
         info.class_name for info in infos if not info.c_runtime_functions and info.class_name in DEFERRED_C_BACKEND_RUNTIME
     ]
-    metadata["deep_semantic_pytest_coverage"] = [
+    metadata["deep_semantic_pytest_coverage"] = sorted([
         info.class_name for info in infos if info.class_name in DEEP_SEMANTIC_PYTEST_COVERAGE
-    ]
-    metadata["reference_parity_pytest_coverage"] = [
+    ])
+    metadata["reference_parity_pytest_coverage"] = sorted([
         info.class_name for info in infos if info.class_name in REFERENCE_PARITY_PYTEST_COVERAGE
-    ]
-    metadata["pytest_semantic_coverage"] = [
+    ])
+    metadata["pytest_semantic_coverage"] = sorted([
         info.class_name for info in infos if info.class_name in PYTEST_SEMANTIC_COVERAGE
-    ]
-    metadata["declared_c_but_runtime_unused"] = [
+    ])
+    metadata["declared_c_but_runtime_unused"] = sorted([
         info.class_name for info in infos if info.c_functions and not info.c_runtime_functions
-    ]
+    ])
     return infos, metadata
 
 
