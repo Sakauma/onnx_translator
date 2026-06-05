@@ -119,3 +119,42 @@ def _factory_145_tensorscatter(node, import_context):
         )
     )
     return onnx_graph_list[-1]
+
+
+@register_factory("RegexFullMatch")
+def _factory_146_regexfullmatch(node, import_context):
+    onnx_graph_list = []
+    pattern = None
+    for attr in node.attribute:
+        if attr.name == "pattern":
+            pattern = attr.s.decode("utf-8")
+    onnx_graph_list.append(nn.Operators.RegexFullMatch(node.input, node.output, pattern=pattern, version="20"))
+    return onnx_graph_list[-1]
+
+
+@register_factory("StringConcat")
+def _factory_147_stringconcat(node, import_context):
+    onnx_graph_list = []
+    onnx_graph_list.append(nn.Operators.StringConcat(node.input, node.output, version="20"))
+    return onnx_graph_list[-1]
+
+
+@register_factory("StringSplit")
+def _factory_148_stringsplit(node, import_context):
+    onnx_graph_list = []
+    delimiter, maxsplit = None, None
+    for attr in node.attribute:
+        if attr.name == "delimiter":
+            delimiter = attr.s.decode("utf-8")
+        elif attr.name == "maxsplit":
+            maxsplit = attr.i
+    onnx_graph_list.append(
+        nn.Operators.StringSplit(
+            node.input,
+            node.output,
+            delimiter=delimiter,
+            maxsplit=maxsplit,
+            version="20",
+        )
+    )
+    return onnx_graph_list[-1]

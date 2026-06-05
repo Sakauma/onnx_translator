@@ -10,6 +10,110 @@
 # */
 
 from .common import *
+import re
+
+
+def _as_string_array(value):
+    return np.asarray(value.data, dtype=np.str_)
+
+
+def _pad_split_lists(split_lists, padding_requirement):
+    if isinstance(split_lists, list):
+        return split_lists + ["" for _ in range(int(padding_requirement))]
+    if isinstance(split_lists, np.ndarray):
+        return [_pad_split_lists(item, pad) for item, pad in zip(split_lists, padding_requirement)]
+    raise TypeError(f"Invalid split list type {type(split_lists)!r}")
+
+
+def _split_with_padding(data, delimiter=None, maxsplit=None):
+    separator = None if delimiter in (None, "") else delimiter
+    split_lists = np.char.split(data.astype(np.str_), separator, maxsplit)
+    num_splits = np.vectorize(len, otypes=[np.int64])(split_lists)
+    padding_requirement = (np.max(num_splits, initial=0) - num_splits).tolist()
+    padded = np.array(_pad_split_lists(split_lists, padding_requirement), dtype=object)
+    if data.size == 0:
+        padded = padded.reshape(*data.shape, 0)
+    return padded.astype(np.str_), num_splits.astype(np.int64)
+
+
+class RegexFullMatch(Ops):
+    # 初始化 `RegexFullMatch` 的正则表达式 pattern，输出固定为 bool 张量。
+    def __init__(self, inputs, outputs, pattern=None, version="20"):
+        super().__init__(inputs, outputs)
+        self.pattern = pattern
+        self.dtype = "bool"
+        self.version = version
+
+    # 执行 `RegexFullMatch` 的字符串 fullmatch 语义，逐元素输出 bool 结果。
+    def forward(self, x):
+        if self.pattern is None:
+            raise ValueError("RegexFullMatch requires a regex pattern attribute")
+        try:
+            regex = re.compile(self.pattern)
+        except re.error as exc:
+            raise ValueError(f"Invalid regex pattern {self.pattern!r}") from exc
+        data = _as_string_array(x)
+        matcher = np.vectorize(lambda item: regex.fullmatch(str(item)) is not None, otypes=[np.bool_])
+        out_data = matcher(data)
+        return {"tensor": Tensor(*out_data.shape, dtype="bool", data=out_data), "parameters": None, "graph": None}
+
+    # 执行 `RegexFullMatch` 的形状推断路径，输出 shape 与输入一致。
+    def forward_(self, x):
+        return {"tensor": Tensor_(*x.size, dtype="bool"), "parameters": None, "graph": None}
+
+
+class StringConcat(Ops):
+    # 初始化 `StringConcat` 算子，记录字符串输出 dtype 和 opset 版本。
+    def __init__(self, inputs, outputs, version="20"):
+        super().__init__(inputs, outputs)
+        self.dtype = "string"
+        self.version = version
+
+    # 执行 `StringConcat` 的逐元素字符串拼接，并遵循 NumPy/ONNX 多向广播。
+    def forward(self, x, y):
+        x_data = _as_string_array(x)
+        y_data = _as_string_array(y)
+        out_data = np.char.add(x_data, y_data).astype(np.str_)
+        return {"tensor": Tensor(*out_data.shape, dtype="string", data=out_data), "parameters": None, "graph": None}
+
+    # 执行 `StringConcat` 的形状推断路径，根据输入 shape 推导广播后 shape。
+    def forward_(self, x, y):
+        try:
+            out_shape = np.broadcast_shapes(tuple(x.size), tuple(y.size))
+        except ValueError:
+            out_shape = x.size
+        return {"tensor": Tensor_(*out_shape, dtype="string"), "parameters": None, "graph": None}
+
+
+class StringSplit(Ops):
+    # 初始化 `StringSplit` 的 delimiter 和 maxsplit 属性，输出为字符串张量与 int64 计数张量。
+    def __init__(self, inputs, outputs, delimiter=None, maxsplit=None, version="20"):
+        super().__init__(inputs, outputs)
+        self.delimiter = delimiter
+        self.maxsplit = None if maxsplit is None else int(maxsplit)
+        self.dtype = "string"
+        self.version = version
+
+    # 执行 `StringSplit`，按官方语义将较短拆分结果用空字符串补齐。
+    def forward(self, x):
+        data = _as_string_array(x)
+        split_data, counts = _split_with_padding(data, self.delimiter, self.maxsplit)
+        return {
+            "tensor": [
+                Tensor(*split_data.shape, dtype="string", data=split_data),
+                Tensor(*counts.shape, dtype="int64", data=counts),
+            ],
+            "parameters": None,
+            "graph": None,
+        }
+
+    # 执行 `StringSplit` 的形状推断路径；真实 Tensor 可用时返回精确最后维，否则以 1 作为占位。
+    def forward_(self, x):
+        if isinstance(x, Tensor):
+            result = self.forward(x)["tensor"]
+            return {"tensor": [Tensor_(*result[0].size, dtype="string"), Tensor_(*result[1].size, dtype="int64")], "parameters": None}
+        return {"tensor": [Tensor_(*x.size, 1, dtype="string"), Tensor_(*x.size, dtype="int64")], "parameters": None}
+
 
 class StringNormalizer(Ops):
     # 初始化 `StringNormalizer` 的构造参数，保存后续运行、形状推断或验证所需的状态。

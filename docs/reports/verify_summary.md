@@ -36,6 +36,7 @@
   * @details     2026.06.05  V1.0.29  补充 BitCast opset 26 和最终 numerical 收尾记录
   * @details     2026.06.05  V1.0.30  补充 CenterCropPad opset 18 语义和混合精度验证记录
   * @details     2026.06.05  V1.0.31  补充 TensorScatter opset 24 语义和混合精度验证记录
+  * @details     2026.06.05  V1.0.32  补充 RegexFullMatch、StringConcat 和 StringSplit opset 20 语义验证记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -274,10 +275,12 @@
 
 继续处理当前安装 ONNX 最新 schema 缺口，补齐 `TensorScatter` opset 24：导入器读取 `axis` 与 `mode` 属性并构造 `TensorScatter` 算子，Python runtime 调用 C 后端新增 `tensor_scatter_forward`，C 后端先复制 `past_cache`，再按 batch 级 `write_indices` 将 `update` 写入 sequence 轴，支持 `linear` 和 `circular` 两种模式；optional `write_indices` 缺省时按全 0 起点处理。低精度路径使用元素原始字节复制，避免 bfloat16/float8 位模式被二次数值转换。CUDA verifier 使用完整 update 坐标映射作为 reference，默认 numerical plan 新增 float32、float16、bfloat16、float8_e4m3、float8_e5m2 五条计划，pytest 使用 ONNX `ReferenceEvaluator` 校验 linear、circular、缺省 write_indices、导入器属性保留和低精度位存储路径。验证命令：`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_index_semantics.py -k tensor_scatter`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op tensor_scatter --iterations 3 --skip-plots` 均已通过；随后完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests` 结果为 263 passed、1 skipped，完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 也全部通过。随后刷新 `docs/reports/operator_coverage.md`，默认 active numerical plan 覆盖提升到 126 个唯一算子、466 条默认计划和 334 条混合精度计划，当前安装 ONNX 最新默认 domain schema 覆盖提升到 192/200。
 
+继续处理当前安装 ONNX 最新 schema 缺口，补齐 `RegexFullMatch`、`StringConcat` 和 `StringSplit` opset 20：导入器分别读取 `pattern`、`delimiter` 和 `maxsplit` 属性并构造对应字符串算子。`RegexFullMatch` 按 fullmatch 逐元素输出 bool，`StringConcat` 按 NumPy-style broadcasting 逐元素拼接字符串，`StringSplit` 按 delimiter 或默认连续空白拆分，并将每个输入元素的拆分结果用空字符串补齐到统一最后维，同时输出 int64 拆分数量。该组三个算子是字符串语义算子，不存在 float16/bfloat16/float8 混合精度路径，也不适合接入数值 C/CUDA 门禁；本轮使用 ONNX `ReferenceEvaluator` 覆盖广播拼接、正则 fullmatch、空输入、delimiter/maxsplit、默认空白拆分、padding 和导入器属性保留。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile nn/operators/text.py nn/importer/node_factories_04.py tools/audit_ops.py tests/test_operator_text_semantics.py`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_text_semantics.py` 均已通过。随后刷新 `docs/reports/operator_coverage.md`，当前安装 ONNX 最新默认 domain schema 覆盖提升到 195/200。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
-- 当前安装 ONNX 最新默认 domain schema 仍有 8 个名称级缺口：Attention、Col2Im、DeformConv、ImageDecoder、RegexFullMatch、RotaryEmbedding、StringConcat、StringSplit。
+- 当前安装 ONNX 最新默认 domain schema 仍有 5 个名称级缺口：Attention、Col2Im、DeformConv、ImageDecoder、RotaryEmbedding。
 - QuantizeLinear/DequantizeLinear 的新版属性，例如 block quantization、output_dtype、precision、saturate 等，仍需结合目标 opset 再决定是否扩展。
 - `Gelu` 的 exact erf 与 `approximate="tanh"` 已接入导入器、Python/C 后端、CUDA verifier、pytest 和默认 mixed precision numerical；后续风险主要在更多极端输入分布和跨 opset 兼容性穷尽。
 - ROI、序列和谱算子已进入默认门禁，但仍建议后续继续补充更多 corner case，例如多方向序列、不同布局、异常轴、空张量和边界 window 参数。
