@@ -130,6 +130,34 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[1] = from_float32(x_values, dtypes[1])
             inputs_np[2] = from_float32(y_values, dtypes[2])
 
+        if op_name in {"bitwise_and", "bitwise_or", "bitwise_xor", "bitwise_not", "bit_shift"}:
+            # 位运算使用显式 int32 样本，覆盖正数、负数和高位位模式，避免随机大位移触发未定义语义。
+            base_values = np.array(
+                [
+                    0, 1, -1, 2,
+                    -2, 7, -8, 15,
+                    16, -31, 63, -64,
+                    127, -128, 255, -256,
+                ],
+                dtype=np.int32,
+            ).reshape(shapes[0])
+            inputs_np[0] = base_values
+            if len(inputs_np) > 1:
+                if op_name == "bit_shift":
+                    shifts = (np.arange(int(np.prod(shapes[1])), dtype=np.int32) % 5).reshape(shapes[1])
+                    inputs_np[1] = shifts
+                else:
+                    rhs = np.array(
+                        [
+                            3, 5, -7, 9,
+                            -11, 13, 17, -19,
+                            23, -29, 31, -37,
+                            41, -43, 47, -53,
+                        ],
+                        dtype=np.int32,
+                    ).reshape(shapes[1])
+                    inputs_np[1] = rhs
+
         if op_name == "gather":
             M, N = shapes[0]      # data shape (M,N)
             idx_shape = shapes[1] # indices shape (I,)
@@ -1229,6 +1257,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         elif op_name == "bitcast":
             params_bin = np.array([np.dtype(nn.DTYPE_TO_NUMPY[out_dtype]).itemsize], dtype=np.int32).tobytes()
 
+        elif op_name == "bit_shift":
+            direction = 0 if init_args.get("direction", "LEFT").upper() == "LEFT" else 1
+            params_bin = np.array([direction], dtype=np.int32).tobytes()
+
         elif op_name == "isinf":
             params_bin = np.array(
                 [int(init_args.get("detect_positive", 1)), int(init_args.get("detect_negative", 1))],
@@ -1444,6 +1476,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             else:
                 if op_name == "bitcast":
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(nn.DTYPE_TO_NUMPY[d], copy=False)))
+                    continue
+
+                if op_name in {"bitwise_and", "bitwise_or", "bitwise_xor", "bitwise_not", "bit_shift"} and d == "int32":
+                    cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int32, copy=False)))
                     continue
 
                 if  op_name in ["gather", "scatternd", "tensor_scatter", "scatter_elements", "gather_elements", "gathernd","resize", "affine_grid", "topk", "max_unpool", "roi_align", "col2im", "dft", "stft", "rnn", "gru", "lstm", "tile", "expand", "pad", "center_crop_pad", "slice", "constant_of_shape", "rotary_embedding"] and d == "int64":
