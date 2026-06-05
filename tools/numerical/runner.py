@@ -241,6 +241,24 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[3] = from_float32(mean_values, dtypes[3])
             inputs_np[4] = from_float32(var_values, dtypes[4])
 
+        if op_name == "instance_normalization":
+            # InstanceNormalization 使用每通道不同 scale/bias 的固定样本，覆盖 per-instance spatial 归一化。
+            x_values = np.linspace(-1.4, 1.6, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
+            scale_values = np.array([1.0, 0.5, 1.5], dtype=np.float32).reshape(shapes[1])
+            bias_values = np.array([0.1, -0.2, 0.3], dtype=np.float32).reshape(shapes[2])
+            inputs_np[0] = from_float32(x_values, dtypes[0])
+            inputs_np[1] = from_float32(scale_values, dtypes[1])
+            inputs_np[2] = from_float32(bias_values, dtypes[2])
+
+        if op_name == "layer_normalization":
+            # LayerNormalization 使用最后一维 scale/bias，覆盖当前 C 后端承载的 axis=-1 主路径和低精度写回。
+            x_values = np.linspace(-1.8, 1.4, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
+            scale_values = np.array([1.0, 0.5, 1.5, -0.5], dtype=np.float32).reshape(shapes[1])
+            bias_values = np.array([0.1, -0.2, 0.3, 0.0], dtype=np.float32).reshape(shapes[2])
+            inputs_np[0] = from_float32(x_values, dtypes[0])
+            inputs_np[1] = from_float32(scale_values, dtypes[1])
+            inputs_np[2] = from_float32(bias_values, dtypes[2])
+
         if op_name == "rotary_embedding":
             # RotaryEmbedding 使用固定角度 cache 和 position_ids，覆盖官方 full-rotation 主路径和低精度写回。
             total = int(np.prod(shapes[0]))
@@ -1070,6 +1088,29 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 + np.array([float(init_args.get("epsilon", 1e-5))], dtype=np.float32).tobytes()
             )
 
+        elif op_name == "instance_normalization":
+            x = inputs_np[0]
+            spatial_size = int(np.prod(x.shape[2:])) if x.ndim > 2 else 1
+            params_bin = (
+                np.array([x.shape[0], x.shape[1], spatial_size], dtype=np.int32).tobytes()
+                + np.array([float(init_args.get("epsilon", 1e-5))], dtype=np.float32).tobytes()
+            )
+
+        elif op_name == "layer_normalization":
+            x = inputs_np[0]
+            input_shape = list(x.shape)
+            axis = int(init_args.get("axis", -1))
+            if axis < 0:
+                axis += len(input_shape)
+            normalized_size = int(np.prod(input_shape[axis:]))
+            row_count = int(np.prod(input_shape[:axis])) if axis > 0 else 1
+            has_scale = 1 if inputs_np[1] is not None else 0
+            has_bias = 1 if inputs_np[2] is not None else 0
+            params_bin = (
+                np.array([row_count, normalized_size, has_scale, has_bias], dtype=np.int32).tobytes()
+                + np.array([float(init_args.get("epsilon", 1e-5))], dtype=np.float32).tobytes()
+            )
+
         elif op_name == "rotary_embedding":
             x = inputs_np[0]
             rank = x.ndim
@@ -1183,7 +1224,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if expected_shape == ():
             expected_shape = (1,) # 统一当成 1 元素张量来跑 CUDA/读写 bin
             nps_out = np.array([nps_out], dtype=nps_out.dtype)
-        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im", "deform_conv", "attention", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "lrn", "mean_variance_normalization", "batch_normalization", "max_unpool", "grid_sample", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
+        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im", "deform_conv", "attention", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "lrn", "mean_variance_normalization", "batch_normalization", "instance_normalization", "layer_normalization", "max_unpool", "grid_sample", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
         is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
         
         cuda_inputs = []
