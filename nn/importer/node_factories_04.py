@@ -160,8 +160,19 @@ def _factory_148_stringsplit(node, import_context):
     return onnx_graph_list[-1]
 
 
+@register_factory("ImageDecoder")
+def _factory_149_imagedecoder(node, import_context):
+    onnx_graph_list = []
+    pixel_format = "RGB"
+    for attr in node.attribute:
+        if attr.name == "pixel_format":
+            pixel_format = attr.s.decode("utf-8")
+    onnx_graph_list.append(nn.Operators.ImageDecoder(node.input, node.output, pixel_format=pixel_format, version="20"))
+    return onnx_graph_list[-1]
+
+
 @register_factory("RotaryEmbedding")
-def _factory_149_rotaryembedding(node, import_context):
+def _factory_150_rotaryembedding(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
     onnx_graph_list = []
     num_heads, rotary_embedding_dim, interleaved = 0, 0, 0

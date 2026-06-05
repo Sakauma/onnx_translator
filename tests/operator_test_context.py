@@ -70,6 +70,7 @@ from nn.Operators import (
     HannWindow,
     If,
     Identity,
+    ImageDecoder,
     Less,
     LessOrEqual,
     LSTM,
