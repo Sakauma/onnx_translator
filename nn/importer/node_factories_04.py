@@ -96,3 +96,26 @@ def _factory_144_affinegrid(node, import_context):
     onnx_graph_list.append(nn.Operators.AffineGrid(node.input, node.output, align_corners=align_corners, dtype=onnx_dtype_mapping[elem_type], version="20"))
     return onnx_graph_list[-1]
 
+
+@register_factory("TensorScatter")
+def _factory_145_tensorscatter(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    axis, mode = -2, "linear"
+    for attr in node.attribute:
+        if attr.name == "axis":
+            axis = attr.i
+        elif attr.name == "mode":
+            mode = attr.s.decode("utf-8")
+    elem_type = get_dtype(node.output[0])
+    onnx_graph_list.append(
+        nn.Operators.TensorScatter(
+            node.input,
+            node.output,
+            axis=axis,
+            mode=mode,
+            dtype=onnx_dtype_mapping[elem_type],
+            version="24",
+        )
+    )
+    return onnx_graph_list[-1]

@@ -310,6 +310,7 @@ REFERENCE_PARITY_PYTEST_COVERAGE = {
     "Round",
     "ScatterElements",
     "ScatterND",
+    "TensorScatter",
     "Selu",
     "Shape",
     "Shrink",

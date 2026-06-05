@@ -22,6 +22,7 @@ from nn.Operators import (
     GatherND,
     NonZero,
     ScatterND,
+    TensorScatter,
     TopK,
 )
 
@@ -172,6 +173,145 @@ def test_c_backend_scatternd_reductions_match_onnx_reference(reduction):
         _tensor(updates, "float16"),
     )["tensor"]
     _assert_tensor_matches(actual, expected)
+
+
+# 验证 TensorScatter linear 模式按 batch 级写入起点更新 sequence 轴。
+def test_c_backend_tensor_scatter_linear_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    past_cache = np.array(
+        [
+            [[[1, 2, 3, 4, 5], [5, 6, 7, 8, 9], [8, 7, 6, 5, 4], [4, 3, 2, 1, 0]]],
+            [[[1, 2, 3, 4, 5], [5, 6, 7, 8, 9], [8, 7, 6, 5, 4], [4, 3, 2, 1, 0]]],
+        ],
+        dtype=np.float32,
+    )
+    update = np.array([[[[5, 5, 5, 5, 5]]], [[[1, 1, 1, 1, 1]]]], dtype=np.float32)
+    write_indices = np.array([1, 2], dtype=np.int64)
+    expected = _onnx_reference(
+        "TensorScatter",
+        [past_cache, update, write_indices],
+        [TensorProto.FLOAT, TensorProto.FLOAT, TensorProto.INT64],
+        {"mode": "linear"},
+        [past_cache.shape],
+        [TensorProto.FLOAT],
+        opset=24,
+    )[0]
+    actual = TensorScatter(["past", "update", "indices"], ["present"], mode="linear", dtype="float32").forward(
+        _tensor(past_cache, "float32"),
+        _tensor(update, "float32"),
+        _tensor(write_indices, "int64"),
+    )["tensor"]
+    _assert_tensor_matches(actual, expected, rtol=1e-6, atol=1e-6)
+
+
+# 验证 TensorScatter circular 模式在 sequence 轴上取模写入。
+def test_c_backend_tensor_scatter_circular_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    past_cache = np.arange(2 * 1 * 4 * 5, dtype=np.float32).reshape(2, 1, 4, 5)
+    update = np.array(
+        [
+            [[[50, 51, 52, 53, 54], [60, 61, 62, 63, 64]]],
+            [[[10, 11, 12, 13, 14], [20, 21, 22, 23, 24]]],
+        ],
+        dtype=np.float32,
+    )
+    write_indices = np.array([3, 2], dtype=np.int64)
+    expected = _onnx_reference(
+        "TensorScatter",
+        [past_cache, update, write_indices],
+        [TensorProto.FLOAT, TensorProto.FLOAT, TensorProto.INT64],
+        {"mode": "circular"},
+        [past_cache.shape],
+        [TensorProto.FLOAT],
+        opset=24,
+    )[0]
+    actual = TensorScatter(["past", "update", "indices"], ["present"], mode="circular", dtype="float32").forward(
+        _tensor(past_cache, "float32"),
+        _tensor(update, "float32"),
+        _tensor(write_indices, "int64"),
+    )["tensor"]
+    _assert_tensor_matches(actual, expected, rtol=1e-6, atol=1e-6)
+
+
+# 验证 TensorScatter 省略 write_indices 时默认从每个 batch 的 0 位置写入。
+def test_c_backend_tensor_scatter_default_write_indices_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    past_cache = np.arange(3 * 4 * 5, dtype=np.float32).reshape(3, 4, 5)
+    update = np.full((3, 2, 5), 7.0, dtype=np.float32)
+    expected = _onnx_reference(
+        "TensorScatter",
+        [past_cache, update],
+        [TensorProto.FLOAT, TensorProto.FLOAT],
+        {},
+        [past_cache.shape],
+        [TensorProto.FLOAT],
+        opset=24,
+    )[0]
+    actual = TensorScatter(["past", "update"], ["present"], dtype="float32").forward(
+        _tensor(past_cache, "float32"),
+        _tensor(update, "float32"),
+    )["tensor"]
+    _assert_tensor_matches(actual, expected, rtol=1e-6, atol=1e-6)
+
+
+# 验证 TensorScatter 的低精度路径只搬运目标元素位模式，不做额外数值转换。
+def test_c_backend_tensor_scatter_low_precision_preserves_bits():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    write_indices = _tensor(np.array([1, 2], dtype=np.int64), "int64")
+
+    bf16_cache = np.arange(1, 41, dtype=np.uint16).reshape(2, 1, 4, 5)
+    bf16_update = np.arange(101, 121, dtype=np.uint16).reshape(2, 1, 2, 5)
+    bf16_expected = bf16_cache.copy()
+    bf16_expected[0, :, 1:3, :] = bf16_update[0]
+    bf16_expected[1, :, 2:4, :] = bf16_update[1]
+    bf16_actual = TensorScatter(["past", "update", "indices"], ["present"], dtype="bfloat16").forward(
+        _tensor(bf16_cache, "bfloat16"),
+        _tensor(bf16_update, "bfloat16"),
+        write_indices,
+    )["tensor"]
+    np.testing.assert_array_equal(bf16_actual.data, bf16_expected)
+
+    fp8_cache = np.arange(1, 41, dtype=np.uint8).reshape(2, 1, 4, 5)
+    fp8_update = np.arange(151, 171, dtype=np.uint8).reshape(2, 1, 2, 5)
+    fp8_expected = fp8_cache.copy()
+    fp8_expected[0, :, 1:3, :] = fp8_update[0]
+    fp8_expected[1, :, 2:4, :] = fp8_update[1]
+    fp8_actual = TensorScatter(["past", "update", "indices"], ["present"], dtype="float8_e4m3").forward(
+        _tensor(fp8_cache, "float8_e4m3"),
+        _tensor(fp8_update, "float8_e4m3"),
+        write_indices,
+    )["tensor"]
+    np.testing.assert_array_equal(fp8_actual.data, fp8_expected)
+
+
+# 验证 TensorScatter 导入时保留 axis 和 mode 属性。
+def test_onnx_import_tensor_scatter_preserves_attributes(tmp_path):
+    graph = helper.make_graph(
+        [helper.make_node("TensorScatter", ["past", "update", "indices"], ["present"], axis=-2, mode="circular")],
+        "tensor_scatter_import",
+        [
+            helper.make_tensor_value_info("past", TensorProto.FLOAT, [2, 1, 4, 5]),
+            helper.make_tensor_value_info("update", TensorProto.FLOAT, [2, 1, 2, 5]),
+            helper.make_tensor_value_info("indices", TensorProto.INT64, [2]),
+        ],
+        [helper.make_tensor_value_info("present", TensorProto.FLOAT, [2, 1, 4, 5])],
+    )
+    model_path = tmp_path / "tensor_scatter.onnx"
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 24)]), model_path)
+
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, TensorScatter)]
+    assert len(imported) == 1
+    assert imported[0].axis == -2
+    assert imported[0].mode == "circular"
+    assert imported[0].version == "24"
 
 
 # 验证 NonZero 按行主序返回非零坐标。

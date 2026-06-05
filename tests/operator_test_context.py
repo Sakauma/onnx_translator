@@ -136,6 +136,7 @@ from nn.Operators import (
     Scan,
     ScatterElements,
     ScatterND,
+    TensorScatter,
     Split,
     SplitToSequence,
     SpaceToDepth,

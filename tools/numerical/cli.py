@@ -23,7 +23,7 @@ from nn.Operators import (
     ADD, SUB, MUL, DIV, MatMul, MatMulInteger, QLinearMatMul,
     ReduceMean, ReduceSum, ReduceMax, ReduceMin, ReduceProd,
     ReduceL1, ReduceL2, ReduceLogSum, ReduceLogSumExp, ReduceSumSquare,
-    RELU, ABS, Pow, SQRT, Conv, ConvTranspose, ConvInteger, QLinearConv, ScatterND, Clip,
+    RELU, ABS, Pow, SQRT, Conv, ConvTranspose, ConvInteger, QLinearConv, ScatterND, TensorScatter, Clip,
     Equal, Greater, Less, GreaterOrEqual, LessOrEqual,
     Gather, GatherElements, GatherND, COS, LOG, EXP, SIGMOID, TANH,
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min, Not, And, Or, Xor, IsNaN,
@@ -318,6 +318,10 @@ def build_mixed_precision_plans():
         (ScatterND, "scatternd", [(16, 16), (32, 2), (32,)], ["bfloat16", "int64", "bfloat16"], "bfloat16"),
         (ScatterND, "scatternd", [(16, 16), (32, 2), (32,)], ["float8_e4m3", "int64", "float8_e4m3"], "float8_e4m3"),
         (ScatterND, "scatternd", [(16, 16), (32, 2), (32,)], ["float8_e5m2", "int64", "float8_e5m2"], "float8_e5m2"),
+        (TensorScatter, "tensor_scatter", [(2, 1, 4, 5), (2, 1, 2, 5), (2,)], ["float16", "float16", "int64"], "float16", {"axis": -2, "mode": "circular", "write_indices_value": [3, 2]}),
+        (TensorScatter, "tensor_scatter", [(2, 1, 4, 5), (2, 1, 2, 5), (2,)], ["bfloat16", "bfloat16", "int64"], "bfloat16", {"axis": -2, "mode": "circular", "write_indices_value": [3, 2]}),
+        (TensorScatter, "tensor_scatter", [(2, 1, 4, 5), (2, 1, 2, 5), (2,)], ["float8_e4m3", "float8_e4m3", "int64"], "float8_e4m3", {"axis": -2, "mode": "circular", "write_indices_value": [3, 2]}),
+        (TensorScatter, "tensor_scatter", [(2, 1, 4, 5), (2, 1, 2, 5), (2,)], ["float8_e5m2", "float8_e5m2", "int64"], "float8_e5m2", {"axis": -2, "mode": "circular", "write_indices_value": [3, 2]}),
         (Resize, "resize", [(1, 2, 4, 4), (0,), (0,), (4,)], ["float16", "float16", "float16", "int64"], "float16", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1, 2, 8, 8]}),
         (Resize, "resize", [(1, 2, 4, 4), (0,), (0,), (4,)], ["bfloat16", "bfloat16", "bfloat16", "int64"], "bfloat16", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1, 2, 8, 8]}),
         (Resize, "resize", [(1, 2, 4, 4), (0,), (0,), (4,)], ["float8_e4m3", "float8_e4m3", "float8_e4m3", "int64"], "float8_e4m3", {"mode": "nearest", "coord_mode": "asymmetric", "nearest_mode": "floor", "sizes_value": [1, 2, 8, 8]}),
@@ -445,6 +449,7 @@ def build_default_plans():
     (Gather, "gather",[(32, 64), (8,)],["float32", "int64"],"float32",{"axis": 0}),
 
     (ScatterND, "scatternd",[(32, 64), (16, 2), (16,)],["float32", "int64", "float32"],"float32"), 
+    (TensorScatter, "tensor_scatter", [(2, 1, 4, 5), (2, 1, 2, 5), (2,)], ["float32", "float32", "int64"], "float32", {"axis": -2, "mode": "linear", "write_indices_value": [1, 2]}),
 
     (SIGMOID, "sigmoid", [(256,256)], ["float32"], "float32"),
     (COS, "cos", [(256,256)], ["float32"], "float32"),

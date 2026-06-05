@@ -92,6 +92,128 @@ class ScatterND(Ops):
         return {"tensor": Tensor_(*data.size, dtype=self.dtype), "parameters": None}
 
 
+class TensorScatter(Ops):
+    # 初始化 `TensorScatter` 的 sequence 轴、写入模式和 dtype，服务 KV cache 更新类语义。
+    def __init__(self, inputs, outputs, axis=-2, mode="linear", dtype="float32", version="24"):
+        super().__init__(inputs, outputs)
+        if mode not in {"linear", "circular"}:
+            raise ValueError(f"TensorScatter mode must be 'linear' or 'circular', got {mode!r}")
+        self.axis = axis
+        self.mode = mode
+        self.mode_code = 1 if mode == "circular" else 0
+        self.dtype = dtype
+        self.version = version
+        if self.lib:
+            self.lib.tensor_scatter_forward.argtypes = [
+                ctypes.POINTER(nn.CTensor),
+                ctypes.POINTER(nn.CTensor),
+                ctypes.POINTER(nn.CTensor),
+                ctypes.POINTER(nn.CTensor),
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
+
+    # 规范化 sequence 轴并校验 cache/update 形状只在该轴不同。
+    def _normalize_and_validate(self, cache_shape, update_shape):
+        cache_shape = tuple(int(dim) for dim in cache_shape)
+        update_shape = tuple(int(dim) for dim in update_shape)
+        rank = len(cache_shape)
+        if rank == 0 or len(update_shape) != rank:
+            raise ValueError(f"TensorScatter expects cache/update tensors with the same rank, got {cache_shape} and {update_shape}")
+        axis = self.axis + rank if self.axis < 0 else self.axis
+        if axis < 0 or axis >= rank:
+            raise ValueError(f"TensorScatter axis {self.axis} is out of bounds for rank {rank}")
+        if axis == 0:
+            raise ValueError("TensorScatter axis cannot be the batch dimension 0")
+        for dim, (cache_dim, update_dim) in enumerate(zip(cache_shape, update_shape)):
+            if dim == axis:
+                if cache_dim < update_dim:
+                    raise ValueError(f"TensorScatter update sequence length {update_dim} exceeds cache length {cache_dim}")
+            elif cache_dim != update_dim:
+                raise ValueError(
+                    f"TensorScatter cache/update shapes differ outside axis {axis}: {cache_shape} vs {update_shape}"
+                )
+        return axis
+
+    # 读取或补齐 batch 级写入起点，并按 linear/circular 规则校验范围。
+    def _prepare_write_indices(self, write_indices, batch_size, sequence_length, max_sequence_length):
+        if write_indices is None:
+            values = np.zeros((batch_size,), dtype=np.int64)
+        else:
+            values = np.asarray(write_indices.data, dtype=np.int64).reshape(-1)
+            if values.size != batch_size:
+                raise ValueError(f"TensorScatter write_indices must have shape ({batch_size},), got {write_indices.size}")
+        if self.mode == "linear":
+            for item in values:
+                if item < 0 or item + sequence_length > max_sequence_length:
+                    raise ValueError(
+                        f"TensorScatter linear mode write index {int(item)} with sequence length {sequence_length} "
+                        f"exceeds cache length {max_sequence_length}"
+                    )
+        return values
+
+    # NumPy fallback 覆盖 string 等 C 后端不承载的 dtype，按完整 update 坐标替换 sequence 轴坐标。
+    def _numpy_tensor_scatter(self, past_cache, update, write_indices):
+        axis = self._normalize_and_validate(past_cache.size, update.size)
+        output = np.array(past_cache.data, copy=True)
+        update_data = np.asarray(update.data)
+        starts = self._prepare_write_indices(write_indices, past_cache.size[0], update.size[axis], past_cache.size[axis])
+
+        for update_coords in np.ndindex(update.size):
+            target_coords = list(update_coords)
+            target_seq = int(starts[update_coords[0]]) + update_coords[axis]
+            if self.mode == "circular":
+                target_seq %= past_cache.size[axis]
+            target_coords[axis] = target_seq
+            output[tuple(target_coords)] = update_data[update_coords]
+        return output
+
+    # 执行 `TensorScatter` 的真实张量更新路径，优先调用 C 后端以保持低精度位模式复制。
+    def forward(self, past_cache, update, write_indices=None):
+        axis = self._normalize_and_validate(past_cache.size, update.size)
+        self._prepare_write_indices(write_indices, past_cache.size[0], update.size[axis], past_cache.size[axis])
+
+        if (
+            self.lib is not None
+            and past_cache.dtype in nn.DTYPE_MAP
+            and update.dtype in nn.DTYPE_MAP
+            and self.dtype in nn.DTYPE_MAP
+            and (write_indices is None or write_indices.dtype in nn.DTYPE_MAP)
+        ):
+            cache_c = self._numpy_to_ctensor(np.ascontiguousarray(past_cache.data), past_cache.dtype)
+            update_c = self._numpy_to_ctensor(np.ascontiguousarray(update.data), update.dtype)
+            if write_indices is None:
+                indices_c = None
+            else:
+                indices_c = self._numpy_to_ctensor(np.ascontiguousarray(write_indices.data), write_indices.dtype)
+            output_shape_c = (ctypes.c_int * len(past_cache.size))(*past_cache.size)
+            output_c = self.lib.create_tensor(output_shape_c, len(past_cache.size), nn.DTYPE_MAP[self.dtype])
+
+            self.lib.tensor_scatter_forward(
+                cache_c,
+                update_c,
+                indices_c,
+                output_c,
+                ctypes.c_int(axis),
+                ctypes.c_int(self.mode_code),
+            )
+            out_data = self._ctensor_to_numpy(output_c, self.dtype)
+            self.lib.free_tensor(cache_c)
+            self.lib.free_tensor(update_c)
+            if indices_c is not None:
+                self.lib.free_tensor(indices_c)
+            self.lib.free_tensor(output_c)
+        else:
+            out_data = self._numpy_tensor_scatter(past_cache, update, write_indices)
+            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+        return {"tensor": Tensor(*past_cache.size, dtype=self.dtype, data=out_data), "parameters": None, "graph": None}
+
+    # 执行 `TensorScatter` 的形状推断路径，输出 shape 与 past_cache 完全一致。
+    def forward_(self, past_cache, update, write_indices=None):
+        self._normalize_and_validate(past_cache.size, update.size)
+        return {"tensor": Tensor_(*past_cache.size, dtype=self.dtype), "parameters": None, "graph": None}
+
+
 class GatherND(Ops):
     # 初始化 `GatherND` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, batch_dims=0, dtype="float32", version="17"):

@@ -560,6 +560,61 @@ void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updat
 }
 
 
+// TensorScatter
+// 复制 past_cache 后按 batch 级 write_indices 将 update 写入指定 sequence 轴，支持 linear/circular 模式。
+void tensor_scatter_forward(const Tensor* past_cache, const Tensor* update, const Tensor* write_indices, Tensor* output, int axis, int mode) {
+    if (!past_cache || !update || !output || !past_cache->data || !update->data || !output->data) return;
+    if (past_cache->ndim != update->ndim || past_cache->ndim != output->ndim) return;
+    if (past_cache->ndim <= 0 || past_cache->ndim > MAX_NDIM) return;
+
+    int rank = past_cache->ndim;
+    if (axis < 0) axis += rank;
+    if (axis <= 0 || axis >= rank) return;
+
+    for (int d = 0; d < rank; d++) {
+        if (output->shape[d] != past_cache->shape[d]) return;
+        if (d == axis) {
+            if (update->shape[d] > past_cache->shape[d]) return;
+        } else if (update->shape[d] != past_cache->shape[d]) {
+            return;
+        }
+    }
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < output->size; i++) {
+        copy_tensor_element(output, i, past_cache, i);
+    }
+
+    int max_sequence_length = past_cache->shape[axis];
+    int sequence_length = update->shape[axis];
+    if (max_sequence_length <= 0 || sequence_length < 0) return;
+
+    _Pragma("omp parallel for")
+    for (size_t i = 0; i < update->size; i++) {
+        int update_coords[MAX_NDIM] = {0};
+        int target_coords[MAX_NDIM] = {0};
+        get_coords_from_index(i, update_coords, update->shape, rank);
+        for (int d = 0; d < rank; d++) {
+            target_coords[d] = update_coords[d];
+        }
+
+        int batch_index = update_coords[0];
+        int64_t write_start = write_indices ? get_value_as_int64(write_indices, (size_t)batch_index) : 0;
+        int64_t target_sequence = write_start + update_coords[axis];
+        if (mode == 1) {
+            target_sequence %= max_sequence_length;
+            if (target_sequence < 0) target_sequence += max_sequence_length;
+        } else if (target_sequence < 0 || target_sequence >= max_sequence_length) {
+            continue;
+        }
+        target_coords[axis] = (int)target_sequence;
+
+        size_t target_idx = get_index_from_coords(target_coords, output->shape, rank);
+        copy_tensor_element(output, target_idx, update, i);
+    }
+}
+
+
 // GatherND
 // 遍历 output，根据 indices 构造 data 坐标读取数据
 // 实现 `gather nd` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。

@@ -573,6 +573,10 @@ void argmin_forward(const Tensor* input, Tensor* output, int axis, int select_la
 // reduction: 0=none(assignment), 1=add, 2=mul
 void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updates, int reduction);
 
+// TensorScatter
+// 根据 batch 级写入起点更新 KV cache 类张量，mode: 0=linear, 1=circular。
+void tensor_scatter_forward(const Tensor* past_cache, const Tensor* update, const Tensor* write_indices, Tensor* output, int axis, int mode);
+
 // GatherND
 void gather_nd_forward(const Tensor* data, const Tensor* indices, Tensor* output, int batch_dims);
 
