@@ -1417,15 +1417,30 @@ void reverse_sequence_forward(const Tensor* input, const Tensor* sequence_lens, 
 void compress_forward(const Tensor* input, const Tensor* condition, Tensor* output, int axis) {
     if (!input || !condition || !output) return;
     int ndim = input->ndim;
-    if (axis < 0) axis += ndim;
+    int flatten_mode = axis < -ndim;
+    if (!flatten_mode && axis < 0) axis += ndim;
+    if (!flatten_mode && (axis < 0 || axis >= ndim)) return;
     
     int cond_len = condition->size;
     int* idx_map = (int*)malloc(cond_len * sizeof(int));
+    if (!idx_map) return;
     int count = 0;
     for (int i = 0; i < cond_len; i++) {
         if (get_value_as_double(condition, i) != 0.0) {
             idx_map[count++] = i;
         }
+    }
+
+    if (flatten_mode) {
+        #pragma omp parallel for
+        for (size_t i = 0; i < output->size; i++) {
+            int src_idx = idx_map[i];
+            if (src_idx >= 0 && (size_t)src_idx < input->size) {
+                copy_tensor_element(output, i, input, (size_t)src_idx);
+            }
+        }
+        free(idx_map);
+        return;
     }
     
     #pragma omp parallel for
@@ -1439,8 +1454,7 @@ void compress_forward(const Tensor* input, const Tensor* condition, Tensor* outp
             coords[axis] = idx_map[out_axis_idx]; // 替换为原坐标
             
             size_t src_idx = get_index_from_coords(coords, input->shape, ndim);
-            double val = get_value_as_double(input, src_idx);
-            set_tensor_value_from_float(output, i, val);
+            copy_tensor_element(output, i, input, src_idx);
         }
     }
     

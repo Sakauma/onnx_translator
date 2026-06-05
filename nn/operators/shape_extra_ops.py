@@ -566,9 +566,27 @@ class Compress(Ops):
     def forward(self, input, condition):
         cond = np.asarray(condition.data).astype(bool).reshape(-1)
         if self.axis is None:
-            out_data = np.compress(cond, np.asarray(input.data).reshape(-1), axis=0)
-            out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
-            return {"tensor": Tensor(*out_data.shape, dtype=self.dtype, data=out_data), "parameters": None}
+            out_shape = (int(np.count_nonzero(cond)),)
+            if (
+                self.lib is not None
+                and cond.size <= int(np.prod(input.size))
+                and input.dtype in nn.DTYPE_MAP
+                and condition.dtype in nn.DTYPE_MAP
+                and self.dtype in nn.DTYPE_MAP
+            ):
+                input_c = self._numpy_to_ctensor(np.ascontiguousarray(input.data), input.dtype)
+                cond_c = self._numpy_to_ctensor(np.ascontiguousarray(cond.astype(nn.DTYPE_TO_NUMPY[condition.dtype])), condition.dtype)
+                output_shape_c = (ctypes.c_int * 1)(*out_shape)
+                output_c = self.lib.create_tensor(output_shape_c, 1, nn.DTYPE_MAP[self.dtype])
+                self.lib.compress_forward(input_c, cond_c, output_c, ctypes.c_int(-len(input.size) - 1))
+                out_data = self._ctensor_to_numpy(output_c, self.dtype)
+                self.lib.free_tensor(input_c)
+                self.lib.free_tensor(cond_c)
+                self.lib.free_tensor(output_c)
+            else:
+                out_data = np.compress(cond, np.asarray(input.data).reshape(-1), axis=0)
+                out_data = np.asarray(out_data, dtype=nn.DTYPE_TO_NUMPY.get(self.dtype, out_data.dtype))
+            return {"tensor": Tensor(*out_shape, dtype=self.dtype, data=out_data), "parameters": None}
 
         real_axis = self.axis if self.axis >= 0 else self.axis + len(input.size)
         if real_axis < 0 or real_axis >= len(input.size):

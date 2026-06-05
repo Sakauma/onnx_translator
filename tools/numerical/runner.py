@@ -23,6 +23,47 @@ from .data import generate_random_data, random_uniform_like_reference
 from .dtype import from_float32, quantize_to_dtype_float32, to_float32
 
 
+def _slice_io_values(init_args, input_shape):
+    rank = len(input_shape)
+    starts = np.asarray(init_args.get("starts_value", [0] * rank), dtype=np.int64).reshape(-1)
+    ends = np.asarray(init_args.get("ends_value", list(input_shape)), dtype=np.int64).reshape(-1)
+    axes = np.asarray(init_args.get("axes_value", list(range(len(starts)))), dtype=np.int64).reshape(-1)
+    steps = np.asarray(init_args.get("steps_value", [1] * len(starts)), dtype=np.int64).reshape(-1)
+    return starts, ends, axes, steps
+
+
+def _normalize_slice_parameters(input_shape, starts, ends, axes, steps):
+    rank = len(input_shape)
+    full_starts = [0] * rank
+    full_ends = list(map(int, input_shape))
+    full_steps = [1] * rank
+
+    for idx, axis in enumerate(axes.tolist()):
+        if axis < 0:
+            axis += rank
+        step = int(steps[idx])
+        if step == 0:
+            raise ValueError("Slice step must not be zero")
+        start = int(starts[idx])
+        end = int(ends[idx])
+        dim_len = int(input_shape[axis])
+        if start < 0:
+            start += dim_len
+        if end < 0:
+            end += dim_len
+        if step > 0:
+            start = max(0, min(start, dim_len))
+            end = max(0, min(end, dim_len))
+        else:
+            start = max(0, min(start, dim_len - 1))
+            end = max(-1, min(end, dim_len - 1))
+        full_starts[axis] = start
+        full_ends[axis] = end
+        full_steps[axis] = step
+
+    return full_starts, full_ends, full_steps
+
+
 def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterations=5):
     init_args = init_args or {}
     print(f"🧪 Testing {op_name.upper()}: {dtypes} -> {out_dtype}")
@@ -409,6 +450,45 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if op_name == "center_crop_pad":
             inputs_np[1] = np.array(init_args.get("target_shape", list(shapes[0])), dtype=np.int64)
 
+        if op_name == "slice":
+            # Slice 使用固定有限样本与显式 starts/ends/axes/steps，覆盖 C 后端坐标映射和低精度搬运路径。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(-3.0, 3.0, total, dtype=np.float32).reshape(shapes[0])
+            starts, ends, axes, steps = _slice_io_values(init_args, shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+            inputs_np[1] = starts
+            inputs_np[2] = ends
+            inputs_np[3] = axes
+            inputs_np[4] = steps
+
+        if op_name == "compress":
+            # Compress 使用显式 bool 条件，避免随机条件导致输出长度和低精度样本不稳定。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(-2.5, 2.5, total, dtype=np.float32).reshape(shapes[0])
+            condition = np.asarray(
+                init_args.get("condition_value", [True] * int(np.prod(shapes[1]))),
+                dtype=np.bool_,
+            ).reshape(shapes[1])
+            inputs_np[0] = from_float32(values, dtypes[0])
+            inputs_np[1] = condition
+
+        if op_name == "scatter_elements":
+            # ScatterElements 构造每条 axis 切片内唯一的目标索引，避免 reduction=none 的重复写入未定义行为。
+            data_total = int(np.prod(shapes[0]))
+            update_total = int(np.prod(shapes[2]))
+            axis = int(init_args.get("axis", 0))
+            if axis < 0:
+                axis += len(shapes[0])
+            dim = int(shapes[0][axis])
+            grid = np.indices(shapes[1], dtype=np.int64)
+            permutation = (np.arange(dim, dtype=np.int64) + 1) % dim
+            indices = permutation[grid[axis]]
+            data_values = np.linspace(-2.0, 2.0, data_total, dtype=np.float32).reshape(shapes[0])
+            update_values = np.linspace(3.0, -3.0, update_total, dtype=np.float32).reshape(shapes[2])
+            inputs_np[0] = from_float32(data_values, dtypes[0])
+            inputs_np[1] = indices
+            inputs_np[2] = from_float32(update_values, dtypes[2])
+
         if op_name == "constant_of_shape":
             inputs_np[0] = np.array(init_args.get("shape_value", list(shapes[0])), dtype=np.int64)
 
@@ -544,6 +624,11 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("repeats_value", None)
             op_init_args.pop("pads_value", None)
             op_init_args.pop("constant_value", None)
+            op_init_args.pop("starts_value", None)
+            op_init_args.pop("ends_value", None)
+            op_init_args.pop("axes_value", None)
+            op_init_args.pop("steps_value", None)
+            op_init_args.pop("condition_value", None)
             op_init_args.pop("write_indices_value", None)
             op_init_args.pop("position_ids_value", None)
             op_init_args.pop("image_shape_value", None)
@@ -1089,6 +1174,42 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 dtype=np.int32,
             ).tobytes()
 
+        elif op_name == "slice":
+            input_shape = list(map(int, shapes[0]))
+            output_shape = list(map(int, np.asarray(nps_out).shape))
+            starts, ends, axes, steps = _slice_io_values(init_args, input_shape)
+            full_starts, _full_ends, full_steps = _normalize_slice_parameters(input_shape, starts, ends, axes, steps)
+            params_bin = np.array(
+                [len(input_shape), *input_shape, *output_shape, *full_starts, *full_steps],
+                dtype=np.int32,
+            ).tobytes()
+
+        elif op_name == "compress":
+            input_shape = list(map(int, shapes[0]))
+            output_shape = list(map(int, np.asarray(nps_out).shape))
+            axis_value = init_args.get("axis", None)
+            axis = -1
+            if axis_value is not None:
+                axis = int(axis_value)
+                if axis < 0:
+                    axis += len(input_shape)
+            params_bin = np.array(
+                [len(input_shape), len(output_shape), axis, int(np.prod(shapes[1])), *input_shape, *output_shape],
+                dtype=np.int32,
+            ).tobytes()
+
+        elif op_name == "scatter_elements":
+            data_shape = list(map(int, shapes[0]))
+            update_shape = list(map(int, shapes[2]))
+            axis = int(init_args.get("axis", 0))
+            if axis < 0:
+                axis += len(data_shape)
+            reduction = {"none": 0, "add": 1, "mul": 2}.get(init_args.get("reduction", "none"), 0)
+            params_bin = np.array(
+                [len(data_shape), axis, reduction, *data_shape, *update_shape],
+                dtype=np.int32,
+            ).tobytes()
+
         elif op_name == "constant_of_shape":
             target_shape = list(map(int, init_args.get("shape_value", list(shapes[0]))))
             fill_value = float(init_args.get("fill_value", 0.0))
@@ -1325,7 +1446,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(nn.DTYPE_TO_NUMPY[d], copy=False)))
                     continue
 
-                if  op_name in ["gather", "scatternd", "tensor_scatter", "gather_elements", "gathernd","resize", "affine_grid", "topk", "max_unpool", "roi_align", "col2im", "dft", "stft", "rnn", "gru", "lstm", "tile", "expand", "pad", "center_crop_pad", "constant_of_shape", "rotary_embedding"] and d == "int64":
+                if  op_name in ["gather", "scatternd", "tensor_scatter", "scatter_elements", "gather_elements", "gathernd","resize", "affine_grid", "topk", "max_unpool", "roi_align", "col2im", "dft", "stft", "rnn", "gru", "lstm", "tile", "expand", "pad", "center_crop_pad", "slice", "constant_of_shape", "rotary_embedding"] and d == "int64":
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int64)))
                     continue
 
@@ -1333,7 +1454,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
-                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "tensor_scatter", "nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
+                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "tensor_scatter", "scatter_elements", "nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
                     try:
                         if val_f32.shape != expected_shape:
                             val_f32 = np.broadcast_to(val_f32, expected_shape)
@@ -1465,7 +1586,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter","nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter", "scatter_elements","nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:
