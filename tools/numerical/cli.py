@@ -19,7 +19,7 @@ import numpy as np
 import nn
 from nn.Operators import (
     Gemm, MaxPool, AveragePool, LpPool, GlobalAveragePool, GlobalMaxPool, GlobalLpPool,
-    MaxRoiPool, RoiAlign, GridSample,
+    MaxRoiPool, RoiAlign, GridSample, LRN,
     ADD, SUB, MUL, DIV, MatMul, MatMulInteger, QLinearMatMul,
     ReduceMean, ReduceSum, ReduceMax, ReduceMin, ReduceProd,
     ReduceL1, ReduceL2, ReduceLogSum, ReduceLogSumExp, ReduceSumSquare,
@@ -257,6 +257,8 @@ def build_mixed_precision_plans():
         (AveragePool, "average_pool", [(1, 2, 7, 7)], ["bfloat16"], "bfloat16", {"kernel_shape": [3, 3], "pads": [1, 1, 1, 1], "strides": [2, 2], "dilations": [1, 1], "count_include_pad": 1}),
         (GlobalAveragePool, "global_average_pool", [(1, 3, 5, 4)], ["float16"], "float16"),
         (GlobalAveragePool, "global_average_pool", [(1, 3, 5, 4)], ["bfloat16"], "bfloat16"),
+        (LRN, "lrn", [(1, 4, 2, 3)], ["float16"], "float16", {"size": 3, "alpha": 0.3, "beta": 0.5, "bias": 1.0}),
+        (LRN, "lrn", [(1, 4, 2, 3)], ["bfloat16"], "bfloat16", {"size": 3, "alpha": 0.3, "beta": 0.5, "bias": 1.0}),
         (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["float16", "float16"], "float16", {"mode": "linear", "padding_mode": "reflection", "align_corners": 0}),
         (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["bfloat16", "bfloat16"], "bfloat16", {"mode": "linear", "padding_mode": "reflection", "align_corners": 0}),
         (MaxRoiPool, "max_roi_pool", [(2, 2, 5, 5), (2, 5)], ["float16", "float16"], "float16", {"pooled_shape": [2, 3], "spatial_scale": 1.0}),
@@ -437,6 +439,7 @@ def build_default_plans():
     (GlobalAveragePool, "global_average_pool",[(1, 3, 5, 4)], ["float32"], "float32"),
     (GlobalMaxPool, "global_max_pool",[(1, 3, 5, 4)], ["float32"], "float32"),
     (GlobalLpPool, "global_lp_pool",[(1, 3, 5, 4)], ["float32"], "float32", {"p": 2}),
+    (LRN, "lrn", [(1, 4, 2, 3)], ["float32"], "float32", {"size": 3, "alpha": 0.3, "beta": 0.5, "bias": 1.0}),
     (MaxUnpool, "max_unpool",[(1, 1, 2, 2), (1, 1, 2, 2)], ["float32", "int64"], "float32",{"kernel_shape":[2,2], "pads":[0,0,0,0], "strides":[2,2]}),
     (MaxRoiPool, "max_roi_pool",[(2, 2, 5, 5), (2, 5)], ["float32", "float32"], "float32", {"pooled_shape":[2, 3], "spatial_scale":1.0}),
     (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["float32", "float32"], "float32", {"mode": "linear", "padding_mode": "reflection", "align_corners": 0}),

@@ -183,6 +183,11 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[0] = from_float32(x_values, dtypes[0])
             inputs_np[1] = from_float32(grid_values, dtypes[1])
 
+        if op_name == "lrn":
+            # LRN 使用固定有限样本，覆盖跨通道平方和窗口和低精度写回主路径。
+            values = np.linspace(-1.2, 1.3, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+
         if op_name in {"expand", "flatten", "reshape", "transpose", "pad", "center_crop_pad"}:
             # 形状变换类算子使用有限且可量化的固定样本，避免随机 float8 NaN 干扰位模式验证。
             total = int(np.prod(shapes[0]))
@@ -681,6 +686,22 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 params_bin = np.array([x.shape[0], x.shape[1], spatial_size, init_args.get('p', 2)], dtype=np.int32).tobytes()
             else:
                 params_bin = np.array([x.shape[0], x.shape[1], spatial_size], dtype=np.int32).tobytes()
+        elif op_name == "lrn":
+            x = inputs_np[0]
+            spatial_size = int(np.prod(x.shape[2:]))
+            int_params = np.array(
+                [x.shape[0], x.shape[1], spatial_size, int(init_args.get("size", 1))],
+                dtype=np.int32,
+            )
+            float_params = np.array(
+                [
+                    float(init_args.get("alpha", 0.0001)),
+                    float(init_args.get("beta", 0.75)),
+                    float(init_args.get("bias", 1.0)),
+                ],
+                dtype=np.float32,
+            )
+            params_bin = int_params.tobytes() + float_params.tobytes()
         elif op_name == "max_unpool":
             x = inputs_np[0]
             k, pads, s = init_args['kernel_shape'], init_args['pads'], init_args['strides']
@@ -1110,7 +1131,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if expected_shape == ():
             expected_shape = (1,) # 统一当成 1 元素张量来跑 CUDA/读写 bin
             nps_out = np.array([nps_out], dtype=nps_out.dtype)
-        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im", "deform_conv", "attention", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "max_unpool", "grid_sample", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
+        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im", "deform_conv", "attention", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "lrn", "max_unpool", "grid_sample", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
         is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
         
         cuda_inputs = []

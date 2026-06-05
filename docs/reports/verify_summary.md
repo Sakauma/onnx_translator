@@ -40,6 +40,7 @@
   * @details     2026.06.05  V1.0.33  补充当前工作结束前完整 numerical 收尾记录
   * @details     2026.06.05  V1.0.34  补充 RotaryEmbedding opset 23 语义和混合精度验证记录
   * @details     2026.06.05  V1.0.35  补充 GridSample CUDA 数值门禁和完整 numerical 复跑记录
+  * @details     2026.06.05  V1.0.36  补充 LRN CUDA 数值门禁和当前工作收尾记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -295,6 +296,8 @@
 按当前收尾要求再次执行完整默认 numerical 一轮。首次复跑时暴露 `QuantizeLinear` 的 CUDA verifier 在 float32 输入下使用 double 中间除法，和 C 后端/ONNX reference 的 float32 中间舍入规则在半点附近可能差 1；本轮已修正 CUDA verifier，并由 runner 显式传递量化计算精度模式。修复后执行 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op quantize_linear --iterations 3 --skip-plots`，float32、float16、bfloat16 三组均通过；随后执行完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`，默认 active numerical plan 的 130 个唯一算子、478 条默认计划和 342 条混合精度计划全部通过，无失败算子。
 
 继续补强已有 C 后端但未进入 CUDA numerical 的高风险数值算子，补充 `GridSample` CUDA 参考验证程序，并将 float32、float16、bfloat16 三条计划接入默认 numerical 门禁。CUDA reference 覆盖 4D NCHW 输入、`mode="linear"`、`padding_mode="reflection"`、`align_corners=0`、归一化坐标映射和低精度写回；pytest 仍覆盖 nearest/border、linear/reflection 等官方属性组合。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op grid_sample --iterations 3 --skip-plots`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_complex_attribute_semantics.py -k grid_sample` 均已通过。随后执行完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`，默认 active numerical plan 提升到 131 个唯一算子、481 条默认计划和 344 条混合精度计划，全部通过，无失败算子；当前安装 ONNX 最新默认 domain schema 名称级覆盖保持 200/200。
+
+继续补强 `LRN` 的 C/CUDA 数值门禁：新增 `cuda/verify_lrn.cu`，按 ONNX schema 公式对 NCHW 及展开 spatial 维度执行跨通道平方和窗口归一化；numerical runner 新增固定有限样本和 `[N, C, spatial, size] + [alpha, beta, bias]` 参数包，默认计划新增 float32、float16、bfloat16 三条验证路径。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op lrn --iterations 3 --skip-plots`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_normalization_semantics.py -k lrn` 均已通过。按当前请求最后执行完整默认 numerical 一轮：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`，默认 active numerical plan 提升到 132 个唯一算子、484 条默认计划和 346 条混合精度计划，全部通过，无失败算子；随后执行 `tools/audit_ops.py --output docs/reports/operator_coverage.md` 刷新覆盖报告，当前安装 ONNX 最新默认 domain schema 名称级覆盖保持 200/200。
 
 ### 剩余风险
 
