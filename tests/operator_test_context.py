@@ -48,6 +48,7 @@ from nn.Operators import (
     Greater,
     GreaterOrEqual,
     AveragePool,
+    Attention,
     ArgMax,
     ArgMin,
     BatchNormalization,

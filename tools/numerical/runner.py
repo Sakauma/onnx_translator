@@ -229,6 +229,15 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[3] = from_float32(bias_values, dtypes[3])
             inputs_np[4] = from_float32(mask_values, dtypes[4])
 
+        if op_name == "attention":
+            # Attention 使用有限 4D GQA 样本，覆盖 Q/K/V matmul、causal、softcap 和低精度写回。
+            q_values = np.linspace(-1.0, 1.0, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
+            k_values = np.linspace(0.8, -0.9, int(np.prod(shapes[1])), dtype=np.float32).reshape(shapes[1])
+            v_values = np.linspace(-0.6, 0.7, int(np.prod(shapes[2])), dtype=np.float32).reshape(shapes[2])
+            inputs_np[0] = from_float32(q_values, dtypes[0])
+            inputs_np[1] = from_float32(k_values, dtypes[1])
+            inputs_np[2] = from_float32(v_values, dtypes[2])
+
         if op_name in {"softmax", "hardmax", "log_softmax"}:
             # Softmax 族算子使用有限样本，覆盖 axis 分段并避免低精度随机 NaN 干扰验证。
             total = int(np.prod(shapes[0]))
@@ -570,6 +579,39 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 has_mask,
             ]
             params_bin = np.array(p_list, dtype=np.int32).tobytes()
+        elif op_name == "attention":
+            q, k, v = inputs_np[0], inputs_np[1], inputs_np[2]
+            mask = inputs_np[3] if len(inputs_np) > 3 else None
+            mask_shape = [1, 1, 1, 1]
+            mask_rank = 0
+            if mask is not None:
+                mask_rank = mask.ndim
+                mask_shape[:mask_rank] = list(mask.shape)
+            int_params = np.array(
+                [
+                    q.shape[0],
+                    q.shape[1],
+                    k.shape[1],
+                    q.shape[2],
+                    k.shape[2],
+                    q.shape[3],
+                    v.shape[3],
+                    1 if mask is not None else 0,
+                    1 if len(dtypes) > 3 and dtypes[3] == "bool" else 0,
+                    mask_rank,
+                    *mask_shape,
+                    int(init_args.get("is_causal", 0)),
+                ],
+                dtype=np.int32,
+            )
+            float_params = np.array(
+                [
+                    float(init_args["scale"]) if init_args.get("scale") is not None else -1.0,
+                    float(init_args.get("softcap", 0.0) or 0.0),
+                ],
+                dtype=np.float32,
+            )
+            params_bin = int_params.tobytes() + float_params.tobytes()
         elif op_name == "matmul_integer":
             a, b, a_zp, b_zp = inputs_np[0], inputs_np[1], inputs_np[2], inputs_np[3]
             M, K = a.shape
@@ -746,7 +788,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             params_bin = np.array([outer, inner, rem], dtype=np.int32).tobytes()
         elif op_name == "quantize_linear":
             is_signed = 1 if "int8" in out_dtype and "uint8" not in out_dtype else 0
-            params_bin = np.array([is_signed], dtype=np.int32).tobytes()
+            use_float_math = 0 if "float64" in {dtypes[0], dtypes[1]} else 1
+            params_bin = np.array([is_signed, use_float_math], dtype=np.int32).tobytes()
         elif op_name == "matmul":
             M, K = shapes[0]
             K2, N = shapes[1]
@@ -1034,7 +1077,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if expected_shape == ():
             expected_shape = (1,) # 统一当成 1 元素张量来跑 CUDA/读写 bin
             nps_out = np.array([nps_out], dtype=nps_out.dtype)
-        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im", "deform_conv", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "max_unpool", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
+        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im", "deform_conv", "attention", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "max_unpool", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
         is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
         
         cuda_inputs = []
@@ -1054,7 +1097,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
-                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "tensor_scatter", "nonzero", "argmin", "argmax", "resize", "affine_grid", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "center_crop_pad", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv"]):
+                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "tensor_scatter", "nonzero", "argmin", "argmax", "resize", "affine_grid", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "center_crop_pad", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
                     try:
                         if val_f32.shape != expected_shape:
                             val_f32 = np.broadcast_to(val_f32, expected_shape)
@@ -1186,7 +1229,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter","nonzero", "argmin", "argmax", "resize", "affine_grid", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "center_crop_pad", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter","nonzero", "argmin", "argmax", "resize", "affine_grid", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "transpose", "tile", "concat", "pad", "center_crop_pad", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:

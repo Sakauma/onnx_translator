@@ -198,6 +198,13 @@ void qlinear_conv_forward(const Tensor* X, const Tensor* XScale, const Tensor* X
                           const Tensor* W, const Tensor* WScale, const Tensor* WZeroPoint,
                           const Tensor* YScale, const Tensor* YZeroPoint,
                           const Tensor* Bias, Tensor* Y, ConvParams* params);
+
+// Attention
+// 执行 4D scaled dot-product attention 主路径，支持 MHA/GQA、mask、causal 和 softcap。
+void attention_forward(const Tensor* Q, const Tensor* K, const Tensor* V,
+                       const Tensor* attn_mask, Tensor* Y,
+                       int q_num_heads, int kv_num_heads,
+                       float scale, int is_causal, float softcap);
       
 /**
  * MaxPool 前向传播

@@ -196,3 +196,40 @@ def _factory_150_rotaryembedding(node, import_context):
         )
     )
     return onnx_graph_list[-1]
+
+
+@register_factory("Attention")
+def _factory_151_attention(node, import_context):
+    get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
+    onnx_graph_list = []
+    attrs = {
+        "q_num_heads": None,
+        "kv_num_heads": None,
+        "scale": None,
+        "is_causal": 0,
+        "softmax_precision": None,
+        "softcap": None,
+        "qk_matmul_output_mode": 0,
+    }
+    for attr in node.attribute:
+        if attr.name in {"q_num_heads", "kv_num_heads", "is_causal", "softmax_precision", "qk_matmul_output_mode"}:
+            attrs[attr.name] = attr.i
+        elif attr.name in {"scale", "softcap"}:
+            attrs[attr.name] = attr.f
+    elem_type = get_dtype(node.output[0])
+    onnx_graph_list.append(
+        nn.Operators.Attention(
+            node.input,
+            node.output,
+            q_num_heads=attrs["q_num_heads"],
+            kv_num_heads=attrs["kv_num_heads"],
+            scale=attrs["scale"],
+            is_causal=attrs["is_causal"],
+            softmax_precision=attrs["softmax_precision"],
+            softcap=attrs["softcap"],
+            qk_matmul_output_mode=attrs["qk_matmul_output_mode"],
+            dtype=onnx_dtype_mapping[elem_type],
+            version="24",
+        )
+    )
+    return onnx_graph_list[-1]

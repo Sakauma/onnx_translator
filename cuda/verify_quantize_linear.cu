@@ -30,12 +30,20 @@ __device__ double saturate_cast_uint8(double val) {
 }
 
 // 实现 `quantize_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
-__global__ void quantize_kernel(const double* x, const double* scale, const double* zp, double* out, size_t n, int is_signed) {
+__global__ void quantize_kernel(const double* x, const double* scale, const double* zp, double* out, size_t n, int is_signed, int use_float_math) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         double s = scale[idx];
         double z = zp[idx];
-        double res = rint(x[idx] / s) + z;
+        double res = z;
+        if (use_float_math) {
+            float sf = (float)s;
+            if (sf != 0.0f) {
+                res = (double)rintf((float)x[idx] / sf) + z;
+            }
+        } else if (s != 0.0) {
+            res = rint(x[idx] / s) + z;
+        }
         
         if (is_signed) {
             out[idx] = saturate_cast_int8(res);
@@ -52,9 +60,11 @@ int main(int argc, char** argv) {
     size_t bytes = n * sizeof(double);
     
     int is_signed = 1;
+    int use_float_math = 1;
     FILE *fp = fopen(argv[5], "rb");
     if (fp) {
         fread(&is_signed, sizeof(int), 1, fp);
+        fread(&use_float_math, sizeof(int), 1, fp);
         fclose(fp);
     }
 
@@ -74,7 +84,7 @@ int main(int argc, char** argv) {
     cudaMemcpy(d_s, h_s, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_z, h_z, bytes, cudaMemcpyHostToDevice);
 
-    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, is_signed);
+    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, is_signed, use_float_math);
     
     cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
     FILE *fout = fopen(argv[6], "wb"); fwrite(h_out, 1, bytes, fout); fclose(fout);
