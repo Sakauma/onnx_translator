@@ -503,6 +503,62 @@ void batch_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
 }
 
 
+// BatchNormalization (Training Mode)
+// 训练模式按通道从当前 batch 计算 saved mean/variance，并输出更新后的 running mean/variance。
+// 实现 `batch norm training` 算子的 C 后端入口，保证训练态多输出不退回 Python 数值路径。
+void batch_norm_training_forward(const Tensor* input, const Tensor* scale, const Tensor* B,
+                                 const Tensor* mean, const Tensor* var,
+                                 Tensor* output, Tensor* running_mean, Tensor* running_var,
+                                 float epsilon, float momentum) {
+    if (!input || !scale || !B || !mean || !var || !output || !running_mean || !running_var) return;
+    if (input->ndim < 2) return;
+
+    int N = input->shape[0];
+    int C = input->shape[1];
+    size_t spatial_size = 1;
+    for (int i = 2; i < input->ndim; i++) spatial_size *= (size_t)input->shape[i];
+    size_t sample_count = (size_t)N * spatial_size;
+    if (N <= 0 || C <= 0 || sample_count == 0) return;
+
+    #pragma omp parallel for
+    for (int c = 0; c < C; c++) {
+        double sum = 0.0;
+        double sumsq = 0.0;
+        for (int n = 0; n < N; n++) {
+            size_t base = (size_t)n * (size_t)C * spatial_size + (size_t)c * spatial_size;
+            for (size_t s = 0; s < spatial_size; s++) {
+                double x = get_value_as_double(input, base + s);
+                sum += x;
+                sumsq += x * x;
+            }
+        }
+
+        double saved_mean = sum / (double)sample_count;
+        double saved_var = sumsq / (double)sample_count - saved_mean * saved_mean;
+        if (saved_var < 0.0 && saved_var > -1e-12) saved_var = 0.0;
+
+        double old_mean = get_value_as_double(mean, c);
+        double old_var = get_value_as_double(var, c);
+        double updated_mean = old_mean * (double)momentum + saved_mean * (1.0 - (double)momentum);
+        double updated_var = old_var * (double)momentum + saved_var * (1.0 - (double)momentum);
+        set_tensor_value_from_float(running_mean, c, updated_mean);
+        set_tensor_value_from_float(running_var, c, updated_var);
+
+        double s_val = get_value_as_double(scale, c);
+        double b_val = get_value_as_double(B, c);
+        double inv_std = 1.0 / sqrt(saved_var + (double)epsilon);
+        for (int n = 0; n < N; n++) {
+            size_t base = (size_t)n * (size_t)C * spatial_size + (size_t)c * spatial_size;
+            for (size_t idx = 0; idx < spatial_size; idx++) {
+                double x = get_value_as_double(input, base + idx);
+                double y = s_val * (x - saved_mean) * inv_std + b_val;
+                set_tensor_value_from_float(output, base + idx, y);
+            }
+        }
+    }
+}
+
+
 // InstanceNormalization
 // 对每个 (n, c) 切片计算均值和方差，然后归一化
 // 实现 `instance norm` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。

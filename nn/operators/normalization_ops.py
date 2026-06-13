@@ -330,6 +330,16 @@ class BatchNormalization(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
                 ctypes.c_float
             ]
+            try:
+                self.lib.batch_norm_training_forward.argtypes = [
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                    ctypes.c_float, ctypes.c_float
+                ]
+                self._has_batch_norm_training_c_backend = True
+            except AttributeError:
+                self._has_batch_norm_training_c_backend = False
 
     # 封装 `_reshape_param` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
@@ -349,23 +359,55 @@ class BatchNormalization(Ops):
         bias_data = self._reshape_param(B, rank)
 
         if self.training_mode:
-            axes = tuple(axis for axis in range(rank) if axis != 1)
-            saved_mean = np.mean(x_data, axis=axes)
-            saved_var = np.var(x_data, axis=axes)
-            running_mean = _tensor_data_as_numeric(mean) * self.momentum + saved_mean * (1.0 - self.momentum)
-            running_var = _tensor_data_as_numeric(var) * self.momentum + saved_var * (1.0 - self.momentum)
-            y_data = self._normalize(
-                x_data,
-                scale_data,
-                bias_data,
-                saved_mean.reshape((-1,) + (1,) * (rank - 2)),
-                saved_var.reshape((-1,) + (1,) * (rank - 2)),
-            )
-            outputs = (
-                Tensor(*x.size, dtype=self.dtype, data=y_data),
-                Tensor(*saved_mean.shape, dtype=self.dtype, data=_cast_numeric_to_dtype(running_mean, self.dtype)),
-                Tensor(*saved_var.shape, dtype=self.dtype, data=_cast_numeric_to_dtype(running_var, self.dtype)),
-            )
+            if (
+                self.lib is not None
+                and getattr(self, "_has_batch_norm_training_c_backend", False)
+                and self.dtype in nn.DTYPE_MAP
+                and all(t.dtype in nn.DTYPE_MAP for t in (x, scale, B, mean, var))
+            ):
+                x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
+                s_c = self._numpy_to_ctensor(np.ascontiguousarray(scale.data), scale.dtype)
+                b_c = self._numpy_to_ctensor(np.ascontiguousarray(B.data), B.dtype)
+                m_c = self._numpy_to_ctensor(np.ascontiguousarray(mean.data), mean.dtype)
+                v_c = self._numpy_to_ctensor(np.ascontiguousarray(var.data), var.dtype)
+                output_shape_c = (ctypes.c_int * len(x.size))(*x.size)
+                channel_shape_c = (ctypes.c_int * 1)(x.size[1])
+                out_c = self.lib.create_tensor(output_shape_c, len(x.size), nn.DTYPE_MAP[self.dtype])
+                running_mean_c = self.lib.create_tensor(channel_shape_c, 1, nn.DTYPE_MAP[self.dtype])
+                running_var_c = self.lib.create_tensor(channel_shape_c, 1, nn.DTYPE_MAP[self.dtype])
+                self.lib.batch_norm_training_forward(
+                    x_c, s_c, b_c, m_c, v_c,
+                    out_c, running_mean_c, running_var_c,
+                    ctypes.c_float(self.epsilon), ctypes.c_float(self.momentum)
+                )
+                y_data = self._ctensor_to_numpy(out_c, self.dtype)
+                running_mean = self._ctensor_to_numpy(running_mean_c, self.dtype)
+                running_var = self._ctensor_to_numpy(running_var_c, self.dtype)
+                for tensor_c in (x_c, s_c, b_c, m_c, v_c, out_c, running_mean_c, running_var_c):
+                    self.lib.free_tensor(tensor_c)
+                outputs = (
+                    Tensor(*x.size, dtype=self.dtype, data=y_data),
+                    Tensor(x.size[1], dtype=self.dtype, data=running_mean),
+                    Tensor(x.size[1], dtype=self.dtype, data=running_var),
+                )
+            else:
+                axes = tuple(axis for axis in range(rank) if axis != 1)
+                saved_mean = np.mean(x_data, axis=axes)
+                saved_var = np.var(x_data, axis=axes)
+                running_mean = _tensor_data_as_numeric(mean) * self.momentum + saved_mean * (1.0 - self.momentum)
+                running_var = _tensor_data_as_numeric(var) * self.momentum + saved_var * (1.0 - self.momentum)
+                y_data = self._normalize(
+                    x_data,
+                    scale_data,
+                    bias_data,
+                    saved_mean.reshape((-1,) + (1,) * (rank - 2)),
+                    saved_var.reshape((-1,) + (1,) * (rank - 2)),
+                )
+                outputs = (
+                    Tensor(*x.size, dtype=self.dtype, data=y_data),
+                    Tensor(*saved_mean.shape, dtype=self.dtype, data=_cast_numeric_to_dtype(running_mean, self.dtype)),
+                    Tensor(*saved_var.shape, dtype=self.dtype, data=_cast_numeric_to_dtype(running_var, self.dtype)),
+                )
         else:
             if (
                 self.lib is not None

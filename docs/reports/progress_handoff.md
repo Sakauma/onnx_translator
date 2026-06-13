@@ -27,8 +27,8 @@
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`622` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`427` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`625` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`429` 条计划。
 
 ## 本轮已完成
 
@@ -59,6 +59,8 @@
 - 继续扩展 `LpNormalization` 默认 numerical plan：新增 ONNX reference 明确要求的零范数返回 0 边界，并补充 axis=2、p=1、bfloat16 位写回路径。
 - 修正 `LayerNormalization` C 后端的 axis 语义，从仅按 `shape[axis]` 归一化扩展为按 `axis` 后缀维度归一化；默认 numerical plan 新增 axis=1 的 float32/bfloat16 单输出路径。
 - 新增 `Binarizer` 的独立 CUDA verifier 和默认 numerical plan，覆盖 threshold 两侧和恰好等于 threshold 的严格大于边界，并补入 float16、bfloat16、float8_e4m3、float8_e5m2 混合精度门禁。
+- 补强 `BatchNormalization` 的 training_mode 多输出语义：新增 C 后端 `batch_norm_training_forward`，Python runtime 训练态优先调用 C 后端，CUDA verifier 同时输出 `Y/running_mean/running_var`，runner 按三路输出分别比较。
+- 默认 numerical plan 新增 BatchNormalization training_mode 的 float32、float16、bfloat16 三条计划，默认计划总数提升到 `625`，混合精度计划提升到 `429`。
 
 ## 本轮已运行验证
 
@@ -90,12 +92,20 @@
   - 结果：全部通过，6 条 LpNormalization 默认计划均对齐 CUDA reference。
 - `python tools/cli.py numerical --op layer_normalization --iterations 3 --skip-plots`
   - 结果：全部通过，5 条 LayerNormalization 默认计划均对齐 CUDA reference。
+- `python tools/cli.py numerical --op batch_normalization --iterations 3 --skip-plots`
+  - 结果：全部通过，推理态与 training_mode 三输出计划均对齐 CUDA reference。
+- `python -m pytest -q tests/test_operator_normalization_semantics.py`
+  - 结果：`13 passed`，包含 BatchNormalization training_mode 的 C 后端路径断言和 float32/float16/bfloat16 输出比较。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 结果：`2 passed, 56 deselected`。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 结果：`622` 条默认计划完整 numerical 一轮全部通过。
+  - 结果：`625` 条默认计划完整 numerical 一轮全部通过。
+- `python -m pytest -q tests`
+  - 结果：`295 passed, 1 skipped`。
+- `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
+  - 结果：静态 Python 编译检查通过。
 
 ## 仍未完成的普通 C-backed 数值门禁
 
@@ -120,5 +130,6 @@
 
 - 默认 numerical 是固定 case 与随机样本的门禁，不等同于 ONNX 所有 opset schema 的穷尽证明。
 - 已进入 numerical 的 mixed precision 计划主要覆盖项目当前支持和官方 type constraint 中合理的低精度路径；非官方约束内的 float8 或字符串/序列路径不应强行纳入数值门禁。
+- `BatchNormalization` 已覆盖推理态和 training_mode 三输出主路径；更多 rank、极小方差、不同 momentum/epsilon、空维度和异常 shape 组合仍建议继续扩展。
 - `MaxRoiPool`、`RoiAlign`、`RNN`、`GRU`、`LSTM`、`DFT`、`STFT` 已进入默认门禁，但仍建议继续扩展更多 layout、direction、axis、window 和边界输入。
 - `Attention`、`DeformConv` 等复杂算子已覆盖主 C/CUDA 路径，部分 cache、nonpad、多输出或高维 fallback 仍主要由 ONNX reference pytest 覆盖。

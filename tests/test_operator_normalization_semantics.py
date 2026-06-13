@@ -60,6 +60,17 @@ def _batch_norm_formula(x, scale, bias, mean, var, epsilon):
     return scale.reshape(shape) * (x - mean.reshape(shape)) / np.sqrt(var.reshape(shape) + epsilon) + bias.reshape(shape)
 
 
+# 按 ONNX BatchNormalization 训练公式独立计算 Y、running_mean 和 running_var。
+def _batch_norm_training_formula(x, scale, bias, mean, var, epsilon, momentum):
+    axes = tuple(axis for axis in range(x.ndim) if axis != 1)
+    saved_mean = np.mean(x, axis=axes)
+    saved_var = np.var(x, axis=axes)
+    y = _batch_norm_formula(x, scale, bias, saved_mean, saved_var, epsilon)
+    running_mean = mean * momentum + saved_mean * (1.0 - momentum)
+    running_var = var * momentum + saved_var * (1.0 - momentum)
+    return y, running_mean, running_var
+
+
 # 按 ONNX MeanVarianceNormalization 公式独立计算输出。
 def _mvn_formula(x, axes):
     mean = np.mean(x, axis=tuple(axes), keepdims=True)
@@ -112,6 +123,77 @@ def test_c_backend_batch_normalization_inference_matches_onnx_reference(dtype, p
         _tensor(x, dtype), _tensor(scale, dtype), _tensor(bias, dtype), _tensor(mean, dtype), _tensor(var, dtype)
     )["tensor"]
     np.testing.assert_allclose(actual.data, expected, rtol=rtol, atol=atol)
+
+
+# 验证 BatchNormalization 训练模式三输出由 C 后端承载，并覆盖 float32/float16/bfloat16 写回。
+@pytest.mark.parametrize("dtype,rtol,atol", [("float32", 1e-6, 1e-6), ("float16", 2e-2, 2e-2), ("bfloat16", 2e-2, 2e-2)])
+def test_c_backend_batch_normalization_training_mode_outputs(dtype, rtol, atol):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x_f32 = np.linspace(-1.2, 1.3, 2 * 3 * 2 * 2, dtype=np.float32).reshape(2, 3, 2, 2)
+    scale_f32 = np.array([0.75, 1.125, 1.5], dtype=np.float32)
+    bias_f32 = np.array([-0.2, 0.05, 0.3], dtype=np.float32)
+    mean_f32 = np.array([-0.1, 0.05, 0.2], dtype=np.float32)
+    var_f32 = np.array([0.5, 1.25, 2.0], dtype=np.float32)
+
+    if dtype == "bfloat16":
+        x_data = _bf16_bits(x_f32)
+        scale_data = _bf16_bits(scale_f32)
+        bias_data = _bf16_bits(bias_f32)
+        mean_data = _bf16_bits(mean_f32)
+        var_data = _bf16_bits(var_f32)
+        x_ref = _bf16_to_float32(x_data)
+        scale_ref = _bf16_to_float32(scale_data)
+        bias_ref = _bf16_to_float32(bias_data)
+        mean_ref = _bf16_to_float32(mean_data)
+        var_ref = _bf16_to_float32(var_data)
+    else:
+        np_dtype = np.float16 if dtype == "float16" else np.float32
+        x_data = x_f32.astype(np_dtype)
+        scale_data = scale_f32.astype(np_dtype)
+        bias_data = bias_f32.astype(np_dtype)
+        mean_data = mean_f32.astype(np_dtype)
+        var_data = var_f32.astype(np_dtype)
+        x_ref = x_data.astype(np.float32)
+        scale_ref = scale_data.astype(np.float32)
+        bias_ref = bias_data.astype(np.float32)
+        mean_ref = mean_data.astype(np.float32)
+        var_ref = var_data.astype(np.float32)
+
+    op = BatchNormalization(
+        ["x", "scale", "b", "mean", "var"],
+        ["y", "running_mean", "running_var"],
+        epsilon=1e-4,
+        momentum=0.75,
+        training_mode=1,
+        dtype=dtype,
+    )
+    assert getattr(op, "_has_batch_norm_training_c_backend", False)
+
+    actual_y, actual_mean, actual_var = op.forward(
+        _tensor(x_data, dtype),
+        _tensor(scale_data, dtype),
+        _tensor(bias_data, dtype),
+        _tensor(mean_data, dtype),
+        _tensor(var_data, dtype),
+    )["tensor"]
+    expected_y, expected_mean, expected_var = _batch_norm_training_formula(
+        x_ref, scale_ref, bias_ref, mean_ref, var_ref, 1e-4, 0.75
+    )
+
+    if dtype == "bfloat16":
+        actual_y_data = _bf16_to_float32(actual_y.data)
+        actual_mean_data = _bf16_to_float32(actual_mean.data)
+        actual_var_data = _bf16_to_float32(actual_var.data)
+    else:
+        actual_y_data = actual_y.data.astype(np.float32)
+        actual_mean_data = actual_mean.data.astype(np.float32)
+        actual_var_data = actual_var.data.astype(np.float32)
+
+    np.testing.assert_allclose(actual_y_data, expected_y, rtol=rtol, atol=atol)
+    np.testing.assert_allclose(actual_mean_data, expected_mean, rtol=rtol, atol=atol)
+    np.testing.assert_allclose(actual_var_data, expected_var, rtol=rtol, atol=atol)
 
 
 # 验证 InstanceNormalization、LayerNormalization 和 LpNormalization 的低精度 reference 对齐。

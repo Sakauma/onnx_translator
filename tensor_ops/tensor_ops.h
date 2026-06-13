@@ -688,6 +688,10 @@ void triangular_forward(const Tensor* input, Tensor* output, int k, int upper);
 // BatchNormalization (Inference)
 void batch_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                         const Tensor* mean, const Tensor* var, Tensor* output, float epsilon);
+void batch_norm_training_forward(const Tensor* input, const Tensor* scale, const Tensor* B,
+                                 const Tensor* mean, const Tensor* var,
+                                 Tensor* output, Tensor* running_mean, Tensor* running_var,
+                                 float epsilon, float momentum);
 
 // InstanceNormalization
 void instance_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 

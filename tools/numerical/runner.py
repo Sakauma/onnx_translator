@@ -397,12 +397,13 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[0] = from_float32(values, dtypes[0])
 
         if op_name == "batch_normalization":
-            # BatchNormalization 使用固定有限样本，覆盖推理公式、通道参数广播和低精度写回主路径。
+            # BatchNormalization 使用固定有限样本，覆盖推理/训练公式、通道参数广播和低精度写回主路径。
             x_values = np.linspace(-1.2, 1.3, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
-            scale_values = np.array([1.0, 0.5, 1.5], dtype=np.float32).reshape(shapes[1])
-            bias_values = np.array([0.1, -0.2, 0.3], dtype=np.float32).reshape(shapes[2])
-            mean_values = np.array([0.0, 0.2, -0.1], dtype=np.float32).reshape(shapes[3])
-            var_values = np.array([1.0, 0.5, 2.0], dtype=np.float32).reshape(shapes[4])
+            channel_count = int(shapes[1][0])
+            scale_values = np.linspace(0.75, 1.5, channel_count, dtype=np.float32).reshape(shapes[1])
+            bias_values = np.linspace(-0.2, 0.3, channel_count, dtype=np.float32).reshape(shapes[2])
+            mean_values = np.linspace(-0.1, 0.2, channel_count, dtype=np.float32).reshape(shapes[3])
+            var_values = np.linspace(0.5, 2.0, channel_count, dtype=np.float32).reshape(shapes[4])
             inputs_np[0] = from_float32(x_values, dtypes[0])
             inputs_np[1] = from_float32(scale_values, dtypes[1])
             inputs_np[2] = from_float32(bias_values, dtypes[2])
@@ -899,8 +900,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 nps_out = op.forward(*valid_tensors)["tensor"].data
 
             elif op_name == "batch_normalization":
-                op = op_cls(inputs=[], outputs=["y"], dtype=out_dtype, **op_init_args)
-                nps_out = op.forward(*valid_tensors)["tensor"].data
+                outputs = ["y", "running_mean", "running_var"] if int(op_init_args.get("training_mode", 0)) else ["y"]
+                op = op_cls(inputs=[], outputs=outputs, dtype=out_dtype, **op_init_args)
+                out = op.forward(*valid_tensors)["tensor"]
+                nps_out = [tensor.data for tensor in out] if len(outputs) > 1 else out.data
 
             elif op_name in {"hann_window", "hamming_window", "blackman_window"}:
                 op = op_cls(
@@ -1621,8 +1624,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             x = inputs_np[0]
             spatial_size = int(np.prod(x.shape[2:])) if x.ndim > 2 else 1
             params_bin = (
-                np.array([x.shape[0], x.shape[1], spatial_size], dtype=np.int32).tobytes()
-                + np.array([float(init_args.get("epsilon", 1e-5))], dtype=np.float32).tobytes()
+                np.array([x.shape[0], x.shape[1], spatial_size, int(init_args.get("training_mode", 0))], dtype=np.int32).tobytes()
+                + np.array([float(init_args.get("epsilon", 1e-5)), float(init_args.get("momentum", 0.9))], dtype=np.float32).tobytes()
             )
 
         elif op_name == "instance_normalization":
@@ -1919,6 +1922,71 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     print(f"     Dropout y mismatch: Max Abs Diff {max_abs:.6f}, Max Rel Diff {max_rel:.6f}")
                 if not mask_ok:
                     print("     Dropout mask mismatch")
+                break
+            continue
+
+        if op_name == "batch_normalization" and int(init_args.get("training_mode", 0)):
+            y_np, running_mean_np, running_var_np = [np.asarray(out) for out in nps_out]
+            cuda_inputs = [
+                np.ascontiguousarray(to_float32(inputs_np[idx], dtypes[idx]).astype(np.float64))
+                for idx in range(5)
+            ]
+            cuda_y = run_cuda_ground_truth(
+                op_name,
+                cuda_inputs,
+                params_binary=params_bin,
+                output_dtype=np.float64,
+                target_shape=y_np.shape,
+            )
+            if cuda_y is None:
+                continue
+
+            side_paths = {
+                "running_mean": "tmp_batch_norm_running_mean.bin",
+                "running_var": "tmp_batch_norm_running_var.bin",
+            }
+            if not all(os.path.exists(path) for path in side_paths.values()):
+                print(f"  ❌ Iter {i} FAILED")
+                print("     Missing BatchNormalization training sidecar output")
+                for path in side_paths.values():
+                    if os.path.exists(path):
+                        os.remove(path)
+                break
+
+            cuda_running_mean = np.fromfile(side_paths["running_mean"], dtype=np.float64).reshape(running_mean_np.shape)
+            cuda_running_var = np.fromfile(side_paths["running_var"], dtype=np.float64).reshape(running_var_np.shape)
+            for path in side_paths.values():
+                os.remove(path)
+
+            comparisons = [
+                ("y", y_np, cuda_y),
+                ("running_mean", running_mean_np, cuda_running_mean),
+                ("running_var", running_var_np, cuda_running_var),
+            ]
+            ok_all = True
+            max_abs_all = 0.0
+            max_rel_all = 0.0
+            failed_name = ""
+            for name, expected, actual in comparisons:
+                expected_f32 = to_float32(expected, out_dtype)
+                actual_q = quantize_to_dtype_float32(actual, out_dtype)
+                ok, max_abs, max_rel, _fail_mask = check_accuracy(expected_f32, actual_q, atol, rtol, out_dtype)
+                max_abs_all = max(max_abs_all, max_abs if max_abs >= 0 else 0.0)
+                max_rel_all = max(max_rel_all, max_rel if max_rel >= 0 else 0.0)
+                if not ok:
+                    ok_all = False
+                    failed_name = name
+                    break
+
+            stats_abs.append(max_abs_all)
+            stats_rel.append(max_rel_all)
+            if ok_all:
+                pass_cnt += 1
+            else:
+                print(f"  ❌ Iter {i} FAILED")
+                print(f"     BatchNormalization training {failed_name} mismatch")
+                print(f"     Max Abs Diff: {max_abs_all:.6f} (Limit: {atol})")
+                print(f"     Max Rel Diff: {max_rel_all:.6f} (Limit: {rtol})")
                 break
             continue
 

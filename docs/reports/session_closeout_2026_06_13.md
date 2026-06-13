@@ -27,8 +27,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`622` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`427` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`625` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`429` 条计划。
 
 ## 本轮已落盘内容
 
@@ -48,6 +48,8 @@
 - 继续扩展 `LpNormalization` 默认 numerical plan，新增零范数返回 0 官方边界，以及 axis=2、p=1、bfloat16 低精度路径。
 - 修正 `LayerNormalization` C 后端的后缀 axis 语义，并新增 axis=1 的 float32/bfloat16 单输出默认 numerical 计划。
 - 新增并接入 `Binarizer` 的 CUDA reference 和默认 numerical plan，覆盖 threshold 两侧和等于 threshold 的严格大于边界，并补充 float16、bfloat16、float8_e4m3、float8_e5m2 混合精度计划。
+- 补强 `BatchNormalization` 的 `training_mode` 多输出语义：新增 C 后端 `batch_norm_training_forward`，Python runtime 训练态优先调用 C 后端，CUDA verifier 输出 `Y/running_mean/running_var` 并通过 runner 逐路比较。
+- BatchNormalization 默认 numerical 新增 float32、float16、bfloat16 三条 training_mode 计划，覆盖 running mean/var 输出和低精度写回路径。
 - `tools/numerical/runner.py` 补充了这些算子的输入准备、参数打包、ONNX `output_datatype` 映射和 reference 调用适配。
 - `docs/reports/operator_coverage.md`、`docs/reports/current_progress.md` 和 `docs/reports/progress_handoff.md` 已按最新统计同步。
 
@@ -66,9 +68,11 @@
 - `python tools/cli.py numerical --op binarizer --op negative_log_likelihood_loss --op softmax_cross_entropy_loss --op non_max_suppression --iterations 3 --skip-plots`：通过。
 - `python tools/cli.py numerical --op lp_normalization --iterations 3 --skip-plots`：通过，6 条 LpNormalization 默认计划全部对齐 CUDA reference。
 - `python tools/cli.py numerical --op layer_normalization --iterations 3 --skip-plots`：通过，5 条 LayerNormalization 默认计划全部对齐 CUDA reference。
-- `python tools/cli.py numerical --iterations 1 --skip-plots`：通过，`622` 条默认计划完整 numerical 一轮全部通过。
-- `python -m pytest -q tests`：通过，`292 passed, 1 skipped`。
-- `python -m pytest -q tests`：通过，`292 passed, 1 skipped`。
+- `python tools/cli.py numerical --op batch_normalization --iterations 3 --skip-plots`：通过，推理态和 training_mode 三输出计划全部对齐 CUDA reference。
+- `python -m pytest -q tests/test_operator_normalization_semantics.py`：通过，`13 passed`。
+- `python tools/cli.py numerical --iterations 1 --skip-plots`：通过，`625` 条默认计划完整 numerical 一轮全部通过。
+- `python -m pytest -q tests`：通过，`295 passed, 1 skipped`。
+- `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`：通过。
 
 ## 已知还没有完成
 
@@ -86,7 +90,7 @@
 
 - 名称级覆盖已经闭合，但并不等同于所有 ONNX 属性组合、类型约束、异常路径和边界输入的穷尽证明。
 - 默认 numerical 是工程回归门禁，不是形式化证明；后续仍需要围绕官方 schema 增加高风险边界 case。
-- 损失函数和 NMS 已进入默认 C/CUDA numerical 门禁，且 NMS 已补充排序 tie、阈值等值包含和空输出 case；LayerNormalization 已补充非最后轴单输出 C/CUDA 路径，LpNormalization 已补充零范数和非通道 axis 低精度 case；后续仍需要继续扩展 ignore index、reduction、更多阈值组合、极端权重、归一化 aux 输出和更多 rank/axis 边界集合。
+- BatchNormalization 已补齐 training_mode 三输出 C/CUDA numerical 主路径；损失函数和 NMS 已进入默认 C/CUDA numerical 门禁，且 NMS 已补充排序 tie、阈值等值包含和空输出 case；LayerNormalization 已补充非最后轴单输出 C/CUDA 路径，LpNormalization 已补充零范数和非通道 axis 低精度 case；后续仍需要继续扩展更多 rank、axis、momentum、epsilon、ignore index、reduction、极端权重和归一化 aux 输出边界集合。
 
 ## 后续建议
 
