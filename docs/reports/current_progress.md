@@ -33,8 +33,8 @@
 - forward 实际接入 C 后端：`178` 个算子类。
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
-- CUDA verifier：`173` 个。
-- 默认 active numerical plan：`173` 个唯一算子名称，`601` 条默认计划。
+- CUDA verifier：`174` 个。
+- 默认 active numerical plan：`174` 个唯一算子名称，`603` 条默认计划。
 - 默认 active numerical plan 混合精度覆盖：`415` 条计划。
 
 ## 最近已完成验证
@@ -59,6 +59,8 @@
   - 最近记录结果：Dropout 的 `y` 和 `mask` 双输出 targeted numerical 通过。
 - `python tools/cli.py numerical --op random_uniform --op random_uniform_like --op random_normal --op random_normal_like --op bernoulli --iterations 3 --skip-plots`
   - 最近记录结果：随机 uniform/normal 和 Bernoulli 的 C-vs-CUDA targeted numerical 通过。
+- `python tools/cli.py numerical --op multinomial --iterations 3 --skip-plots`
+  - 最近记录结果：Multinomial 的 int64/int32 输出、零概率和非归一化概率 targeted numerical 通过。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 最近记录结果：相关 pytest 通过。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
@@ -68,9 +70,8 @@
 
 ## 已知未完成部分
 
-以下 `4` 个算子已有 C runtime path、C 后端函数或较完整 pytest/ONNX reference 语义覆盖，但尚未全部具备独立 CUDA verifier 和默认 numerical plan。后续补强时应继续优先使用 C/CUDA reference，不应回退为普通数值路径的 Python-only 实现。
+以下 `3` 个算子已有 C runtime path、C 后端函数或较完整 pytest/ONNX reference 语义覆盖，但仍需要继续扩展更多属性、dtype 和边界条件的独立 CUDA/numerical case。后续补强时应继续优先使用 C/CUDA reference，不应回退为普通数值路径的 Python-only 实现。
 
-- 采样：`Multinomial`。
 - 损失/检测：`NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression`。
 
 以下类别属于合理保留 Python 调度的范围，不适合按普通 C/CUDA 数值门禁处理；后续重点应放在 ONNX reference pytest、导入器语义测试和端到端图测试。
@@ -97,5 +98,5 @@
 
 ## 建议后续优先级
 
-1. 优先处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`；这些算子需要更细的阈值、索引和归约边界设计。
-2. 再处理 `Multinomial`；建议继续沿用按元素或按行确定性 seed 派生策略，避免线程调度影响验证结果。
+1. 优先处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`；这些算子需要更细的阈值、索引、排序和归约边界设计。
+2. 继续扩展已进入默认门禁的复杂算子属性矩阵，尤其是 ROI、序列、谱、Attention、DeformConv、量化和损失类边界。

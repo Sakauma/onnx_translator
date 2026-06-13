@@ -715,6 +715,14 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             ).reshape(shapes[0])
             inputs_np[0] = from_float32(probs, dtypes[0])
 
+        if op_name == "multinomial":
+            # Multinomial 使用固定概率矩阵，覆盖 one-hot、零概率和非归一化概率行。
+            probs = np.asarray(
+                init_args.get("prob_values", np.linspace(0.1, 1.0, int(np.prod(shapes[0])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            inputs_np[0] = from_float32(probs, dtypes[0])
+
         if op_name == "dropout":
             # Dropout 使用固定样本、显式 ratio 和 training_mode，保证随机 mask 可由 seed 复现。
             values = np.asarray(
@@ -1723,6 +1731,16 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             seed = np.uint32(int(init_args.get("seed", 123)))
             params_bin = np.array([numel], dtype=np.int32).tobytes() + np.array([seed], dtype=np.uint32).tobytes()
 
+        elif op_name == "multinomial":
+            batch, classes = shapes[0]
+            sample_size = int(init_args.get("sample_size", np.asarray(nps_out).shape[1]))
+            output_dtype_code = 1 if out_dtype == "int64" else 0
+            seed = np.uint32(int(init_args.get("seed", 0) or 0))
+            params_bin = (
+                np.array([batch, classes, sample_size, output_dtype_code], dtype=np.int32).tobytes()
+                + np.array([seed], dtype=np.uint32).tobytes()
+            )
+
         elif op_name == "dropout":
             input_len = int(np.prod(shapes[0]))
             ratio = float(np.asarray(inputs_np[1]).item()) if len(inputs_np) > 1 else float(init_args.get("ratio_value", 0.5))
@@ -1991,7 +2009,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square",
             "gather", "gather_elements", "gathernd", "scatternd", "tensor_scatter", "scatter_elements",
             "nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum",
-            "topk", "random_uniform", "random_uniform_like", "random_normal", "random_normal_like", "bernoulli",
+            "topk", "random_uniform", "random_uniform_like", "random_normal", "random_normal_like", "bernoulli", "multinomial",
             "expand", "flatten", "reshape", "squeeze", "unsqueeze",
             "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth",
             "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im",
@@ -2153,7 +2171,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter", "scatter_elements","nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform", "random_uniform_like", "random_normal", "random_normal_like", "bernoulli", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter", "scatter_elements","nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform", "random_uniform_like", "random_normal", "random_normal_like", "bernoulli", "multinomial", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:

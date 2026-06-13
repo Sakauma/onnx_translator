@@ -26,8 +26,8 @@
 - forward 实际接入 C 后端：`178` 个算子类。
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
-- CUDA verifier：`173` 个。
-- 默认 active numerical plan：`173` 个唯一算子名称，`601` 条默认计划。
+- CUDA verifier：`174` 个。
+- 默认 active numerical plan：`174` 个唯一算子名称，`603` 条默认计划。
 - 默认 active numerical plan 混合精度覆盖：`415` 条计划。
 
 ## 本轮已完成
@@ -53,6 +53,7 @@
 - 新增 `RandomUniform`、`RandomNormal`、`RandomNormalLike` 和 `Bernoulli` 的独立 CUDA verifier 和默认 numerical plan。
 - `RandomUniformLike` 的 numerical 不再绕过 C 后端 reference，而是统一走 C-backed forward 后与 CUDA verifier 对比。
 - 随机 uniform/normal/Bernoulli 的 C 后端改为按元素由 seed 派生确定性随机状态，避免 OpenMP 线程数或调度顺序影响验证结果。
+- 新增 `Multinomial` 的独立 CUDA verifier 和默认 numerical plan，覆盖 int64/int32 输出、零概率、one-hot 和非归一化概率行。
 
 ## 本轮已运行验证
 
@@ -76,6 +77,8 @@
   - 结果：全部通过，`y` 与 `mask` 均对齐 CUDA reference。
 - `python tools/cli.py numerical --op random_uniform --op random_uniform_like --op random_normal --op random_normal_like --op bernoulli --iterations 3 --skip-plots`
   - 结果：全部通过。
+- `python tools/cli.py numerical --op multinomial --iterations 3 --skip-plots`
+  - 结果：全部通过，int64 与 int32 输出均对齐 CUDA reference。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 结果：`2 passed, 56 deselected`。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
@@ -85,9 +88,8 @@
 
 ## 仍未完成的普通 C-backed 数值门禁
 
-以下 `4` 个算子已有 C runtime path 或 C 后端函数，但当前仍缺少 CUDA verifier / 默认 numerical plan，后续应优先补独立 reference，而不是回退到 Python 数值实现：
+以下 `3` 个算子已有 C runtime path 或 C 后端函数，也已有基础语义覆盖；后续仍应继续补更完整的独立 CUDA/numerical 属性、dtype 和边界 case，而不是回退到 Python 数值实现：
 
-- 采样：`Multinomial`。
 - 损失/检测：`NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression`。
 
 ## 合理保留 Python 调度的范围
@@ -102,8 +104,8 @@
 
 ## 后续建议优先级
 
-1. 优先处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`：这些需要更细的索引、阈值和归约边界设计。
-2. 最后处理 `Multinomial`：继续沿用确定性 seed 派生策略，并重点验证 one-hot、零概率、非归一化概率和输出 dtype。
+1. 优先处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`：这些需要更细的索引、阈值、排序和归约边界设计。
+2. 继续扩大已进入默认门禁的复杂算子 case matrix，避免默认单一路径被误读为全属性、全 dtype 和全边界闭环。
 
 ## 当前剩余风险
 
