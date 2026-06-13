@@ -718,31 +718,39 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[2] = None if window_values is None else from_float32(window_values, dtypes[2])
             inputs_np[3] = np.array(init_args.get("frame_length_value", 2), dtype=np.int64)
 
-        if op_name == "rnn":
-            inputs_np[0] = from_float32(np.linspace(-0.5, 0.6, 12, dtype=np.float32).reshape(3, 2, 2), dtypes[0])
-            inputs_np[1] = from_float32(np.linspace(-0.4, 0.5, 4, dtype=np.float32).reshape(1, 2, 2), dtypes[1])
-            inputs_np[2] = from_float32(np.linspace(0.3, -0.2, 4, dtype=np.float32).reshape(1, 2, 2), dtypes[2])
-            inputs_np[3] = from_float32(np.linspace(-0.1, 0.2, 4, dtype=np.float32).reshape(1, 4), dtypes[3])
-            inputs_np[4] = np.array([3, 2], dtype=np.int64)
-            inputs_np[5] = from_float32(np.array([[[0.1, -0.1], [0.2, 0.0]]], dtype=np.float32), dtypes[5])
-
-        if op_name == "gru":
-            inputs_np[0] = from_float32(np.linspace(-0.5, 0.6, 12, dtype=np.float32).reshape(3, 2, 2), dtypes[0])
-            inputs_np[1] = from_float32(np.linspace(-0.4, 0.5, 12, dtype=np.float32).reshape(1, 6, 2), dtypes[1])
-            inputs_np[2] = from_float32(np.linspace(0.3, -0.2, 12, dtype=np.float32).reshape(1, 6, 2), dtypes[2])
-            inputs_np[3] = from_float32(np.linspace(-0.2, 0.2, 12, dtype=np.float32).reshape(1, 12), dtypes[3])
-            inputs_np[4] = np.array([3, 2], dtype=np.int64)
-            inputs_np[5] = from_float32(np.array([[[0.1, -0.1], [0.2, 0.0]]], dtype=np.float32), dtypes[5])
-
-        if op_name == "lstm":
-            inputs_np[0] = from_float32(np.linspace(-0.5, 0.6, 12, dtype=np.float32).reshape(3, 2, 2), dtypes[0])
-            inputs_np[1] = from_float32(np.linspace(-0.3, 0.4, 16, dtype=np.float32).reshape(1, 8, 2), dtypes[1])
-            inputs_np[2] = from_float32(np.linspace(0.2, -0.2, 16, dtype=np.float32).reshape(1, 8, 2), dtypes[2])
-            inputs_np[3] = from_float32(np.linspace(-0.1, 0.1, 16, dtype=np.float32).reshape(1, 16), dtypes[3])
-            inputs_np[4] = np.array([3, 2], dtype=np.int64)
-            inputs_np[5] = from_float32(np.array([[[0.1, 0.0], [-0.1, 0.2]]], dtype=np.float32), dtypes[5])
-            inputs_np[6] = from_float32(np.array([[[0.0, 0.2], [0.1, -0.1]]], dtype=np.float32), dtypes[6])
-            inputs_np[7] = from_float32(np.linspace(-0.05, 0.05, 6, dtype=np.float32).reshape(1, 6), dtypes[7])
+        if op_name in {"rnn", "gru", "lstm"}:
+            layout = int(init_args.get("layout", 0))
+            direction = init_args.get("direction", "forward")
+            num_dirs = 2 if direction == "bidirectional" else 1
+            x_shape = tuple(shapes[0])
+            seq_len = x_shape[1] if layout == 1 else x_shape[0]
+            batch = x_shape[0] if layout == 1 else x_shape[1]
+            input_size = x_shape[2]
+            hidden = int(init_args.get("hidden_size", shapes[2][-1]))
+            gates = {"rnn": 1, "gru": 3, "lstm": 4}[op_name]
+            x_values = np.linspace(-0.5, 0.6, seq_len * batch * input_size, dtype=np.float32).reshape(x_shape)
+            inputs_np[0] = from_float32(x_values, dtypes[0])
+            inputs_np[1] = from_float32(
+                np.linspace(-0.4, 0.5, num_dirs * gates * hidden * input_size, dtype=np.float32).reshape(num_dirs, gates * hidden, input_size),
+                dtypes[1],
+            )
+            inputs_np[2] = from_float32(
+                np.linspace(0.3, -0.2, num_dirs * gates * hidden * hidden, dtype=np.float32).reshape(num_dirs, gates * hidden, hidden),
+                dtypes[2],
+            )
+            inputs_np[3] = from_float32(
+                np.linspace(-0.2, 0.2, num_dirs * 2 * gates * hidden, dtype=np.float32).reshape(num_dirs, 2 * gates * hidden),
+                dtypes[3],
+            )
+            seq_default = [seq_len] + [max(seq_len - 1 - (idx % 2), 1) for idx in range(1, batch)]
+            inputs_np[4] = np.array(init_args.get("sequence_lens_value", seq_default), dtype=np.int64)
+            init_values = np.linspace(0.1, -0.15, num_dirs * batch * hidden, dtype=np.float32).reshape(num_dirs, batch, hidden)
+            inputs_np[5] = from_float32(init_values, dtypes[5])
+            if op_name == "lstm":
+                init_c_values = np.linspace(-0.05, 0.2, num_dirs * batch * hidden, dtype=np.float32).reshape(num_dirs, batch, hidden)
+                peephole_values = np.linspace(-0.05, 0.05, num_dirs * 3 * hidden, dtype=np.float32).reshape(num_dirs, 3 * hidden)
+                inputs_np[6] = from_float32(init_c_values, dtypes[6])
+                inputs_np[7] = from_float32(peephole_values, dtypes[7])
 
         if op_name == "qlinear_conv":
             out_channels = shapes[3][0]

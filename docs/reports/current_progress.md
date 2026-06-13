@@ -36,8 +36,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`644` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`439` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`656` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`445` 条计划。
 
 ## 最近已完成验证
 
@@ -48,6 +48,10 @@
 - `python tools/cli.py numerical --op dft --op stft --iterations 3 --skip-plots`
   - 最近记录结果：DFT/STFT 新增 full spectrum、复数输入、inverse onesided、STFT 无 window 分支均通过。
 - `python -m pytest -q tests/test_operator_spectral_semantics.py`
+  - 最近记录结果：`2 passed`。
+- `python tools/cli.py numerical --op rnn --op gru --op lstm --iterations 3 --skip-plots`
+  - 最近记录结果：RNN/GRU/LSTM 新增 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1` 和 LSTM `input_forget=0/1` 分支均通过。
+- `python -m pytest -q tests/test_operator_recurrent_semantics.py`
   - 最近记录结果：`2 passed`。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
   - 最近记录结果：位运算 targeted numerical 通过。
@@ -86,7 +90,7 @@
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 最近记录结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 最近记录结果：`644` 条默认计划完整 numerical 一轮通过。
+  - 最近记录结果：`656` 条默认计划完整 numerical 一轮通过。
 - `python -m pytest -q tests`
   - 最近记录结果：`298 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
@@ -108,7 +112,7 @@
 
 ## 混合精度状态
 
-- 当前默认 numerical 中已经包含 `439` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
+- 当前默认 numerical 中已经包含 `445` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
 - 混合精度已经能作为当前工程的常规回归门禁使用，但还不能宣称对所有 ONNX 官方 type constraint、所有属性组合和所有边界输入完成穷尽证明。
 - 位运算、字符串、序列、控制流、随机采样等类别不应机械纳入浮点混合精度口径；这些算子需要按整数位模式、结构语义、随机分布或 ONNX reference 行为分别验证。
 
@@ -121,7 +125,7 @@
 - `LpNormalization` 已补充零范数官方边界和非通道 axis 的 bfloat16 C/CUDA 门禁；更多空维度、不同 rank 和异常 axis 仍建议继续扩展。
 - `GridSample` 已将 numerical 从 linear/reflection 主路径扩展到 nearest/border 与 cubic/zeros 属性组合，并覆盖 float32、float16、bfloat16；后续仍建议继续补充 5D、更多坐标边界、极端越界坐标和更多 align_corners 组合。
 - `MaxRoiPool` 已补充 spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 低精度 C/CUDA numerical；`RoiAlign` 已补充 max 模式、output_half_pixel、自适应 sampling_ratio=0、spatial_scale=0.75 和 float16 低精度 C/CUDA numerical。后续仍建议继续扩展更多 ROI 数量、不同 pooled/output 尺寸、边界点采样和异常 batch index。
-- `DFT`/`STFT` 已从基础 onesided 实数样本扩展到 full spectrum、复数输入、inverse onesided、STFT 无 window 和 float16/bfloat16 分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已进入默认门禁，但仍建议继续扩展 direction、layout、activation 和边界输入。
+- `DFT`/`STFT` 已从基础 onesided 实数样本扩展到 full spectrum、复数输入、inverse onesided、STFT 无 window 和 float16/bfloat16 分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已从基础 forward/layout=0 样本扩展到 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1` 和 LSTM `input_forget=0/1` C/CUDA numerical 分支；后续仍建议继续扩展非默认 activation、clip、更多 sequence_lens/initial state 和多输出 Y_h/Y_c CUDA sidecar。
 - `Attention`、`DeformConv` 等复杂算子已覆盖主 C/CUDA 路径，部分 cache、nonpad、多输出或高维 fallback 仍主要依赖 ONNX reference pytest。
 - 随机、损失、NMS、量化和集合类算子继续扩展 CUDA reference case 时，需要特别注意确定性种子、阈值、排序稳定性和低精度舍入规则。
 

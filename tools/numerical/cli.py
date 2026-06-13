@@ -486,8 +486,14 @@ def build_mixed_precision_plans():
         (STFT, "stft", [(1, 5, 1), (), (3,), ()], ["float16", "int64", "float16", "int64"], "float16", {"onesided": 0, "frame_step_value": 2, "frame_length_value": 3, "stft_variant": "real_window_full"}),
         (STFT, "stft", [(1, 5, 2), (), (3,), ()], ["bfloat16", "int64", "bfloat16", "int64"], "bfloat16", {"onesided": 0, "frame_step_value": 2, "frame_length_value": 3, "stft_variant": "complex_no_window_full"}),
         (RNN, "rnn", [(3, 2, 2), (1, 2, 2), (1, 2, 2), (1, 4), (2,), (1, 2, 2)], ["float16", "float16", "float16", "float16", "int64", "float16"], "float16", {"hidden_size": 2, "direction": "forward", "layout": 0}),
+        (RNN, "rnn", [(3, 2, 2), (1, 2, 2), (1, 2, 2), (1, 4), (2,), (1, 2, 2)], ["float16", "float16", "float16", "float16", "int64", "float16"], "float16", {"hidden_size": 2, "direction": "reverse", "layout": 0}),
+        (RNN, "rnn", [(2, 3, 2), (2, 2, 2), (2, 2, 2), (2, 4), (2,), (2, 2, 2)], ["bfloat16", "bfloat16", "bfloat16", "bfloat16", "int64", "bfloat16"], "bfloat16", {"hidden_size": 2, "direction": "bidirectional", "layout": 1}),
         (GRU, "gru", [(3, 2, 2), (1, 6, 2), (1, 6, 2), (1, 12), (2,), (1, 2, 2)], ["float16", "float16", "float16", "float16", "int64", "float16"], "float16", {"hidden_size": 2, "direction": "forward", "layout": 0, "linear_before_reset": 1}),
+        (GRU, "gru", [(3, 2, 2), (1, 6, 2), (1, 6, 2), (1, 12), (2,), (1, 2, 2)], ["float16", "float16", "float16", "float16", "int64", "float16"], "float16", {"hidden_size": 2, "direction": "forward", "layout": 0, "linear_before_reset": 0}),
+        (GRU, "gru", [(2, 3, 2), (1, 6, 2), (1, 6, 2), (1, 12), (2,), (1, 2, 2)], ["bfloat16", "bfloat16", "bfloat16", "bfloat16", "int64", "bfloat16"], "bfloat16", {"hidden_size": 2, "direction": "reverse", "layout": 1, "linear_before_reset": 1}),
         (LSTM, "lstm", [(3, 2, 2), (1, 8, 2), (1, 8, 2), (1, 16), (2,), (1, 2, 2), (1, 2, 2), (1, 6)], ["float16", "float16", "float16", "float16", "int64", "float16", "float16", "float16"], "float16", {"hidden_size": 2, "direction": "forward", "layout": 0, "input_forget": 1}),
+        (LSTM, "lstm", [(3, 2, 2), (1, 8, 2), (1, 8, 2), (1, 16), (2,), (1, 2, 2), (1, 2, 2), (1, 6)], ["float16", "float16", "float16", "float16", "int64", "float16", "float16", "float16"], "float16", {"hidden_size": 2, "direction": "forward", "layout": 0, "input_forget": 0}),
+        (LSTM, "lstm", [(2, 3, 2), (2, 8, 2), (2, 8, 2), (2, 16), (2,), (2, 2, 2), (2, 2, 2), (2, 6)], ["bfloat16", "bfloat16", "bfloat16", "bfloat16", "int64", "bfloat16", "bfloat16", "bfloat16"], "bfloat16", {"hidden_size": 2, "direction": "bidirectional", "layout": 1, "input_forget": 0}),
     ]
 
 
@@ -746,8 +752,14 @@ def build_default_plans():
     (STFT, "stft", [(1, 5, 1), (), (3,), ()], ["float32", "int64", "float32", "int64"], "float32", {"onesided": 0, "frame_step_value": 2, "frame_length_value": 3, "stft_variant": "real_window_full"}),
     (STFT, "stft", [(1, 5, 2), (), (3,), ()], ["float32", "int64", "float32", "int64"], "float32", {"onesided": 0, "frame_step_value": 2, "frame_length_value": 3, "stft_variant": "complex_no_window_full"}),
     (RNN, "rnn", [(3, 2, 2), (1, 2, 2), (1, 2, 2), (1, 4), (2,), (1, 2, 2)], ["float32", "float32", "float32", "float32", "int64", "float32"], "float32", {"hidden_size": 2, "direction": "forward", "layout": 0}),
+    (RNN, "rnn", [(3, 2, 2), (1, 2, 2), (1, 2, 2), (1, 4), (2,), (1, 2, 2)], ["float32", "float32", "float32", "float32", "int64", "float32"], "float32", {"hidden_size": 2, "direction": "reverse", "layout": 0}),
+    (RNN, "rnn", [(2, 3, 2), (2, 2, 2), (2, 2, 2), (2, 4), (2,), (2, 2, 2)], ["float32", "float32", "float32", "float32", "int64", "float32"], "float32", {"hidden_size": 2, "direction": "bidirectional", "layout": 1}),
     (GRU, "gru", [(3, 2, 2), (1, 6, 2), (1, 6, 2), (1, 12), (2,), (1, 2, 2)], ["float32", "float32", "float32", "float32", "int64", "float32"], "float32", {"hidden_size": 2, "direction": "forward", "layout": 0, "linear_before_reset": 1}),
+    (GRU, "gru", [(3, 2, 2), (1, 6, 2), (1, 6, 2), (1, 12), (2,), (1, 2, 2)], ["float32", "float32", "float32", "float32", "int64", "float32"], "float32", {"hidden_size": 2, "direction": "forward", "layout": 0, "linear_before_reset": 0}),
+    (GRU, "gru", [(2, 3, 2), (1, 6, 2), (1, 6, 2), (1, 12), (2,), (1, 2, 2)], ["float32", "float32", "float32", "float32", "int64", "float32"], "float32", {"hidden_size": 2, "direction": "reverse", "layout": 1, "linear_before_reset": 1}),
     (LSTM, "lstm", [(3, 2, 2), (1, 8, 2), (1, 8, 2), (1, 16), (2,), (1, 2, 2), (1, 2, 2), (1, 6)], ["float32", "float32", "float32", "float32", "int64", "float32", "float32", "float32"], "float32", {"hidden_size": 2, "direction": "forward", "layout": 0, "input_forget": 1}),
+    (LSTM, "lstm", [(3, 2, 2), (1, 8, 2), (1, 8, 2), (1, 16), (2,), (1, 2, 2), (1, 2, 2), (1, 6)], ["float32", "float32", "float32", "float32", "int64", "float32", "float32", "float32"], "float32", {"hidden_size": 2, "direction": "forward", "layout": 0, "input_forget": 0}),
+    (LSTM, "lstm", [(2, 3, 2), (2, 8, 2), (2, 8, 2), (2, 16), (2,), (2, 2, 2), (2, 2, 2), (2, 6)], ["float32", "float32", "float32", "float32", "int64", "float32", "float32", "float32"], "float32", {"hidden_size": 2, "direction": "bidirectional", "layout": 1, "input_forget": 0}),
 ] + build_mixed_precision_plans()
 
 
