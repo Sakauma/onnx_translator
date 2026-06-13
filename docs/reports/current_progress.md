@@ -34,8 +34,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`625` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`429` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`628` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`431` 条计划。
 
 ## 最近已完成验证
 
@@ -66,25 +66,25 @@
 - `python tools/cli.py numerical --op lp_normalization --iterations 3 --skip-plots`
   - 最近记录结果：LpNormalization 的 p=1/p=2、axis=1/axis=2/axis=-1、bfloat16 和零范数边界 targeted numerical 通过。
 - `python tools/cli.py numerical --op layer_normalization --iterations 3 --skip-plots`
-  - 最近记录结果：LayerNormalization 的 axis=-1 与 axis=1 后缀归一化、float32/bfloat16 单输出 C/CUDA targeted numerical 通过。
+  - 最近记录结果：LayerNormalization 的 axis=-1 与 axis=1 后缀归一化、float32/float16/bfloat16 单输出和 `mean/inv_std` aux 多输出 C/CUDA targeted numerical 通过。
 - `python tools/cli.py numerical --op batch_normalization --iterations 3 --skip-plots`
   - 最近记录结果：BatchNormalization 的推理态和 training_mode 三输出路径均通过；训练态 `Y/running_mean/running_var` 已由 C 后端计算，并与 CUDA sidecar reference 对齐，覆盖 float32、float16、bfloat16。
 - `python -m pytest -q tests/test_operator_normalization_semantics.py`
-  - 最近记录结果：归一化语义 pytest 通过，包含 BatchNormalization training_mode 的 C 后端路径断言。
+  - 最近记录结果：`16 passed`，包含 BatchNormalization training_mode 和 LayerNormalization aux 输出的 C 后端路径断言。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 最近记录结果：相关 pytest 通过。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 最近记录结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 最近记录结果：`625` 条默认计划完整 numerical 一轮通过。
+  - 最近记录结果：`628` 条默认计划完整 numerical 一轮通过。
 - `python -m pytest -q tests`
-  - 最近记录结果：`295 passed, 1 skipped`。
+  - 最近记录结果：`298 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
   - 最近记录结果：静态 Python 编译检查通过。
 
 ## 已知未完成部分
 
-当前未发现仍需立即后端化或接入默认 numerical 的普通 C-backed 数值/张量算子。本轮已将 `BatchNormalization` 的 `training_mode` 多输出语义从 Python 数值路径下沉到 C 后端，并接入独立 CUDA verifier 与默认 numerical 门禁。
+当前未发现仍需立即后端化或接入默认 numerical 的普通 C-backed 数值/张量算子。本轮已将 `BatchNormalization` 的 `training_mode` 多输出语义和 `LayerNormalization` 的 `mean/inv_std` aux 多输出语义从 Python 数值路径下沉到 C 后端，并接入独立 CUDA verifier 与默认 numerical 门禁。
 
 后续未完成重点不再是“是否有 C/CUDA 门禁”，而是继续扩展官方语义的全属性、全 dtype 和全边界 case matrix。补强时仍应优先使用 C/CUDA reference，不应回退为普通数值路径的 Python-only 实现。
 
@@ -98,7 +98,7 @@
 
 ## 混合精度状态
 
-- 当前默认 numerical 中已经包含 `429` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
+- 当前默认 numerical 中已经包含 `431` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
 - 混合精度已经能作为当前工程的常规回归门禁使用，但还不能宣称对所有 ONNX 官方 type constraint、所有属性组合和所有边界输入完成穷尽证明。
 - 位运算、字符串、序列、控制流、随机采样等类别不应机械纳入浮点混合精度口径；这些算子需要按整数位模式、结构语义、随机分布或 ONNX reference 行为分别验证。
 
@@ -106,7 +106,7 @@
 
 - ONNX opset 17 已达到名称级导入覆盖，但名称级覆盖不等同于所有属性、边界条件、异常路径和高维组合的官方语义穷尽验证。
 - 默认 numerical 是固定 case 与随机样本组成的工程门禁，能够发现常见回归，但不是形式化证明。
-- `LayerNormalization` 已将单输出 C 后端从最后一维扩展到任意 axis 后缀归一化，并补充 axis=1 的 float32/bfloat16 C/CUDA 门禁；`mean/inv_std` aux 输出仍主要由 Python fallback 和 pytest 覆盖。
+- `LayerNormalization` 已将单输出 C 后端从最后一维扩展到任意 axis 后缀归一化，并补充 `mean/inv_std` aux 多输出 C/CUDA 门禁；后续仍建议继续扩展更多 rank、stash_type、极小方差、空维度和异常 axis 组合。
 - `BatchNormalization` 已将推理态和 training_mode 三输出主路径都接入 C/CUDA numerical；后续仍建议继续补充更多 rank、极小方差、空维度和不同 momentum/epsilon 组合。
 - `LpNormalization` 已补充零范数官方边界和非通道 axis 的 bfloat16 C/CUDA 门禁；更多空维度、不同 rank 和异常 axis 仍建议继续扩展。
 - `MaxRoiPool`、`RoiAlign`、`RNN`、`GRU`、`LSTM`、`DFT`、`STFT` 已进入默认门禁，但仍建议继续扩展 layout、direction、axis、window 和边界输入。

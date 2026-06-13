@@ -42,6 +42,7 @@
   * @details     2026.06.05  V1.0.35  补充 GridSample CUDA 数值门禁和完整 numerical 复跑记录
   * @details     2026.06.05  V1.0.36  补充 LRN CUDA 数值门禁和当前工作收尾记录
   * @details     2026.06.05  V1.0.37  补充 MeanVarianceNormalization CUDA 数值门禁记录
+  * @details     2026.06.13  V1.0.38  补充 LayerNormalization aux 多输出 C/CUDA 数值门禁记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -326,13 +327,15 @@
 
 继续补强 `BatchNormalization` 的 training_mode 多输出语义：C 后端新增 `batch_norm_training_forward`，按通道计算当前 batch 的 saved mean/variance，并输出 `Y`、`running_mean` 和 `running_var`；Python runtime 在训练态优先调用 C 后端，仅在 C 不可用或 dtype 不承载时保留 fallback。`cuda/verify_batch_normalization.cu` 从只验证推理模式扩展为同时支持 training_mode，并通过 sidecar 文件输出 running mean/var；numerical runner 对三路输出逐一比较。默认 numerical plan 新增 float32、float16、bfloat16 三条 training_mode 计划，默认 active numerical plan 保持 178 个唯一算子、提升到 625 条默认计划和 429 条混合精度计划。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile nn/operators/normalization_ops.py tools/numerical/runner.py tools/numerical/cli.py`、`git diff --check`、`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op batch_normalization --iterations 3 --skip-plots`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_normalization_semantics.py`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 和 `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check` 均已通过；完整 pytest 结果为 `295 passed, 1 skipped`，完整 numerical 一轮 625 条默认计划全部通过。
 
+继续补强 `LayerNormalization` 的 `mean/inv_std` aux 多输出语义：C 后端新增 `layer_norm_multi_output_forward`，按 axis 后缀维度同时计算 `Y`、`mean` 和 `inv_std`；Python runtime 在请求辅助输出时优先调用 C 后端，仅在 C 不可用或 dtype 不承载时保留 fallback。`cuda/verify_layer_normalization.cu` 扩展 `emit_stats` 参数并输出 mean/inv_std sidecar；numerical runner 对三路输出逐一比较。默认 numerical plan 新增 float32、float16、bfloat16 三条 aux 输出计划，默认 active numerical plan 保持 178 个唯一算子、提升到 628 条默认计划和 431 条混合精度计划。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile nn/operators/normalization_ops.py tools/numerical/runner.py tools/numerical/cli.py`、`git diff --check`、`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_normalization_semantics.py -q`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op layer_normalization --iterations 3 --skip-plots`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 和 `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check` 均已通过；完整 pytest 结果为 `298 passed, 1 skipped`，完整 numerical 一轮 628 条默认计划全部通过。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
 - 当前安装 ONNX 最新默认 domain schema 名称级缺口为 0，ONNXImport 已覆盖当前环境可见的 200 个最新默认 domain 官方算子。
 - QuantizeLinear/DequantizeLinear 的新版属性，例如 block quantization、output_dtype、precision、saturate 等，仍需结合目标 opset 再决定是否扩展。
 - `BatchNormalization` 当前 C/CUDA numerical 覆盖推理模式和 training_mode 三输出主路径；更多 rank、极小方差、不同 momentum/epsilon、空维度和异常 shape 组合仍建议继续补充 case matrix。
-- `LayerNormalization` 当前 C/CUDA numerical 覆盖单输出 `Y` 的 `axis=-1` 与 axis=1 后缀归一化主路径；多输出 `mean/inv_std` 路径仍主要由 Python fallback 与 pytest 语义测试覆盖，后续可继续扩展 C/CUDA reference。
+- `LayerNormalization` 当前 C/CUDA numerical 覆盖单输出 `Y` 的 `axis=-1`、axis=1 后缀归一化主路径，以及 `mean/inv_std` aux 多输出主路径；更多 rank、stash_type、极小方差、空维度和异常 axis 组合仍建议继续补充 case matrix。
 - `LpNormalization` 当前 mixed precision numerical 覆盖 p=2 以及 axis=2/p=1 的 bfloat16，float32 同时覆盖 p=1/p=2 和全零范数；更多 rank、空维度和异常 axis 组合仍建议继续扩展。
 - `GroupNormalization` 当前 C/CUDA numerical 覆盖 2 组 4 通道 NCHW 主路径；更多 group 数、非 4D 输入和极小方差边界仍建议后续继续补 case。
 - `Where`、`Identity`、`Squeeze`、`Unsqueeze`、`Size` 和 `IsInf` 已进入默认 C/CUDA mixed precision numerical；字符串张量、复杂广播形状、运行时 axes 输入等更宽语义仍主要由 ONNX reference pytest 覆盖。

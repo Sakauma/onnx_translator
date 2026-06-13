@@ -234,6 +234,58 @@ def test_c_backend_normalization_ops_match_onnx_reference_mixed_precision():
     np.testing.assert_allclose(layer_actual.data, layer_expected, rtol=1e-10, atol=1e-10)
 
 
+# 验证 LayerNormalization 的 mean/inv_std 多输出由 C 后端承载，并覆盖后缀 axis 与低精度写回。
+@pytest.mark.parametrize("dtype,rtol,atol", [("float32", 1e-6, 1e-6), ("float16", 2e-2, 2e-2), ("bfloat16", 2e-2, 2e-2)])
+def test_c_backend_layer_normalization_aux_outputs(dtype, rtol, atol):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x_f32 = np.linspace(-1.8, 1.4, 2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4)
+    scale_f32 = np.linspace(0.5, 1.7, 12, dtype=np.float32).reshape(3, 4)
+    bias_f32 = np.linspace(-0.3, 0.3, 12, dtype=np.float32).reshape(3, 4)
+    if dtype == "bfloat16":
+        x_data = _bf16_bits(x_f32)
+        scale_data = _bf16_bits(scale_f32)
+        bias_data = _bf16_bits(bias_f32)
+        x_ref = _bf16_to_float32(x_data)
+        scale_ref = _bf16_to_float32(scale_data)
+        bias_ref = _bf16_to_float32(bias_data)
+    else:
+        np_dtype = np.float16 if dtype == "float16" else np.float32
+        x_data = x_f32.astype(np_dtype)
+        scale_data = scale_f32.astype(np_dtype)
+        bias_data = bias_f32.astype(np_dtype)
+        x_ref = x_data.astype(np.float32)
+        scale_ref = scale_data.astype(np.float32)
+        bias_ref = bias_data.astype(np.float32)
+
+    op = LayerNormalization(
+        ["x", "scale", "bias"],
+        ["y", "mean", "inv_std"],
+        axis=1,
+        epsilon=1e-4,
+        stash_type=1,
+        dtype=dtype,
+    )
+    assert getattr(op, "_has_layer_norm_stats_c_backend", False)
+
+    actual_y, actual_mean, actual_inv_std = op.forward(
+        _tensor(x_data, dtype),
+        _tensor(scale_data, dtype),
+        _tensor(bias_data, dtype),
+    )["tensor"]
+
+    work = x_ref.reshape(2, 12)
+    expected_mean = np.mean(work, axis=1, keepdims=True)
+    expected_inv_std = np.reciprocal(np.sqrt(np.mean((work - expected_mean) ** 2, axis=1, keepdims=True) + 1e-4))
+    expected_y = ((work - expected_mean) * expected_inv_std).reshape(2, 3, 4) * scale_ref + bias_ref
+
+    actual_y_data = _bf16_to_float32(actual_y.data) if dtype == "bfloat16" else actual_y.data.astype(np.float32)
+    np.testing.assert_allclose(actual_y_data, expected_y, rtol=rtol, atol=atol)
+    np.testing.assert_allclose(actual_mean.data, expected_mean.reshape(2, 1, 1), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(actual_inv_std.data, expected_inv_std.reshape(2, 1, 1), rtol=1e-6, atol=1e-6)
+
+
 # 验证 LRN 和 MVN 按 ONNX schema 公式计算，覆盖 reference evaluator 当前不可靠的路径。
 def test_c_backend_lrn_and_mvn_match_independent_onnx_formulas():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):

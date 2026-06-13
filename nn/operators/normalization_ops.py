@@ -501,6 +501,15 @@ class LayerNormalization(Ops):
                 ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
                 ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_float
             ]
+            try:
+                self.lib.layer_norm_multi_output_forward.argtypes = [
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                    ctypes.c_int, ctypes.c_float
+                ]
+                self._has_layer_norm_stats_c_backend = True
+            except AttributeError:
+                self._has_layer_norm_stats_c_backend = False
 
     # 执行 `LayerNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, scale=None, B=None):
@@ -512,15 +521,19 @@ class LayerNormalization(Ops):
         row_number = int(np.prod(x_data.shape[:axis], dtype=np.int64)) if axis > 0 else 1
         col_number = int(np.prod(x_data.shape[axis:], dtype=np.int64))
         wants_aux_outputs = len([name for name in self.outputs if name]) > 1
-        if (
+        can_use_c_backend = (
             self.lib is not None
-            and not wants_aux_outputs
             and self.dtype in nn.DTYPE_MAP
+            and self.stash_dtype in nn.DTYPE_MAP
             and x.dtype in nn.DTYPE_MAP
             and (scale is None or scale.dtype in nn.DTYPE_MAP)
             and (B is None or B.dtype in nn.DTYPE_MAP)
             and (scale is None or int(np.prod(scale.size, dtype=np.int64)) == col_number)
             and (B is None or int(np.prod(B.size, dtype=np.int64)) == col_number)
+        )
+        if (
+            can_use_c_backend
+            and not wants_aux_outputs
         ):
             x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
             scale_c = (
@@ -542,6 +555,43 @@ class LayerNormalization(Ops):
                 self.lib.free_tensor(b_c)
             self.lib.free_tensor(out_c)
             return {"tensor": Tensor(*x.size, dtype=self.dtype, data=y_data), "parameters": None}
+        if can_use_c_backend and wants_aux_outputs and getattr(self, "_has_layer_norm_stats_c_backend", False):
+            x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
+            scale_c = (
+                self._numpy_to_ctensor(np.ascontiguousarray(scale.data), scale.dtype)
+                if scale is not None else ctypes.POINTER(CTensor)()
+            )
+            b_c = (
+                self._numpy_to_ctensor(np.ascontiguousarray(B.data), B.dtype)
+                if B is not None else ctypes.POINTER(CTensor)()
+            )
+            output_shape_c = (ctypes.c_int * len(x.size))(*x.size)
+            reduction_shape = tuple(x_data.shape[:axis]) + (1,) * (rank - axis)
+            reduction_shape_c = (ctypes.c_int * len(reduction_shape))(*reduction_shape)
+            out_c = self.lib.create_tensor(output_shape_c, len(x.size), nn.DTYPE_MAP[self.dtype])
+            mean_c = self.lib.create_tensor(reduction_shape_c, len(reduction_shape), nn.DTYPE_MAP[self.stash_dtype])
+            inv_std_c = self.lib.create_tensor(reduction_shape_c, len(reduction_shape), nn.DTYPE_MAP[self.stash_dtype])
+            self.lib.layer_norm_multi_output_forward(
+                x_c, scale_c, b_c, out_c, mean_c, inv_std_c, ctypes.c_int(axis), ctypes.c_float(self.epsilon)
+            )
+            y_data = self._ctensor_to_numpy(out_c, self.dtype)
+            mean_data = self._ctensor_to_numpy(mean_c, self.stash_dtype)
+            inv_std_data = self._ctensor_to_numpy(inv_std_c, self.stash_dtype)
+            self.lib.free_tensor(x_c)
+            if scale is not None:
+                self.lib.free_tensor(scale_c)
+            if B is not None:
+                self.lib.free_tensor(b_c)
+            self.lib.free_tensor(out_c)
+            self.lib.free_tensor(mean_c)
+            self.lib.free_tensor(inv_std_c)
+            outputs = (
+                Tensor(*x.size, dtype=self.dtype, data=y_data),
+                Tensor(*reduction_shape, dtype=self.stash_dtype, data=mean_data),
+                Tensor(*reduction_shape, dtype=self.stash_dtype, data=inv_std_data),
+            )
+            selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
+            return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
         stash_np_dtype = np.float32 if self.stash_dtype == "bfloat16" else nn.DTYPE_TO_NUMPY.get(self.stash_dtype, np.float32)
         work = x_data.astype(stash_np_dtype, copy=False).reshape(row_number, col_number)
         mean = np.mean(work, axis=1, keepdims=True)

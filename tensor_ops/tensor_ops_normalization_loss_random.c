@@ -654,6 +654,56 @@ void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
 }
 
 
+// LayerNormalization 多输出
+// 沿着 axis 后缀维度归一化，同时输出每个归一化切片的 mean 和 inv_std。
+// 实现 `layer norm` 多输出 C 后端入口，避免 mean/inv_std 辅助输出回退到 Python 数值路径。
+void layer_norm_multi_output_forward(const Tensor* input, const Tensor* scale, const Tensor* B,
+                                     Tensor* output, Tensor* mean_output, Tensor* inv_std_output,
+                                     int axis, float epsilon) {
+    if (!input || !output || !mean_output || !inv_std_output) return;
+
+    int ndim = input->ndim;
+    if (axis < 0) axis += ndim;
+    if (axis < 0 || axis >= ndim) return;
+
+    size_t norm_dim = 1;
+    for (int i = axis; i < ndim; i++) norm_dim *= (size_t)input->shape[i];
+    size_t outer_size = 1;
+    for (int i = 0; i < axis; i++) outer_size *= (size_t)input->shape[i];
+
+    #pragma omp parallel for
+    for (size_t row = 0; row < outer_size; row++) {
+        size_t offset = row * norm_dim;
+
+        double sum = 0.0;
+        for (size_t col = 0; col < norm_dim; col++) {
+            sum += get_value_as_double(input, offset + col);
+        }
+        double mean = sum / (double)norm_dim;
+
+        double sum_sq_diff = 0.0;
+        for (size_t col = 0; col < norm_dim; col++) {
+            double value = get_value_as_double(input, offset + col);
+            double diff = value - mean;
+            sum_sq_diff += diff * diff;
+        }
+        double variance = sum_sq_diff / (double)norm_dim;
+        double inv_std = 1.0 / sqrt(variance + (double)epsilon);
+
+        set_tensor_value_from_float(mean_output, row, mean);
+        set_tensor_value_from_float(inv_std_output, row, inv_std);
+
+        for (size_t col = 0; col < norm_dim; col++) {
+            double x = get_value_as_double(input, offset + col);
+            double s = scale ? get_value_as_double(scale, col) : 1.0;
+            double b = B ? get_value_as_double(B, col) : 0.0;
+            double y = (x - mean) * inv_std * s + b;
+            set_tensor_value_from_float(output, offset + col, y);
+        }
+    }
+}
+
+
 // 根据输出元素坐标计算 scale 在单向广播规则下对应的元素索引。
 static size_t rms_scale_broadcast_index(const Tensor* input, const Tensor* scale, size_t output_index) {
     if (!input || !scale || !scale->data || scale->size == 0) return (size_t)-1;

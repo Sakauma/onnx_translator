@@ -866,6 +866,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("iou_threshold_value", None)
             op_init_args.pop("score_threshold_value", None)
             emit_log_prob = int(op_init_args.pop("emit_log_prob", 0))
+            emit_stats = int(op_init_args.pop("emit_stats", 0))
             op_init_args.pop("split_value", None)
             num_outputs = int(op_init_args.pop("num_outputs", len(init_args.get("split_value", [])) or 1))
             shape_value = op_init_args.pop("shape_value", None)
@@ -904,6 +905,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 op = op_cls(inputs=[], outputs=outputs, dtype=out_dtype, **op_init_args)
                 out = op.forward(*valid_tensors)["tensor"]
                 nps_out = [tensor.data for tensor in out] if len(outputs) > 1 else out.data
+
+            elif op_name == "layer_normalization" and emit_stats:
+                op = op_cls(inputs=[], outputs=["y", "mean", "inv_std"], dtype=out_dtype, **op_init_args)
+                nps_out = [tensor.data for tensor in op.forward(*valid_tensors)["tensor"]]
 
             elif op_name in {"hann_window", "hamming_window", "blackman_window"}:
                 op = op_cls(
@@ -1647,7 +1652,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             has_scale = 1 if inputs_np[1] is not None else 0
             has_bias = 1 if inputs_np[2] is not None else 0
             params_bin = (
-                np.array([row_count, normalized_size, has_scale, has_bias], dtype=np.int32).tobytes()
+                np.array([row_count, normalized_size, has_scale, has_bias, int(init_args.get("emit_stats", 0))], dtype=np.int32).tobytes()
                 + np.array([float(init_args.get("epsilon", 1e-5))], dtype=np.float32).tobytes()
             )
 
@@ -1985,6 +1990,72 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             else:
                 print(f"  ❌ Iter {i} FAILED")
                 print(f"     BatchNormalization training {failed_name} mismatch")
+                print(f"     Max Abs Diff: {max_abs_all:.6f} (Limit: {atol})")
+                print(f"     Max Rel Diff: {max_rel_all:.6f} (Limit: {rtol})")
+                break
+            continue
+
+        if op_name == "layer_normalization" and int(init_args.get("emit_stats", 0)):
+            y_np, mean_np, inv_std_np = [np.asarray(out) for out in nps_out]
+            cuda_inputs = [
+                np.ascontiguousarray(to_float32(inputs_np[idx], dtypes[idx]).astype(np.float64))
+                for idx in range(3)
+            ]
+            cuda_y = run_cuda_ground_truth(
+                op_name,
+                cuda_inputs,
+                params_binary=params_bin,
+                output_dtype=np.float64,
+                target_shape=y_np.shape,
+            )
+            if cuda_y is None:
+                continue
+
+            side_paths = {
+                "mean": "tmp_layer_norm_mean.bin",
+                "inv_std": "tmp_layer_norm_inv_std.bin",
+            }
+            if not all(os.path.exists(path) for path in side_paths.values()):
+                print(f"  ❌ Iter {i} FAILED")
+                print("     Missing LayerNormalization stats sidecar output")
+                for path in side_paths.values():
+                    if os.path.exists(path):
+                        os.remove(path)
+                break
+
+            cuda_mean = np.fromfile(side_paths["mean"], dtype=np.float64).reshape(mean_np.shape)
+            cuda_inv_std = np.fromfile(side_paths["inv_std"], dtype=np.float64).reshape(inv_std_np.shape)
+            for path in side_paths.values():
+                os.remove(path)
+
+            stash_dtype = nn.onnx_dtype_mapping.get(int(init_args.get("stash_type", 1)), "float32")
+            comparisons = [
+                ("y", y_np, cuda_y, out_dtype),
+                ("mean", mean_np, cuda_mean, stash_dtype),
+                ("inv_std", inv_std_np, cuda_inv_std, stash_dtype),
+            ]
+            ok_all = True
+            max_abs_all = 0.0
+            max_rel_all = 0.0
+            failed_name = ""
+            for name, expected, actual, dtype_name in comparisons:
+                expected_f32 = to_float32(expected, dtype_name)
+                actual_q = quantize_to_dtype_float32(actual, dtype_name)
+                ok, max_abs, max_rel, _fail_mask = check_accuracy(expected_f32, actual_q, atol, rtol, dtype_name)
+                max_abs_all = max(max_abs_all, max_abs if max_abs >= 0 else 0.0)
+                max_rel_all = max(max_rel_all, max_rel if max_rel >= 0 else 0.0)
+                if not ok:
+                    ok_all = False
+                    failed_name = name
+                    break
+
+            stats_abs.append(max_abs_all)
+            stats_rel.append(max_rel_all)
+            if ok_all:
+                pass_cnt += 1
+            else:
+                print(f"  ❌ Iter {i} FAILED")
+                print(f"     LayerNormalization {failed_name} mismatch")
                 print(f"     Max Abs Diff: {max_abs_all:.6f} (Limit: {atol})")
                 print(f"     Max Rel Diff: {max_rel_all:.6f} (Limit: {rtol})")
                 break
