@@ -686,13 +686,36 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[1] = from_float32(inputs_np[1], dtypes[1])
 
         if op_name == "dft":
-            inputs_np[0] = from_float32(np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32), dtypes[0])
+            dft_variant = init_args.get("dft_variant", "real_onesided")
+            if dft_variant == "complex_full":
+                values = np.array(
+                    [[[1.0, 0.25], [2.0, -0.5], [-1.0, 0.75], [0.5, -1.25]]],
+                    dtype=np.float32,
+                )
+            elif dft_variant == "inverse_onesided":
+                values = np.array([[[10.0, 0.0], [-2.0, 1.0], [3.0, 0.0]]], dtype=np.float32)
+            else:
+                values = np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32)
+            inputs_np[0] = from_float32(values, dtypes[0])
             inputs_np[1] = np.array(init_args.get("dft_length_value", shapes[0][1]), dtype=np.int64)
 
         if op_name == "stft":
-            inputs_np[0] = from_float32(np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32), dtypes[0])
+            stft_variant = init_args.get("stft_variant", "windowed_onesided")
+            if stft_variant == "complex_no_window_full":
+                signal_values = np.array(
+                    [[[1.0, 0.25], [2.0, -0.5], [3.0, 0.75], [4.0, -1.25], [5.0, 0.5]]],
+                    dtype=np.float32,
+                )
+                window_values = None
+            elif stft_variant == "real_window_full":
+                signal_values = np.array([[[1.0], [2.0], [3.0], [4.0], [5.0]]], dtype=np.float32)
+                window_values = np.array([1.0, 0.5, 0.25], dtype=np.float32)
+            else:
+                signal_values = np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32)
+                window_values = np.array([1.0, 0.5], dtype=np.float32)
+            inputs_np[0] = from_float32(signal_values, dtypes[0])
             inputs_np[1] = np.array(init_args.get("frame_step_value", 2), dtype=np.int64)
-            inputs_np[2] = from_float32(np.array([1.0, 0.5], dtype=np.float32), dtypes[2])
+            inputs_np[2] = None if window_values is None else from_float32(window_values, dtypes[2])
             inputs_np[3] = np.array(init_args.get("frame_length_value", 2), dtype=np.int64)
 
         if op_name == "rnn":
@@ -874,6 +897,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("dft_length_value", None)
             op_init_args.pop("frame_step_value", None)
             op_init_args.pop("frame_length_value", None)
+            op_init_args.pop("dft_variant", None)
+            op_init_args.pop("stft_variant", None)
             op_init_args.pop("target_shape", None)
             op_init_args.pop("repeats_value", None)
             op_init_args.pop("pads_value", None)
@@ -1001,6 +1026,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             elif op_name == "negative_log_likelihood_loss":
                 op = op_cls(inputs=[], outputs=["loss"], dtype=out_dtype, **op_init_args)
                 nps_out = op.forward(*valid_tensors)["tensor"].data
+
+            elif op_name == "stft":
+                op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
+                nps_out = op.forward(inputs_tensor[0], inputs_tensor[1], inputs_tensor[2], inputs_tensor[3])["tensor"].data
 
             else:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)

@@ -29,8 +29,8 @@
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`636` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`435` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`644` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`439` 条计划。
 
 ## 本轮已完成
 
@@ -71,6 +71,10 @@
 - 继续扩展 ROI 默认 numerical plan：新增 MaxRoiPool float32/bfloat16 的 `spatial_scale=0.5`、越界裁剪和空 ROI 输出计划；新增 RoiAlign float32/float16 的 `mode=max`、`coordinate_transformation_mode=output_half_pixel`、`sampling_ratio=0` 自适应采样和 `spatial_scale=0.75` 计划。
 - `tools/numerical/runner.py` 为 ROI 算子新增 `roi_variant` 内部测试参数，仅用于选择固定 ROI 坐标和 batch indices；构造算子前会移除该参数，公共算子接口和运行逻辑不变。
 - 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `636` 条，混合精度计划提升到 `435` 条。
+- 继续扩展谱算子默认 numerical plan：新增 DFT full spectrum 复数输入、DFT inverse onesided、STFT full spectrum window、STFT full spectrum 复数输入且无 window 分支。
+- `tools/numerical/runner.py` 为 DFT/STFT 新增 `dft_variant` 和 `stft_variant` 内部测试参数，仅用于选择固定谱样本；构造算子前会移除这些参数，公共算子接口和运行逻辑不变。
+- STFT numerical runner 现在显式保留可选 `window=None` 的参数位置，避免过滤 None 后把 `frame_length` 误传为 window。
+- 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `644` 条，混合精度计划提升到 `439` 条。
 
 ## 本轮已运行验证
 
@@ -78,6 +82,10 @@
 - `git diff --check`
 - `python tools/cli.py compile-cuda`
   - 结果：`178` 个 CUDA verifier 编译成功。
+- `python tools/cli.py numerical --op dft --op stft --iterations 3 --skip-plots`
+  - 结果：全部通过，DFT/STFT 各 7 个 active plan 样本均与 CUDA reference 对齐。
+- `python -m pytest -q tests/test_operator_spectral_semantics.py`
+  - 结果：`2 passed`。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
   - 结果：全部通过，误差为 `0`。
 - `python tools/cli.py numerical --op tril --op triu --op trilu --op hann_window --op hamming_window --op blackman_window --iterations 3 --skip-plots`
@@ -119,7 +127,7 @@
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 结果：`636` 条默认计划完整 numerical 一轮全部通过。
+  - 结果：`644` 条默认计划完整 numerical 一轮全部通过。
 - `python -m pytest -q tests`
   - 结果：`298 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
@@ -152,5 +160,5 @@
 - `LayerNormalization` 已覆盖单输出和 `mean/inv_std` aux 多输出 C/CUDA 主路径；更多 rank、stash_type、极小方差、空维度和异常 axis 组合仍建议继续扩展。
 - `GridSample` 已覆盖 linear/reflection、nearest/border 与 cubic/zeros 的 C/CUDA numerical 路径；更多 5D 输入、极端越界坐标、边界点插值和 align_corners 组合仍建议继续扩展。
 - `MaxRoiPool` 已覆盖默认 ROI、spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 写回；`RoiAlign` 已覆盖 avg/half_pixel、max/output_half_pixel、自适应采样和 float16 写回。更多 ROI 数量、边界点采样、异常 batch index 和不同输出尺寸仍建议继续补充。
-- `RNN`、`GRU`、`LSTM`、`DFT`、`STFT` 已进入默认门禁，但仍建议继续扩展更多 direction、axis、window 和边界输入。
+- `DFT`/`STFT` 已补充 full spectrum、复数输入、inverse onesided、STFT 无 window 和低精度分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已进入默认门禁，但仍建议继续扩展更多 direction、layout、activation 和边界输入。
 - `Attention`、`DeformConv` 等复杂算子已覆盖主 C/CUDA 路径，部分 cache、nonpad、多输出或高维 fallback 仍主要由 ONNX reference pytest 覆盖。
