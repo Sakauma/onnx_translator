@@ -549,7 +549,7 @@ void instance_norm_forward(const Tensor* input, const Tensor* scale, const Tenso
 
 
 // LayerNormalization
-// 沿着 axis 轴进行归一化 (通常 axis=-1)
+// 沿着 axis 开始的后缀维度进行归一化。
 // 实现 `layer norm` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                         Tensor* output, int axis, float epsilon) {
@@ -557,32 +557,33 @@ void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
     
     int ndim = input->ndim;
     if (axis < 0) axis += ndim;
+    if (axis < 0 || axis >= ndim) return;
     
-    // 偷懒，假设 axis 是最后一维 (ONNX LayerNorm 默认也是 -1)
-    int norm_dim = input->shape[axis];
+    size_t norm_dim = 1;
+    for (int i = axis; i < ndim; i++) norm_dim *= (size_t)input->shape[i];
     size_t outer_size = 1;
-    for (int i = 0; i < axis; i++) outer_size *= input->shape[i];
+    for (int i = 0; i < axis; i++) outer_size *= (size_t)input->shape[i];
     
     #pragma omp parallel for
     for (size_t i = 0; i < outer_size; i++) {
         size_t offset = i * norm_dim;
         
         double sum = 0.0;
-        for (int j = 0; j < norm_dim; j++) {
+        for (size_t j = 0; j < norm_dim; j++) {
             sum += get_value_as_double(input, offset + j);
         }
-        double mean = sum / norm_dim;
+        double mean = sum / (double)norm_dim;
         
         double sum_sq_diff = 0.0;
-        for (int j = 0; j < norm_dim; j++) {
+        for (size_t j = 0; j < norm_dim; j++) {
             double val = get_value_as_double(input, offset + j);
             double diff = val - mean;
             sum_sq_diff += diff * diff;
         }
-        double var = sum_sq_diff / norm_dim;
+        double var = sum_sq_diff / (double)norm_dim;
         double inv_std = 1.0 / sqrt(var + epsilon);
         
-        for (int j = 0; j < norm_dim; j++) {
+        for (size_t j = 0; j < norm_dim; j++) {
             double x = get_value_as_double(input, offset + j);
             
             double s = 1.0;

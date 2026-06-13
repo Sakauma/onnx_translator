@@ -467,15 +467,18 @@ class LayerNormalization(Ops):
         axis = self.axis if self.axis >= 0 else self.axis + rank
         if axis < 0 or axis >= rank:
             raise ValueError(f"LayerNormalization axis {self.axis} is out of bounds for rank {rank}")
+        row_number = int(np.prod(x_data.shape[:axis], dtype=np.int64)) if axis > 0 else 1
+        col_number = int(np.prod(x_data.shape[axis:], dtype=np.int64))
         wants_aux_outputs = len([name for name in self.outputs if name]) > 1
         if (
             self.lib is not None
             and not wants_aux_outputs
-            and axis == rank - 1
             and self.dtype in nn.DTYPE_MAP
             and x.dtype in nn.DTYPE_MAP
             and (scale is None or scale.dtype in nn.DTYPE_MAP)
             and (B is None or B.dtype in nn.DTYPE_MAP)
+            and (scale is None or int(np.prod(scale.size, dtype=np.int64)) == col_number)
+            and (B is None or int(np.prod(B.size, dtype=np.int64)) == col_number)
         ):
             x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
             scale_c = (
@@ -497,8 +500,6 @@ class LayerNormalization(Ops):
                 self.lib.free_tensor(b_c)
             self.lib.free_tensor(out_c)
             return {"tensor": Tensor(*x.size, dtype=self.dtype, data=y_data), "parameters": None}
-        row_number = int(np.prod(x_data.shape[:axis], dtype=np.int64)) if axis > 0 else 1
-        col_number = int(np.prod(x_data.shape[axis:], dtype=np.int64))
         stash_np_dtype = np.float32 if self.stash_dtype == "bfloat16" else nn.DTYPE_TO_NUMPY.get(self.stash_dtype, np.float32)
         work = x_data.astype(stash_np_dtype, copy=False).reshape(row_number, col_number)
         mean = np.mean(work, axis=1, keepdims=True)

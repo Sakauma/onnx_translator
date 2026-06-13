@@ -27,8 +27,8 @@
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`620` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`426` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`622` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`427` 条计划。
 
 ## 本轮已完成
 
@@ -57,6 +57,7 @@
 - 新增 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression` 的独立 CUDA verifier 和默认 numerical plan，覆盖 ignore_index、reduction、权重、log_prob 多输出、score 阈值、IoU 抑制和 center_point_box 主路径。
 - 继续扩展 `NonMaxSuppression` 默认 numerical plan：新增多 batch/class、排序 tie、score 阈值等值包含、跨 batch/class 输出顺序和 float16 空输出边界 case。
 - 继续扩展 `LpNormalization` 默认 numerical plan：新增 ONNX reference 明确要求的零范数返回 0 边界，并补充 axis=2、p=1、bfloat16 位写回路径。
+- 修正 `LayerNormalization` C 后端的 axis 语义，从仅按 `shape[axis]` 归一化扩展为按 `axis` 后缀维度归一化；默认 numerical plan 新增 axis=1 的 float32/bfloat16 单输出路径。
 - 新增 `Binarizer` 的独立 CUDA verifier 和默认 numerical plan，覆盖 threshold 两侧和恰好等于 threshold 的严格大于边界，并补入 float16、bfloat16、float8_e4m3、float8_e5m2 混合精度门禁。
 
 ## 本轮已运行验证
@@ -87,12 +88,14 @@
   - 结果：全部通过，Binarizer 的五条计划、NLLLoss 的三条计划、SCE Loss 的三条计划和 NMS 的四条计划均对齐 CUDA reference。
 - `python tools/cli.py numerical --op lp_normalization --iterations 3 --skip-plots`
   - 结果：全部通过，6 条 LpNormalization 默认计划均对齐 CUDA reference。
+- `python tools/cli.py numerical --op layer_normalization --iterations 3 --skip-plots`
+  - 结果：全部通过，5 条 LayerNormalization 默认计划均对齐 CUDA reference。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 结果：`2 passed, 56 deselected`。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 结果：`620` 条默认计划完整 numerical 一轮全部通过。
+  - 结果：`622` 条默认计划完整 numerical 一轮全部通过。
 
 ## 仍未完成的普通 C-backed 数值门禁
 

@@ -419,10 +419,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[2] = from_float32(bias_values, dtypes[2])
 
         if op_name == "layer_normalization":
-            # LayerNormalization 使用最后一维 scale/bias，覆盖当前 C 后端承载的 axis=-1 主路径和低精度写回。
+            # LayerNormalization 使用后缀维度 scale/bias，覆盖 C 后端承载的单输出主路径和低精度写回。
             x_values = np.linspace(-1.8, 1.4, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
-            scale_values = np.array([1.0, 0.5, 1.5, -0.5], dtype=np.float32).reshape(shapes[1])
-            bias_values = np.array([0.1, -0.2, 0.3, 0.0], dtype=np.float32).reshape(shapes[2])
+            scale_values = np.linspace(0.5, 1.7, int(np.prod(shapes[1])), dtype=np.float32).reshape(shapes[1])
+            bias_values = np.linspace(-0.3, 0.3, int(np.prod(shapes[2])), dtype=np.float32).reshape(shapes[2])
             inputs_np[0] = from_float32(x_values, dtypes[0])
             inputs_np[1] = from_float32(scale_values, dtypes[1])
             inputs_np[2] = from_float32(bias_values, dtypes[2])
