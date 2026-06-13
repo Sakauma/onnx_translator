@@ -13,7 +13,7 @@
 
 # 当前进度与剩余工作交接
 
-> 记录时间：2026-06-05
+> 记录时间：2026-06-13
 > 当前分支：`main`
 > 基准报告：`docs/reports/operator_coverage.md`
 
@@ -26,9 +26,9 @@
 - forward 实际接入 C 后端：`178` 个算子类。
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
-- CUDA verifier：`154` 个。
-- 默认 active numerical plan：`154` 个唯一算子名称，`564` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`398` 条计划。
+- CUDA verifier：`165` 个。
+- 默认 active numerical plan：`165` 个唯一算子名称，`586` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`409` 条计划。
 
 ## 本轮已完成
 
@@ -42,15 +42,23 @@
 - `tools/numerical/runner.py` 为位运算使用固定 `int32` 样本，并保持整数二进制输入直接传给 CUDA reference，避免按浮点路径转换破坏位模式。
 - `BitShift` numerical 覆盖 `LEFT` 和 `RIGHT` 两个 direction。
 - 位运算属于整数/布尔位模式语义，不存在 float16、bfloat16、float8 混合精度路径；当前以 `int32` 主路径进入默认数值门禁，`uint32`/`uint64` 边界由 pytest 覆盖，后续可继续补 CUDA plan。
+- 新增 `Tril`、`Triu`、`Trilu`、`HannWindow`、`HammingWindow`、`BlackmanWindow` 的独立 CUDA verifier 和默认 numerical plan。
+- 三角类通过 `params.bin` 独立传入 `k` 和 `upper`，覆盖 float32 与低精度主路径；窗口类覆盖 periodic/non-periodic 以及 float32、float16、bfloat16 存储路径。
+- 新增 `Range`、`OneHot`、`ReverseSequence`、`Det`、`MelWeightMatrix` 的独立 CUDA verifier 和默认 numerical plan。
+- `Range` 和 `MelWeightMatrix` 的 numerical plan 使用 `(1,)` 标量输入形状，避开空 shape 随机数据生成路径；窗函数和 `MelWeightMatrix` 通过 ONNX `output_datatype` 编码显式控制输出类型。
 
 ## 本轮已运行验证
 
 - `python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`
 - `git diff --check`
 - `python tools/cli.py compile-cuda`
-  - 结果：`154` 个 CUDA verifier 编译成功。
+  - 结果：`165` 个 CUDA verifier 编译成功。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
   - 结果：全部通过，误差为 `0`。
+- `python tools/cli.py numerical --op tril --op triu --op trilu --op hann_window --op hamming_window --op blackman_window --iterations 3 --skip-plots`
+  - 结果：全部通过，误差为 `0`。
+- `python tools/cli.py numerical --op range --op one_hot --op reverse_sequence --op det --op mel_weight_matrix --iterations 3 --skip-plots`
+  - 结果：全部通过。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 结果：`2 passed, 56 deselected`。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
@@ -60,14 +68,13 @@
 
 ## 仍未完成的普通 C-backed 数值门禁
 
-以下算子已有 C runtime path 或 C 后端函数，但当前仍缺少 CUDA verifier / 默认 numerical plan，后续应优先补独立 reference，而不是回退到 Python 数值实现：
+以下 `12` 个算子已有 C runtime path 或 C 后端函数，但当前仍缺少 CUDA verifier / 默认 numerical plan，后续应优先补独立 reference，而不是回退到 Python 数值实现：
 
 - 随机/采样：`Bernoulli`、`Multinomial`、`RandomNormal`、`RandomNormalLike`、`RandomUniform`。
+- 随机掩码：`Dropout`。
 - 损失/检测：`NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression`。
-- 窗函数/特征：`HannWindow`、`HammingWindow`、`BlackmanWindow`、`MelWeightMatrix`。
-- 量化/阈值：`DynamicQuantizeLinear`、`Binarizer`。
-- 形状/索引/集合：`Range`、`OneHot`、`ReverseSequence`、`Unique`。
-- 线性代数/三角：`Det`、`Tril`、`Triu`、`Trilu`。
+- 量化：`DynamicQuantizeLinear`。
+- 集合：`Unique`。
 - 结构拆分：`Split` 当前通过 `slice_forward` 执行并已有 pytest/ONNX reference 覆盖，但还没有独立默认 numerical plan。
 
 ## 合理保留 Python 调度的范围
@@ -82,10 +89,9 @@
 
 ## 后续建议优先级
 
-1. 优先补 `Tril`、`Triu`、`Trilu`：三者共用 triangular C 后端，CUDA reference 和 numerical plan 可共用同一套参数，收益高且风险低。
-2. 补窗函数 `HannWindow`、`HammingWindow`、`BlackmanWindow`：输入输出简单，容易扩展 float32/float16/bfloat16 主路径。
-3. 补 `Range`、`OneHot`、`ReverseSequence`：官方语义明确，但需要注意输出 shape、轴参数和整数输入 dtype。
-4. 再处理损失、随机、NMS、DynamicQuantizeLinear 等高风险算子：这些需要更细的确定性 reference、随机种子或阈值边界设计。
+1. 优先补 `Split`、`Unique`、`DynamicQuantizeLinear` 和 `Dropout`：这些相对确定，但需要处理多输出、排序稳定性、量化舍入和随机掩码语义。
+2. 再处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`：这些需要更细的索引、阈值和归约边界设计。
+3. 最后集中处理随机/采样算子：`Bernoulli`、`Multinomial`、`RandomNormal`、`RandomNormalLike`、`RandomUniform`；这些需要先确定 seed、分布容差和 reference 统计口径。
 
 ## 当前剩余风险
 

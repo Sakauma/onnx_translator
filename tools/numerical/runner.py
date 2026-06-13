@@ -64,6 +64,28 @@ def _normalize_slice_parameters(input_shape, starts, ends, axes, steps):
     return full_starts, full_ends, full_steps
 
 
+def _onnx_dtype_id_from_name(dtype_name):
+    # 将本地 dtype 字符串转回 ONNX TensorProto 的整数编码，供 Window 类构造 output_datatype 使用。
+    mapping = {
+        "float32": 1,
+        "uint8": 2,
+        "int8": 3,
+        "uint16": 4,
+        "int16": 5,
+        "int32": 6,
+        "int64": 7,
+        "bool": 9,
+        "float16": 10,
+        "float64": 11,
+        "uint32": 12,
+        "uint64": 13,
+        "bfloat16": 16,
+    }
+    if dtype_name not in mapping:
+        raise ValueError(f"Unsupported ONNX output_datatype for numerical window plan: {dtype_name}")
+    return mapping[dtype_name]
+
+
 def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterations=5):
     init_args = init_args or {}
     print(f"🧪 Testing {op_name.upper()}: {dtypes} -> {out_dtype}")
@@ -288,6 +310,57 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             total = int(np.prod(shapes[0]))
             values = np.linspace(-3.0, 3.0, total, dtype=np.float32).reshape(shapes[0])
             inputs_np[0] = from_float32(values, dtypes[0])
+
+        if op_name in {"tril", "triu", "trilu"}:
+            # 三角矩阵类算子使用固定二维样本和显式 k，覆盖上下三角遮罩与低精度位模式搬运。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(-3.5, 4.5, total, dtype=np.float32).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+            inputs_np[1] = np.asarray(init_args.get("k_value", -1), dtype=np.int64)
+
+        if op_name == "range":
+            # Range 使用固定标量，覆盖正 delta 与非整数步长，避免随机 delta 为 0 或输出过长。
+            inputs_np[0] = from_float32(np.asarray(init_args.get("start_value", -2.0), dtype=np.float32), dtypes[0])
+            inputs_np[1] = from_float32(np.asarray(init_args.get("limit_value", 3.0), dtype=np.float32), dtypes[1])
+            inputs_np[2] = from_float32(np.asarray(init_args.get("delta_value", 0.75), dtype=np.float32), dtypes[2])
+
+        if op_name == "one_hot":
+            # OneHot 使用正负混合索引，覆盖负索引归一化、越界忽略和 axis 插入语义。
+            indices = np.asarray([[0, 1, -1], [3, 4, -5]], dtype=np.int64).reshape(shapes[0])
+            values = np.asarray(init_args.get("values_value", [-0.5, 2.0]), dtype=np.float32).reshape(shapes[2])
+            inputs_np[0] = indices
+            inputs_np[1] = np.asarray(init_args.get("depth_value", 4), dtype=np.int64)
+            inputs_np[2] = from_float32(values, dtypes[2])
+
+        if op_name == "reverse_sequence":
+            # ReverseSequence 使用每个 batch 不同的 sequence length，覆盖部分反转和保持尾部不变。
+            total = int(np.prod(shapes[0]))
+            values = np.linspace(-2.0, 2.0, total, dtype=np.float32).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+            inputs_np[1] = np.asarray(init_args.get("sequence_lens_value", [shapes[0][0]] * shapes[0][1]), dtype=np.int64)
+
+        if op_name == "det":
+            # Det 使用两组非奇异 3x3 矩阵，覆盖 batch determinant 和低精度输入量化后计算。
+            values = np.asarray(
+                [
+                    [[2.0, -1.0, 0.5], [1.0, 3.0, -2.0], [0.0, 1.5, 4.0]],
+                    [[-1.0, 2.0, 1.0], [0.5, -3.0, 2.5], [3.0, 0.0, 1.0]],
+                ],
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+
+        if op_name == "mel_weight_matrix":
+            # MelWeightMatrix 的五个输入都是标量，使用固定语音频段参数覆盖三角滤波器生成。
+            inputs_np[0] = np.asarray(init_args.get("num_mel_bins_value", 4), dtype=np.int64)
+            inputs_np[1] = np.asarray(init_args.get("dft_length_value", 10), dtype=np.int64)
+            inputs_np[2] = np.asarray(init_args.get("sample_rate_value", 16000), dtype=np.int64)
+            inputs_np[3] = np.asarray(init_args.get("lower_edge_hertz_value", 20.0), dtype=np.float32)
+            inputs_np[4] = np.asarray(init_args.get("upper_edge_hertz_value", 7600.0), dtype=np.float32)
+
+        if op_name in {"hann_window", "hamming_window", "blackman_window"}:
+            # Window 算子输入是标量 size；显式设置可避免随机整数生成非法窗口长度。
+            inputs_np[0] = np.asarray(init_args.get("window_size_value", 8), dtype=np.int64)
 
         if op_name in {"cast", "cast_like"}:
             # Cast 类计划使用包含负数、零和小数的有限样本，覆盖向零截断、bool 和低精度写回主路径。
@@ -661,6 +734,17 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("position_ids_value", None)
             op_init_args.pop("image_shape_value", None)
             op_init_args.pop("block_shape_value", None)
+            op_init_args.pop("window_size_value", None)
+            op_init_args.pop("start_value", None)
+            op_init_args.pop("limit_value", None)
+            op_init_args.pop("delta_value", None)
+            op_init_args.pop("depth_value", None)
+            op_init_args.pop("values_value", None)
+            op_init_args.pop("sequence_lens_value", None)
+            op_init_args.pop("num_mel_bins_value", None)
+            op_init_args.pop("sample_rate_value", None)
+            op_init_args.pop("lower_edge_hertz_value", None)
+            op_init_args.pop("upper_edge_hertz_value", None)
             shape_value = op_init_args.pop("shape_value", None)
             fill_value = op_init_args.pop("fill_value", None)
             if op_name == "constant_of_shape" and fill_value is not None:
@@ -688,6 +772,28 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
 
             elif op_name == "batch_normalization":
                 op = op_cls(inputs=[], outputs=["y"], dtype=out_dtype, **op_init_args)
+                nps_out = op.forward(*valid_tensors)["tensor"].data
+
+            elif op_name in {"hann_window", "hamming_window", "blackman_window"}:
+                op = op_cls(
+                    inputs=[],
+                    outputs=[],
+                    output_datatype=_onnx_dtype_id_from_name(out_dtype),
+                    **op_init_args,
+                )
+                nps_out = op.forward(valid_tensors[0])["tensor"].data
+
+            elif op_name == "mel_weight_matrix":
+                op = op_cls(
+                    inputs=[],
+                    outputs=[],
+                    output_datatype=_onnx_dtype_id_from_name(out_dtype),
+                    **op_init_args,
+                )
+                nps_out = op.forward(*valid_tensors)["tensor"].data
+
+            elif op_name in {"tril", "triu", "trilu"}:
+                op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
                 nps_out = op.forward(*valid_tensors)["tensor"].data
 
             else:
@@ -1212,6 +1318,62 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 dtype=np.int32,
             ).tobytes()
 
+        elif op_name in {"tril", "triu", "trilu"}:
+            input_shape = list(map(int, shapes[0]))
+            if op_name == "tril":
+                upper = 0
+            elif op_name == "triu":
+                upper = 1
+            else:
+                upper = int(init_args.get("upper", 1))
+            k_val = int(np.asarray(inputs_np[1]).item()) if len(inputs_np) > 1 else int(init_args.get("k_value", 0))
+            params_bin = np.array([len(input_shape), upper, k_val, *input_shape], dtype=np.int32).tobytes()
+
+        elif op_name == "one_hot":
+            indices_shape = list(map(int, shapes[0]))
+            output_shape = list(map(int, np.asarray(nps_out).shape))
+            axis = int(init_args.get("axis", -1))
+            if axis < 0:
+                axis += len(output_shape)
+            depth = int(np.asarray(inputs_np[1]).item())
+            params_bin = np.array(
+                [len(indices_shape), len(output_shape), axis, depth, *indices_shape, *output_shape],
+                dtype=np.int32,
+            ).tobytes()
+
+        elif op_name == "reverse_sequence":
+            input_shape = list(map(int, shapes[0]))
+            rank = len(input_shape)
+            time_axis = int(init_args.get("time_axis", 0))
+            batch_axis = int(init_args.get("batch_axis", 1))
+            if time_axis < 0:
+                time_axis += rank
+            if batch_axis < 0:
+                batch_axis += rank
+            params_bin = np.array([rank, time_axis, batch_axis, *input_shape], dtype=np.int32).tobytes()
+
+        elif op_name == "det":
+            input_shape = list(map(int, shapes[0]))
+            n = input_shape[-1]
+            batch = int(np.prod(input_shape[:-2])) if len(input_shape) > 2 else 1
+            params_bin = np.array([batch, n], dtype=np.int32).tobytes()
+
+        elif op_name == "mel_weight_matrix":
+            bins = int(np.asarray(inputs_np[0]).item())
+            dft_len = int(np.asarray(inputs_np[1]).item())
+            sample_rate = int(np.asarray(inputs_np[2]).item())
+            lower = float(np.asarray(inputs_np[3]).item())
+            upper = float(np.asarray(inputs_np[4]).item())
+            spectrogram_bins = dft_len // 2 + 1
+            params_bin = (
+                np.array([bins, dft_len, sample_rate, spectrogram_bins], dtype=np.int32).tobytes()
+                + np.array([lower, upper], dtype=np.float32).tobytes()
+            )
+
+        elif op_name in {"hann_window", "hamming_window", "blackman_window"}:
+            size_value = int(np.asarray(inputs_np[0]).item())
+            params_bin = np.array([size_value, int(init_args.get("periodic", 1))], dtype=np.int32).tobytes()
+
         elif op_name == "compress":
             input_shape = list(map(int, shapes[0]))
             output_shape = list(map(int, np.asarray(nps_out).shape))
@@ -1468,6 +1630,26 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             nps_out = np.array([nps_out], dtype=nps_out.dtype)
         is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im", "deform_conv", "attention", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "lrn", "mean_variance_normalization", "batch_normalization", "instance_normalization", "layer_normalization", "lp_normalization", "group_normalization", "max_unpool", "grid_sample", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
         is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
+        int64_passthrough_ops = {
+            "gather", "scatternd", "tensor_scatter", "scatter_elements", "gather_elements", "gathernd",
+            "resize", "affine_grid", "topk", "max_unpool", "roi_align", "col2im", "dft", "stft",
+            "rnn", "gru", "lstm", "tile", "expand", "pad", "center_crop_pad", "slice",
+            "constant_of_shape", "rotary_embedding", "tril", "triu", "trilu",
+            "hann_window", "hamming_window", "blackman_window",
+            "range", "one_hot", "reverse_sequence", "mel_weight_matrix",
+        }
+        no_broadcast_ops = {
+            "matmul", "reduce_mean", "reduce_sum", "reduce_max", "reduce_min", "reduce_prod",
+            "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square",
+            "gather", "gather_elements", "gathernd", "scatternd", "tensor_scatter", "scatter_elements",
+            "nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum",
+            "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze",
+            "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth",
+            "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im",
+            "deform_conv", "attention", "tril", "triu", "trilu",
+            "hann_window", "hamming_window", "blackman_window",
+            "range", "one_hot", "reverse_sequence", "det", "mel_weight_matrix",
+        }
         
         cuda_inputs = []
         for i, (inp, d) in enumerate(zip(inputs_np, dtypes)):
@@ -1482,7 +1664,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int32, copy=False)))
                     continue
 
-                if  op_name in ["gather", "scatternd", "tensor_scatter", "scatter_elements", "gather_elements", "gathernd","resize", "affine_grid", "topk", "max_unpool", "roi_align", "col2im", "dft", "stft", "rnn", "gru", "lstm", "tile", "expand", "pad", "center_crop_pad", "slice", "constant_of_shape", "rotary_embedding"] and d == "int64":
+                if op_name in int64_passthrough_ops and d == "int64":
                     cuda_inputs.append(np.ascontiguousarray(inp.astype(np.int64)))
                     continue
 
@@ -1490,7 +1672,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
-                if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean","reduce_sum", "reduce_max", "reduce_min", "reduce_prod", "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square","gather", "gather_elements", "gathernd","scatternd", "tensor_scatter", "scatter_elements", "nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
+                if (not is_complex_kernel) and (op_name not in no_broadcast_ops):
                     try:
                         if val_f32.shape != expected_shape:
                             val_f32 = np.broadcast_to(val_f32, expected_shape)
