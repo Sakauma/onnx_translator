@@ -644,25 +644,46 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[1] = np.array([[[[5, 7], [13, 15]]]], dtype=np.int64)
 
         if op_name == "max_roi_pool":
-            inputs_np[1] = np.array(
-                [
-                    [0.0, 0.0, 0.0, 4.0, 4.0],
-                    [1.0, 1.0, 1.0, 3.0, 4.0],
-                ],
-                dtype=np.float32,
-            )
+            if init_args.get("roi_variant") == "scaled_clipped":
+                inputs_np[1] = np.array(
+                    [
+                        [0.0, -2.0, -2.0, 9.0, 11.0],
+                        [1.0, 2.0, 1.0, 12.0, 9.0],
+                        [0.0, 30.0, 30.0, 32.0, 32.0],
+                    ],
+                    dtype=np.float32,
+                )
+            else:
+                inputs_np[1] = np.array(
+                    [
+                        [0.0, 0.0, 0.0, 4.0, 4.0],
+                        [1.0, 1.0, 1.0, 3.0, 4.0],
+                    ],
+                    dtype=np.float32,
+                )
             inputs_np[1] = from_float32(inputs_np[1], dtypes[1])
 
         if op_name == "roi_align":
-            inputs_np[1] = np.array(
-                [
-                    [0.2, 0.1, 3.8, 3.0],
-                    [0.5, 0.4, 4.0, 2.6],
-                ],
-                dtype=np.float32,
-            )
+            if init_args.get("roi_variant") == "max_output_half_pixel":
+                inputs_np[1] = np.array(
+                    [
+                        [-0.5, -0.25, 4.4, 4.2],
+                        [0.75, 0.5, 6.6, 5.6],
+                        [4.8, 3.9, 5.6, 4.5],
+                    ],
+                    dtype=np.float32,
+                )
+                inputs_np[2] = np.array([0, 1, 0], dtype=np.int64)
+            else:
+                inputs_np[1] = np.array(
+                    [
+                        [0.2, 0.1, 3.8, 3.0],
+                        [0.5, 0.4, 4.0, 2.6],
+                    ],
+                    dtype=np.float32,
+                )
+                inputs_np[2] = np.array([0, 1], dtype=np.int64)
             inputs_np[1] = from_float32(inputs_np[1], dtypes[1])
-            inputs_np[2] = np.array([0, 1], dtype=np.int64)
 
         if op_name == "dft":
             inputs_np[0] = from_float32(np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32), dtypes[0])
@@ -882,6 +903,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("training_mode_value", None)
             op_init_args.pop("prob_values", None)
             op_init_args.pop("grid_variant", None)
+            op_init_args.pop("roi_variant", None)
             op_init_args.pop("target_values", None)
             op_init_args.pop("weight_values", None)
             op_init_args.pop("score_values", None)

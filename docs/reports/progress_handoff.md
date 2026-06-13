@@ -6,6 +6,7 @@
   * @brief       记录当前算子官方语义对齐、混合精度验证进度和剩余工作。
   * @details     2026.06.05  V1.0.0  创建
   * @details     2026.06.13  V1.0.1  补充 GridSample 属性数值覆盖记录
+  * @details     2026.06.13  V1.0.2  补充 ROI 算子边界属性数值覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -28,8 +29,8 @@
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`632` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`433` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`636` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`435` 条计划。
 
 ## 本轮已完成
 
@@ -67,6 +68,9 @@
 - 继续扩展 `GridSample` 默认 numerical plan：新增 float32 `nearest + border + align_corners=0` 和 float32 `cubic + zeros + align_corners=1` 两条属性组合，并补充 float16 nearest/border 与 bfloat16 cubic/zeros 混合精度计划。
 - `tools/numerical/runner.py` 为 GridSample 新增 `grid_variant` 内部测试参数，仅用于选择固定有限网格样本；构造算子前会移除该参数，公共算子接口和运行逻辑不变。
 - 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `632` 条，混合精度计划提升到 `433` 条。
+- 继续扩展 ROI 默认 numerical plan：新增 MaxRoiPool float32/bfloat16 的 `spatial_scale=0.5`、越界裁剪和空 ROI 输出计划；新增 RoiAlign float32/float16 的 `mode=max`、`coordinate_transformation_mode=output_half_pixel`、`sampling_ratio=0` 自适应采样和 `spatial_scale=0.75` 计划。
+- `tools/numerical/runner.py` 为 ROI 算子新增 `roi_variant` 内部测试参数，仅用于选择固定 ROI 坐标和 batch indices；构造算子前会移除该参数，公共算子接口和运行逻辑不变。
+- 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `636` 条，混合精度计划提升到 `435` 条。
 
 ## 本轮已运行验证
 
@@ -100,6 +104,10 @@
   - 结果：全部通过，8 条 LayerNormalization 默认计划均对齐 CUDA reference，包含 `Y/mean/inv_std` 三路输出。
 - `python tools/cli.py numerical --op grid_sample --iterations 3 --skip-plots`
   - 结果：全部通过，7 条 GridSample 默认计划、21 个样本均对齐 CUDA reference。
+- `python tools/cli.py numerical --op max_roi_pool --op roi_align --iterations 3 --skip-plots`
+  - 结果：全部通过，MaxRoiPool 与 RoiAlign 各 15 个样本均对齐 CUDA reference。
+- `python -m pytest -q tests/test_operator_roi_semantics.py`
+  - 结果：`3 passed`。
 - `python -m pytest -q tests/test_operator_c_backend.py::test_c_backend_grid_sample_matches_onnx_reference tests/test_operator_complex_attribute_semantics.py::test_c_backend_grid_sample_modes_match_onnx_reference`
   - 结果：`2 passed`。
 - `python tools/cli.py numerical --op batch_normalization --iterations 3 --skip-plots`
@@ -111,7 +119,7 @@
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 结果：`632` 条默认计划完整 numerical 一轮全部通过。
+  - 结果：`636` 条默认计划完整 numerical 一轮全部通过。
 - `python -m pytest -q tests`
   - 结果：`298 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
@@ -143,5 +151,6 @@
 - `BatchNormalization` 已覆盖推理态和 training_mode 三输出主路径；更多 rank、极小方差、不同 momentum/epsilon、空维度和异常 shape 组合仍建议继续扩展。
 - `LayerNormalization` 已覆盖单输出和 `mean/inv_std` aux 多输出 C/CUDA 主路径；更多 rank、stash_type、极小方差、空维度和异常 axis 组合仍建议继续扩展。
 - `GridSample` 已覆盖 linear/reflection、nearest/border 与 cubic/zeros 的 C/CUDA numerical 路径；更多 5D 输入、极端越界坐标、边界点插值和 align_corners 组合仍建议继续扩展。
-- `MaxRoiPool`、`RoiAlign`、`RNN`、`GRU`、`LSTM`、`DFT`、`STFT` 已进入默认门禁，但仍建议继续扩展更多 layout、direction、axis、window 和边界输入。
+- `MaxRoiPool` 已覆盖默认 ROI、spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 写回；`RoiAlign` 已覆盖 avg/half_pixel、max/output_half_pixel、自适应采样和 float16 写回。更多 ROI 数量、边界点采样、异常 batch index 和不同输出尺寸仍建议继续补充。
+- `RNN`、`GRU`、`LSTM`、`DFT`、`STFT` 已进入默认门禁，但仍建议继续扩展更多 direction、axis、window 和边界输入。
 - `Attention`、`DeformConv` 等复杂算子已覆盖主 C/CUDA 路径，部分 cache、nonpad、多输出或高维 fallback 仍主要由 ONNX reference pytest 覆盖。

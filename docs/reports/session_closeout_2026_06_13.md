@@ -6,6 +6,7 @@
   * @brief       记录 2026-06-13 当前工程进度、未完成事项和收尾验证结果。
   * @details     2026.06.13  V1.0.0  创建
   * @details     2026.06.13  V1.0.1  补充 GridSample 属性数值覆盖和收尾验证记录
+  * @details     2026.06.13  V1.0.2  补充 ROI 算子边界属性数值覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -28,8 +29,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`632` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`433` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`636` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`435` 条计划。
 
 ## 本轮已落盘内容
 
@@ -50,6 +51,7 @@
 - 修正 `LayerNormalization` C 后端的后缀 axis 语义，并新增 axis=1 的 float32/bfloat16 单输出默认 numerical 计划。
 - 补强 `LayerNormalization` 的 `mean/inv_std` aux 多输出语义：新增 C 后端 `layer_norm_multi_output_forward`，CUDA verifier 输出 mean/inv_std sidecar，默认 numerical 新增 float32、float16、bfloat16 三条 aux 输出计划。
 - 扩展 `GridSample` 默认 numerical 属性覆盖：新增 nearest/border/align_corners=0 与 cubic/zeros/align_corners=1 两类固定网格计划，并补充 float16 nearest/border 与 bfloat16 cubic/zeros 混合精度路径。
+- 扩展 ROI 算子默认 numerical 边界覆盖：MaxRoiPool 新增 spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 写回计划；RoiAlign 新增 max/output_half_pixel/sampling_ratio=0 自适应采样、spatial_scale=0.75 和 float16 写回计划。
 - 新增并接入 `Binarizer` 的 CUDA reference 和默认 numerical plan，覆盖 threshold 两侧和等于 threshold 的严格大于边界，并补充 float16、bfloat16、float8_e4m3、float8_e5m2 混合精度计划。
 - 补强 `BatchNormalization` 的 `training_mode` 多输出语义：新增 C 后端 `batch_norm_training_forward`，Python runtime 训练态优先调用 C 后端，CUDA verifier 输出 `Y/running_mean/running_var` 并通过 runner 逐路比较。
 - BatchNormalization 默认 numerical 新增 float32、float16、bfloat16 三条 training_mode 计划，覆盖 running mean/var 输出和低精度写回路径。
@@ -73,9 +75,11 @@
 - `python tools/cli.py numerical --op layer_normalization --iterations 3 --skip-plots`：通过，8 条 LayerNormalization 默认计划全部对齐 CUDA reference，包含 `Y/mean/inv_std` 三路输出。
 - `python tools/cli.py numerical --op grid_sample --iterations 3 --skip-plots`：通过，7 条 GridSample 默认计划、21 个样本全部对齐 CUDA reference。
 - `python -m pytest -q tests/test_operator_c_backend.py::test_c_backend_grid_sample_matches_onnx_reference tests/test_operator_complex_attribute_semantics.py::test_c_backend_grid_sample_modes_match_onnx_reference`：通过，`2 passed`。
+- `python tools/cli.py numerical --op max_roi_pool --op roi_align --iterations 3 --skip-plots`：通过，MaxRoiPool 与 RoiAlign 各 15 个样本全部对齐 CUDA reference。
+- `python -m pytest -q tests/test_operator_roi_semantics.py`：通过，`3 passed`。
 - `python tools/cli.py numerical --op batch_normalization --iterations 3 --skip-plots`：通过，推理态和 training_mode 三输出计划全部对齐 CUDA reference。
 - `python -m pytest -q tests/test_operator_normalization_semantics.py`：通过，`16 passed`。
-- `python tools/cli.py numerical --iterations 1 --skip-plots`：通过，`632` 条默认计划完整 numerical 一轮全部通过。
+- `python tools/cli.py numerical --iterations 1 --skip-plots`：通过，`636` 条默认计划完整 numerical 一轮全部通过。
 - `python -m pytest -q tests`：通过，`298 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`：通过。
 
@@ -95,7 +99,7 @@
 
 - 名称级覆盖已经闭合，但并不等同于所有 ONNX 属性组合、类型约束、异常路径和边界输入的穷尽证明。
 - 默认 numerical 是工程回归门禁，不是形式化证明；后续仍需要围绕官方 schema 增加高风险边界 case。
-- BatchNormalization 已补齐 training_mode 三输出 C/CUDA numerical 主路径；LayerNormalization 已补齐 `mean/inv_std` aux 多输出 C/CUDA numerical 主路径；GridSample 已补充 nearest/border 与 cubic/zeros 属性组合；损失函数和 NMS 已进入默认 C/CUDA numerical 门禁，且 NMS 已补充排序 tie、阈值等值包含和空输出 case；LpNormalization 已补充零范数和非通道 axis 低精度 case。后续仍需要继续扩展更多 rank、axis、stash_type、momentum、epsilon、ignore index、reduction、极端坐标和极端权重边界集合。
+- BatchNormalization 已补齐 training_mode 三输出 C/CUDA numerical 主路径；LayerNormalization 已补齐 `mean/inv_std` aux 多输出 C/CUDA numerical 主路径；GridSample 已补充 nearest/border 与 cubic/zeros 属性组合；MaxRoiPool/RoiAlign 已补充 spatial_scale、越界裁剪、空 ROI、max/output_half_pixel 和自适应采样 case；损失函数和 NMS 已进入默认 C/CUDA numerical 门禁，且 NMS 已补充排序 tie、阈值等值包含和空输出 case；LpNormalization 已补充零范数和非通道 axis 低精度 case。后续仍需要继续扩展更多 rank、axis、stash_type、momentum、epsilon、ignore index、reduction、极端坐标和极端权重边界集合。
 
 ## 后续建议
 
