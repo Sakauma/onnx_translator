@@ -977,8 +977,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 nps_out = op.forward(inputs_tensor[0], inputs_tensor[1], inputs_tensor[2], inputs_tensor[3])["tensor"].data
 
             elif op_name in {"rnn", "gru", "lstm"}:
-                op = op_cls(inputs=[], outputs=["y"], dtype=out_dtype, **op_init_args)
-                nps_out = op.forward(*valid_tensors)["tensor"].data
+                outputs = ["y", "y_h", "y_c"] if op_name == "lstm" else ["y", "y_h"]
+                op = op_cls(inputs=[], outputs=outputs, dtype=out_dtype, **op_init_args)
+                nps_out = [tensor.data for tensor in op.forward(*valid_tensors)["tensor"]]
 
             elif op_name == "batch_normalization":
                 outputs = ["y", "running_mean", "running_var"] if int(op_init_args.get("training_mode", 0)) else ["y"]
@@ -1972,6 +1973,80 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 [type_code, int(init_args.get("sorted", 1)), int(np.prod(shapes[0]))],
                 dtype=np.int32,
             ).tobytes()
+
+        if op_name in {"rnn", "gru", "lstm"}:
+            recurrent_outputs = [np.asarray(out) for out in nps_out]
+            y_np = recurrent_outputs[0]
+            side_specs = [("Y_h", recurrent_outputs[1], f"tmp_{op_name}_y_h.bin")]
+            if op_name == "lstm":
+                side_specs.append(("Y_c", recurrent_outputs[2], "tmp_lstm_y_c.bin"))
+
+            cuda_inputs = [
+                np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float64)),
+                np.ascontiguousarray(to_float32(inputs_np[1], dtypes[1]).astype(np.float64)),
+                np.ascontiguousarray(to_float32(inputs_np[2], dtypes[2]).astype(np.float64)),
+                np.ascontiguousarray(to_float32(inputs_np[3], dtypes[3]).astype(np.float64)),
+                np.ascontiguousarray(inputs_np[4].astype(np.int64)),
+                np.ascontiguousarray(to_float32(inputs_np[5], dtypes[5]).astype(np.float64)),
+            ]
+            if op_name == "lstm":
+                cuda_inputs.extend(
+                    [
+                        np.ascontiguousarray(to_float32(inputs_np[6], dtypes[6]).astype(np.float64)),
+                        np.ascontiguousarray(to_float32(inputs_np[7], dtypes[7]).astype(np.float64)),
+                    ]
+                )
+
+            cuda_y = run_cuda_ground_truth(
+                op_name,
+                cuda_inputs,
+                params_binary=params_bin,
+                output_dtype=np.float64,
+                target_shape=y_np.shape,
+            )
+            if cuda_y is None:
+                continue
+
+            missing_paths = [path for _name, _expected, path in side_specs if not os.path.exists(path)]
+            if missing_paths:
+                print(f"  ❌ Iter {i} FAILED")
+                print(f"     Missing {op_cls.__name__} sidecar output: {', '.join(missing_paths)}")
+                for _name, _expected, path in side_specs:
+                    if os.path.exists(path):
+                        os.remove(path)
+                break
+
+            comparisons = [("Y", y_np, cuda_y)]
+            for name, expected, path in side_specs:
+                cuda_side = np.fromfile(path, dtype=np.float64).reshape(expected.shape)
+                os.remove(path)
+                comparisons.append((name, expected, cuda_side))
+
+            ok_all = True
+            max_abs_all = 0.0
+            max_rel_all = 0.0
+            failed_name = None
+            for name, expected, cuda_value in comparisons:
+                cuda_ref = quantize_to_dtype_float32(cuda_value, out_dtype)
+                expected_cmp = to_float32(expected, out_dtype)
+                ok, cur_abs, cur_rel, _fail = check_accuracy(expected_cmp, cuda_ref, atol, rtol, out_dtype)
+                max_abs_all = max(max_abs_all, cur_abs if cur_abs >= 0 else 0.0)
+                max_rel_all = max(max_rel_all, cur_rel if cur_rel >= 0 else 0.0)
+                if not ok and failed_name is None:
+                    failed_name = name
+                ok_all = ok_all and ok
+
+            stats_abs.append(max_abs_all)
+            stats_rel.append(max_rel_all)
+            if ok_all:
+                pass_cnt += 1
+            else:
+                print(f"  ❌ Iter {i} FAILED")
+                print(f"     {op_cls.__name__} {failed_name} mismatch")
+                print(f"     Max Abs Diff: {max_abs_all:.6f} (Limit: {atol})")
+                print(f"     Max Rel Diff: {max_rel_all:.6f} (Limit: {rtol})")
+                break
+            continue
 
         if op_name == "dropout":
             y_np, mask_np = [np.asarray(out) for out in nps_out]

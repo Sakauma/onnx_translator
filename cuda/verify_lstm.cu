@@ -29,7 +29,7 @@ __device__ double lstm_sigmoid(double x) {
     return 1.0 / (1.0 + exp(-x));
 }
 
-// 实现 LSTM 主输出 `Y` 的 CUDA 参考 kernel，覆盖默认激活、peephole 和 input_forget 语义。
+// 实现 LSTM 主输出 `Y`、最终隐藏状态 `Y_h` 和最终 cell 状态 `Y_c` 的 CUDA 参考 kernel，覆盖默认激活、peephole 和 input_forget 语义。
 __global__ void lstm_kernel(
     const double* X,
     const double* W,
@@ -40,6 +40,8 @@ __global__ void lstm_kernel(
     const double* initial_c,
     const double* P,
     double* Y,
+    double* Y_h,
+    double* Y_c,
     double* workspace,
     int seq_len,
     int batch,
@@ -118,6 +120,16 @@ __global__ void lstm_kernel(
             }
         }
     }
+
+    for (int d = 0; d < num_dirs; ++d) {
+        for (int b = 0; b < batch; ++b) {
+            for (int h = 0; h < hidden; ++h) {
+                size_t idx = ((size_t)d * batch + b) * hidden + h;
+                Y_h[idx] = h_state[idx];
+                Y_c[idx] = c_state[idx];
+            }
+        }
+    }
 }
 
 // 作为 CUDA 验证程序入口，从二进制文件读取输入、执行参考计算并写回结果。
@@ -154,7 +166,9 @@ int main(int argc, char** argv) {
     double* h_init_c = (double*)malloc(h_len * sizeof(double));
     double* h_p = (double*)malloc(p_len * sizeof(double));
     double* h_y = (double*)malloc(out_len * sizeof(double));
-    if (!h_x || !h_w || !h_r || !h_b || !h_seq || !h_init_h || !h_init_c || !h_p || !h_y) return 5;
+    double* h_yh = (double*)malloc(h_len * sizeof(double));
+    double* h_yc = (double*)malloc(h_len * sizeof(double));
+    if (!h_x || !h_w || !h_r || !h_b || !h_seq || !h_init_h || !h_init_c || !h_p || !h_y || !h_yh || !h_yc) return 5;
 
     FILE* f = fopen(argv[2], "rb"); fread(h_x, sizeof(double), x_len, f); fclose(f);
     f = fopen(argv[3], "rb"); fread(h_w, sizeof(double), w_len, f); fclose(f);
@@ -165,7 +179,7 @@ int main(int argc, char** argv) {
     f = fopen(argv[8], "rb"); fread(h_init_c, sizeof(double), h_len, f); fclose(f);
     f = fopen(argv[9], "rb"); fread(h_p, sizeof(double), p_len, f); fclose(f);
 
-    double *d_x, *d_w, *d_r, *d_b, *d_init_h, *d_init_c, *d_p, *d_y, *d_workspace;
+    double *d_x, *d_w, *d_r, *d_b, *d_init_h, *d_init_c, *d_p, *d_y, *d_yh, *d_yc, *d_workspace;
     int64_t* d_seq;
     cudaMalloc(&d_x, x_len * sizeof(double));
     cudaMalloc(&d_w, w_len * sizeof(double));
@@ -176,6 +190,8 @@ int main(int argc, char** argv) {
     cudaMalloc(&d_init_c, h_len * sizeof(double));
     cudaMalloc(&d_p, p_len * sizeof(double));
     cudaMalloc(&d_y, out_len * sizeof(double));
+    cudaMalloc(&d_yh, h_len * sizeof(double));
+    cudaMalloc(&d_yc, h_len * sizeof(double));
     cudaMalloc(&d_workspace, (2 * h_len + 2 * (size_t)batch * hidden) * sizeof(double));
     cudaMemcpy(d_x, h_x, x_len * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(d_w, h_w, w_len * sizeof(double), cudaMemcpyHostToDevice);
@@ -186,16 +202,26 @@ int main(int argc, char** argv) {
     cudaMemcpy(d_init_c, h_init_c, h_len * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(d_p, h_p, p_len * sizeof(double), cudaMemcpyHostToDevice);
 
-    lstm_kernel<<<1, 1>>>(d_x, d_w, d_r, d_b, d_seq, d_init_h, d_init_c, d_p, d_y, d_workspace, seq_len, batch, input_size, num_dirs, hidden, direction, layout, input_forget);
+    lstm_kernel<<<1, 1>>>(d_x, d_w, d_r, d_b, d_seq, d_init_h, d_init_c, d_p, d_y, d_yh, d_yc, d_workspace, seq_len, batch, input_size, num_dirs, hidden, direction, layout, input_forget);
     cudaDeviceSynchronize();
     cudaMemcpy(h_y, d_y, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_yh, d_yh, h_len * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_yc, d_yc, h_len * sizeof(double), cudaMemcpyDeviceToHost);
 
     FILE* fo = fopen(argv[11], "wb");
     if (!fo) return 6;
     fwrite(h_y, sizeof(double), out_len, fo);
     fclose(fo);
+    fo = fopen("tmp_lstm_y_h.bin", "wb");
+    if (!fo) return 7;
+    fwrite(h_yh, sizeof(double), h_len, fo);
+    fclose(fo);
+    fo = fopen("tmp_lstm_y_c.bin", "wb");
+    if (!fo) return 8;
+    fwrite(h_yc, sizeof(double), h_len, fo);
+    fclose(fo);
 
-    free(h_x); free(h_w); free(h_r); free(h_b); free(h_seq); free(h_init_h); free(h_init_c); free(h_p); free(h_y);
-    cudaFree(d_x); cudaFree(d_w); cudaFree(d_r); cudaFree(d_b); cudaFree(d_seq); cudaFree(d_init_h); cudaFree(d_init_c); cudaFree(d_p); cudaFree(d_y); cudaFree(d_workspace);
+    free(h_x); free(h_w); free(h_r); free(h_b); free(h_seq); free(h_init_h); free(h_init_c); free(h_p); free(h_y); free(h_yh); free(h_yc);
+    cudaFree(d_x); cudaFree(d_w); cudaFree(d_r); cudaFree(d_b); cudaFree(d_seq); cudaFree(d_init_h); cudaFree(d_init_c); cudaFree(d_p); cudaFree(d_y); cudaFree(d_yh); cudaFree(d_yc); cudaFree(d_workspace);
     return 0;
 }

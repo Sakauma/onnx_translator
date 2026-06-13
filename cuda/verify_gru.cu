@@ -29,7 +29,7 @@ __device__ double gru_sigmoid(double x) {
     return 1.0 / (1.0 + exp(-x));
 }
 
-// 实现 GRU 主输出 `Y` 的 CUDA 参考 kernel，覆盖默认 Sigmoid/Tanh 激活和 linear_before_reset。
+// 实现 GRU 主输出 `Y` 和最终隐藏状态 `Y_h` 的 CUDA 参考 kernel，覆盖默认 Sigmoid/Tanh 激活和 linear_before_reset。
 __global__ void gru_kernel(
     const double* X,
     const double* W,
@@ -38,6 +38,7 @@ __global__ void gru_kernel(
     const int64_t* sequence_lens,
     const double* initial_h,
     double* Y,
+    double* Y_h,
     double* workspace,
     int seq_len,
     int batch,
@@ -133,6 +134,15 @@ __global__ void gru_kernel(
             }
         }
     }
+
+    for (int d = 0; d < num_dirs; ++d) {
+        for (int b = 0; b < batch; ++b) {
+            for (int h = 0; h < hidden; ++h) {
+                size_t idx = ((size_t)d * batch + b) * hidden + h;
+                Y_h[idx] = h_state[idx];
+            }
+        }
+    }
 }
 
 // 作为 CUDA 验证程序入口，从二进制文件读取输入、执行参考计算并写回结果。
@@ -166,7 +176,8 @@ int main(int argc, char** argv) {
     int64_t* h_seq = (int64_t*)malloc((size_t)batch * sizeof(int64_t));
     double* h_init = (double*)malloc(h_len * sizeof(double));
     double* h_y = (double*)malloc(out_len * sizeof(double));
-    if (!h_x || !h_w || !h_r || !h_b || !h_seq || !h_init || !h_y) return 5;
+    double* h_yh = (double*)malloc(h_len * sizeof(double));
+    if (!h_x || !h_w || !h_r || !h_b || !h_seq || !h_init || !h_y || !h_yh) return 5;
 
     FILE* f = fopen(argv[2], "rb"); fread(h_x, sizeof(double), x_len, f); fclose(f);
     f = fopen(argv[3], "rb"); fread(h_w, sizeof(double), w_len, f); fclose(f);
@@ -175,7 +186,7 @@ int main(int argc, char** argv) {
     f = fopen(argv[6], "rb"); fread(h_seq, sizeof(int64_t), (size_t)batch, f); fclose(f);
     f = fopen(argv[7], "rb"); fread(h_init, sizeof(double), h_len, f); fclose(f);
 
-    double *d_x, *d_w, *d_r, *d_b, *d_init, *d_y, *d_workspace;
+    double *d_x, *d_w, *d_r, *d_b, *d_init, *d_y, *d_yh, *d_workspace;
     int64_t* d_seq;
     cudaMalloc(&d_x, x_len * sizeof(double));
     cudaMalloc(&d_w, w_len * sizeof(double));
@@ -184,6 +195,7 @@ int main(int argc, char** argv) {
     cudaMalloc(&d_seq, (size_t)batch * sizeof(int64_t));
     cudaMalloc(&d_init, h_len * sizeof(double));
     cudaMalloc(&d_y, out_len * sizeof(double));
+    cudaMalloc(&d_yh, h_len * sizeof(double));
     cudaMalloc(&d_workspace, (h_len + 3 * (size_t)batch * hidden) * sizeof(double));
     cudaMemcpy(d_x, h_x, x_len * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(d_w, h_w, w_len * sizeof(double), cudaMemcpyHostToDevice);
@@ -192,16 +204,21 @@ int main(int argc, char** argv) {
     cudaMemcpy(d_seq, h_seq, (size_t)batch * sizeof(int64_t), cudaMemcpyHostToDevice);
     cudaMemcpy(d_init, h_init, h_len * sizeof(double), cudaMemcpyHostToDevice);
 
-    gru_kernel<<<1, 1>>>(d_x, d_w, d_r, d_b, d_seq, d_init, d_y, d_workspace, seq_len, batch, input_size, num_dirs, hidden, direction, layout, linear_before_reset);
+    gru_kernel<<<1, 1>>>(d_x, d_w, d_r, d_b, d_seq, d_init, d_y, d_yh, d_workspace, seq_len, batch, input_size, num_dirs, hidden, direction, layout, linear_before_reset);
     cudaDeviceSynchronize();
     cudaMemcpy(h_y, d_y, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_yh, d_yh, h_len * sizeof(double), cudaMemcpyDeviceToHost);
 
     FILE* fo = fopen(argv[9], "wb");
     if (!fo) return 6;
     fwrite(h_y, sizeof(double), out_len, fo);
     fclose(fo);
+    fo = fopen("tmp_gru_y_h.bin", "wb");
+    if (!fo) return 7;
+    fwrite(h_yh, sizeof(double), h_len, fo);
+    fclose(fo);
 
-    free(h_x); free(h_w); free(h_r); free(h_b); free(h_seq); free(h_init); free(h_y);
-    cudaFree(d_x); cudaFree(d_w); cudaFree(d_r); cudaFree(d_b); cudaFree(d_seq); cudaFree(d_init); cudaFree(d_y); cudaFree(d_workspace);
+    free(h_x); free(h_w); free(h_r); free(h_b); free(h_seq); free(h_init); free(h_y); free(h_yh);
+    cudaFree(d_x); cudaFree(d_w); cudaFree(d_r); cudaFree(d_b); cudaFree(d_seq); cudaFree(d_init); cudaFree(d_y); cudaFree(d_yh); cudaFree(d_workspace);
     return 0;
 }
