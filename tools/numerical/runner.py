@@ -19,7 +19,7 @@ from nn import Tensor
 
 from .compare import check_accuracy
 from .cuda import run_cuda_ground_truth
-from .data import generate_random_data, random_uniform_like_reference
+from .data import generate_random_data
 from .dtype import from_float32, quantize_to_dtype_float32, to_float32
 
 
@@ -703,9 +703,17 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[6] = np.array([0.04], dtype=np.float32)
             inputs_np[7] = np.array([117], dtype=np.uint8)
 
-        if op_name == "random_uniform_like":
-            # 输入只提供 shape，数值本身不会参与 reference 计算
+        if op_name in {"random_uniform_like", "random_normal_like"}:
+            # Like 型随机算子的输入只提供 shape 和默认 dtype，数值本身不会参与 reference 计算。
             pass
+
+        if op_name == "bernoulli":
+            # Bernoulli 使用固定概率样本，覆盖 0/1 极值和中间概率，保证随机输出可由 seed 复现。
+            probs = np.asarray(
+                init_args.get("prob_values", np.linspace(0.0, 1.0, int(np.prod(shapes[0])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            inputs_np[0] = from_float32(probs, dtypes[0])
 
         if op_name == "dropout":
             # Dropout 使用固定样本、显式 ratio 和 training_mode，保证随机 mask 可由 seed 复现。
@@ -788,6 +796,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("input_values", None)
             op_init_args.pop("ratio_value", None)
             op_init_args.pop("training_mode_value", None)
+            op_init_args.pop("prob_values", None)
             op_init_args.pop("split_value", None)
             num_outputs = int(op_init_args.pop("num_outputs", len(init_args.get("split_value", [])) or 1))
             shape_value = op_init_args.pop("shape_value", None)
@@ -797,11 +806,13 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
 
             valid_tensors = [t for t in inputs_tensor if t is not None]
 
-            if op_name == "random_uniform_like":
-                low = float(init_args.get("low", 0.0))
-                high = float(init_args.get("high", 1.0))
-                seed = int(init_args.get("seed", 123))
-                nps_out = random_uniform_like_reference(shapes[0], low, high, seed)
+            if op_name in {"random_uniform", "random_normal"}:
+                op = op_cls(inputs=[], outputs=[], **op_init_args)
+                nps_out = op.forward()["tensor"].data
+
+            elif op_name in {"random_uniform_like", "random_normal_like"}:
+                op = op_cls(inputs=[], outputs=[], **op_init_args)
+                nps_out = op.forward(valid_tensors[0])["tensor"].data
 
             elif op_name == "dropout":
                 op = op_cls(inputs=[], outputs=["y", "mask"], **op_init_args)
@@ -1685,6 +1696,33 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             seed = np.uint32(int(init_args.get("seed", 123)))
             params_bin = (np.array([numel], dtype=np.int32).tobytes() + np.array([low, high], dtype=np.float32).tobytes() + np.array([seed], dtype=np.uint32).tobytes())
 
+        elif op_name == "random_uniform":
+            numel = int(np.prod(np.asarray(nps_out).shape))
+            low = float(init_args.get("low", 0.0))
+            high = float(init_args.get("high", 1.0))
+            seed = np.uint32(int(init_args.get("seed", 123)))
+            params_bin = (
+                np.array([numel], dtype=np.int32).tobytes()
+                + np.array([low, high], dtype=np.float32).tobytes()
+                + np.array([seed], dtype=np.uint32).tobytes()
+            )
+
+        elif op_name in {"random_normal", "random_normal_like"}:
+            numel = int(np.prod(np.asarray(nps_out).shape))
+            mean = float(init_args.get("mean", 0.0))
+            scale = float(init_args.get("scale", 1.0))
+            seed = np.uint32(int(init_args.get("seed", 123)))
+            params_bin = (
+                np.array([numel], dtype=np.int32).tobytes()
+                + np.array([mean, scale], dtype=np.float32).tobytes()
+                + np.array([seed], dtype=np.uint32).tobytes()
+            )
+
+        elif op_name == "bernoulli":
+            numel = int(np.prod(shapes[0]))
+            seed = np.uint32(int(init_args.get("seed", 123)))
+            params_bin = np.array([numel], dtype=np.int32).tobytes() + np.array([seed], dtype=np.uint32).tobytes()
+
         elif op_name == "dropout":
             input_len = int(np.prod(shapes[0]))
             ratio = float(np.asarray(inputs_np[1]).item()) if len(inputs_np) > 1 else float(init_args.get("ratio_value", 0.5))
@@ -1953,7 +1991,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             "reduce_l1", "reduce_l2", "reduce_log_sum", "reduce_log_sum_exp", "reduce_sum_square",
             "gather", "gather_elements", "gathernd", "scatternd", "tensor_scatter", "scatter_elements",
             "nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum",
-            "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze",
+            "topk", "random_uniform", "random_uniform_like", "random_normal", "random_normal_like", "bernoulli",
+            "expand", "flatten", "reshape", "squeeze", "unsqueeze",
             "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth",
             "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im",
             "deform_conv", "attention", "tril", "triu", "trilu",
@@ -2114,7 +2153,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter", "scatter_elements","nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform_like", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter", "scatter_elements","nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform", "random_uniform_like", "random_normal", "random_normal_like", "bernoulli", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:

@@ -12,6 +12,31 @@
 #include "tensor_ops_internal.h"
 
 
+// 根据元素下标派生随机状态，保证随机算子的输出不受 OpenMP 线程数和调度顺序影响。
+static uint32_t random_state_for_index(uint32_t base_seed, size_t index) {
+    return base_seed ^ (uint32_t)index;
+}
+
+
+// 生成与 CUDA verifier 一致的 [0, 1) 均匀随机数。
+static double random_uniform01_for_index(uint32_t base_seed, size_t index) {
+    uint32_t state = random_state_for_index(base_seed, index);
+    uint32_t r = simple_lcg(&state);
+    return (double)r / 2147483648.0;
+}
+
+
+// 使用 Box-Muller 变换生成与 CUDA verifier 一致的标准正态随机数。
+static double random_normal01_for_index(uint32_t base_seed, size_t index) {
+    uint32_t state = random_state_for_index(base_seed, index);
+    uint32_t r1 = simple_lcg(&state);
+    uint32_t r2 = simple_lcg(&state);
+    double u1 = ((double)r1 + 1.0) / 2147483649.0;
+    double u2 = ((double)r2 + 1.0) / 2147483649.0;
+    return sqrt(-2.0 * log(u1)) * cos(TWO_PI * u2);
+}
+
+
 // ================== Softmax 实现 ==================
 // 实现 `softmax` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void softmax_forward(const Tensor* input, Tensor* output, int axis) {
@@ -419,19 +444,11 @@ void random_uniform_like_forward(Tensor* output, float low, float high, float se
     if (seed == 0.0f) base_seed = (uint32_t)time(NULL);
     double range = high - low;
 
-    #pragma omp parallel
-    {
-        int tid = omp_get_thread_num();
-        uint32_t local_state = base_seed + (uint32_t)(tid * 0x9E3779B9); 
-        
-        #pragma omp for
-        for (size_t i = 0; i < output->size; i++) {
-            uint32_t r = simple_lcg(&local_state);
-            
-            double r_norm = (double)r / 2147483648.0; 
-            double val = low + r_norm * range;
-            set_tensor_value_from_float(output, i, val);
-        }
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        double r_norm = random_uniform01_for_index(base_seed, i);
+        double val = low + r_norm * range;
+        set_tensor_value_from_float(output, i, val);
     }
 }
 
@@ -670,27 +687,11 @@ void random_normal_forward(Tensor* output, float mean, float scale, float seed) 
     uint32_t base_seed = (uint32_t)seed;
     if (seed == 0.0f) base_seed = (uint32_t)time(NULL);
     
-    #pragma omp parallel
-    {
-        int tid = omp_get_thread_num();
-        // 确保种子分散
-        uint32_t local_state = base_seed + (uint32_t)(tid * 0x9E3779B9); 
-        
-        #pragma omp for
-        for (size_t i = 0; i < output->size; i++) {
-            // 生成 u1, u2 在 (0, 1]
-            uint32_t r1 = simple_lcg(&local_state);
-            uint32_t r2 = simple_lcg(&local_state);
-            
-            // 避免 log(0)
-            double u1 = ((double)r1 + 1.0) / 2147483649.0; 
-            double u2 = ((double)r2 + 1.0) / 2147483649.0;
-            
-            double z0 = sqrt(-2.0 * log(u1)) * cos(TWO_PI * u2);
-            double val = (double)mean + z0 * (double)scale;
-            
-            set_tensor_value_from_float(output, i, val);
-        }
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        double z0 = random_normal01_for_index(base_seed, i);
+        double val = (double)mean + z0 * (double)scale;
+        set_tensor_value_from_float(output, i, val);
     }
 }
 
@@ -703,22 +704,12 @@ void bernoulli_forward(const Tensor* input, Tensor* output, float seed) {
     uint32_t base_seed = (uint32_t)seed;
     if (seed == 0.0f) base_seed = (uint32_t)time(NULL);
     
-    #pragma omp parallel
-    {
-        int tid = omp_get_thread_num();
-        uint32_t local_state = base_seed + (uint32_t)(tid * 0x9E3779B9);
-        
-        #pragma omp for
-        for (size_t i = 0; i < output->size; i++) {
-            double prob = get_value_as_double(input, i);
-            uint32_t r = simple_lcg(&local_state);
-            double r_norm = (double)r / 2147483648.0; // [0, 1)
-            
-            double res = (r_norm < prob) ? 1.0 : 0.0;
-            
-            // 类型需要匹配输出张量，这里使用通用 set_float
-            set_tensor_value_from_float(output, i, res);
-        }
+    #pragma omp parallel for
+    for (size_t i = 0; i < output->size; i++) {
+        double prob = get_value_as_double(input, i);
+        double r_norm = random_uniform01_for_index(base_seed, i);
+        double res = (r_norm < prob) ? 1.0 : 0.0;
+        set_tensor_value_from_float(output, i, res);
     }
 }
 

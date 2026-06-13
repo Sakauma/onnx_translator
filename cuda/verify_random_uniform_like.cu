@@ -14,6 +14,8 @@
 #include <stdint.h>
 #include <cuda_runtime.h>
 
+#include "verify_random_common.cuh"
+
 struct RandomUniformLikeParams {
     int32_t numel;
     float low;
@@ -21,21 +23,12 @@ struct RandomUniformLikeParams {
     uint32_t seed;
 };
 
-// 实现 `lcg_next` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
-__device__ __forceinline__ uint32_t lcg_next(uint32_t x) {
-    return x * 1664525u + 1013904223u;
-}
-
 // 实现 `random_uniform_like_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void random_uniform_like_kernel(float* out, int numel, float low, float high, uint32_t seed) {
     int tid = (int)blockIdx.x * (int)blockDim.x + (int)threadIdx.x;
     if (tid >= numel) return;
 
-    uint32_t s = seed ^ (uint32_t)tid;
-    s = lcg_next(s);
-
-    // 取低 24 bit 映射到 [0,1)
-    float u = (float)(s & 0x00FFFFFFu) / 16777216.0f;
+    double u = verify_random_uniform01(seed, tid);
     out[tid] = low + (high - low) * u;
 }
 

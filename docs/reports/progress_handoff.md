@@ -26,9 +26,9 @@
 - forward 实际接入 C 后端：`178` 个算子类。
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
-- CUDA verifier：`169` 个。
-- 默认 active numerical plan：`169` 个唯一算子名称，`593` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`411` 条计划。
+- CUDA verifier：`173` 个。
+- 默认 active numerical plan：`173` 个唯一算子名称，`601` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`415` 条计划。
 
 ## 本轮已完成
 
@@ -50,13 +50,16 @@
 - 新增 `Split` 的独立 CUDA verifier 和默认 numerical plan，并在 runner 中支持多输出逐一对比。
 - 新增 `Unique` 的独立 CUDA verifier 和默认 numerical plan，并在 runner 中支持 `values`、`indices`、`inverse`、`counts` 四输出逐一对比。
 - 新增 `Dropout` 的独立 CUDA verifier 和默认 numerical plan，并在 runner 中支持 `y` 与 `mask` 双输出逐一对比。
+- 新增 `RandomUniform`、`RandomNormal`、`RandomNormalLike` 和 `Bernoulli` 的独立 CUDA verifier 和默认 numerical plan。
+- `RandomUniformLike` 的 numerical 不再绕过 C 后端 reference，而是统一走 C-backed forward 后与 CUDA verifier 对比。
+- 随机 uniform/normal/Bernoulli 的 C 后端改为按元素由 seed 派生确定性随机状态，避免 OpenMP 线程数或调度顺序影响验证结果。
 
 ## 本轮已运行验证
 
 - `python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`
 - `git diff --check`
 - `python tools/cli.py compile-cuda`
-  - 结果：`169` 个 CUDA verifier 编译成功。
+  - 结果：`173` 个 CUDA verifier 编译成功。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
   - 结果：全部通过，误差为 `0`。
 - `python tools/cli.py numerical --op tril --op triu --op trilu --op hann_window --op hamming_window --op blackman_window --iterations 3 --skip-plots`
@@ -71,6 +74,8 @@
   - 结果：全部通过。
 - `python tools/cli.py numerical --op dropout --iterations 3 --skip-plots`
   - 结果：全部通过，`y` 与 `mask` 均对齐 CUDA reference。
+- `python tools/cli.py numerical --op random_uniform --op random_uniform_like --op random_normal --op random_normal_like --op bernoulli --iterations 3 --skip-plots`
+  - 结果：全部通过。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 结果：`2 passed, 56 deselected`。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
@@ -80,9 +85,9 @@
 
 ## 仍未完成的普通 C-backed 数值门禁
 
-以下 `8` 个算子已有 C runtime path 或 C 后端函数，但当前仍缺少 CUDA verifier / 默认 numerical plan，后续应优先补独立 reference，而不是回退到 Python 数值实现：
+以下 `4` 个算子已有 C runtime path 或 C 后端函数，但当前仍缺少 CUDA verifier / 默认 numerical plan，后续应优先补独立 reference，而不是回退到 Python 数值实现：
 
-- 随机/采样：`Bernoulli`、`Multinomial`、`RandomNormal`、`RandomNormalLike`、`RandomUniform`。
+- 采样：`Multinomial`。
 - 损失/检测：`NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression`。
 
 ## 合理保留 Python 调度的范围
@@ -98,7 +103,7 @@
 ## 后续建议优先级
 
 1. 优先处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`：这些需要更细的索引、阈值和归约边界设计。
-2. 最后集中处理随机/采样算子：`Bernoulli`、`Multinomial`、`RandomNormal`、`RandomNormalLike`、`RandomUniform`；这些需要先确定 seed、分布容差和 reference 统计口径。
+2. 最后处理 `Multinomial`：继续沿用确定性 seed 派生策略，并重点验证 one-hot、零概率、非归一化概率和输出 dtype。
 
 ## 当前剩余风险
 
