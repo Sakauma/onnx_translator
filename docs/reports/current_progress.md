@@ -34,8 +34,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`616` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`424` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`618` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`425` 条计划。
 
 ## 最近已完成验证
 
@@ -62,17 +62,17 @@
 - `python tools/cli.py numerical --op multinomial --iterations 3 --skip-plots`
   - 最近记录结果：Multinomial 的 int64/int32 输出、零概率和非归一化概率 targeted numerical 通过。
 - `python tools/cli.py numerical --op binarizer --op negative_log_likelihood_loss --op softmax_cross_entropy_loss --op non_max_suppression --iterations 3 --skip-plots`
-  - 最近记录结果：Binarizer、NegativeLogLikelihoodLoss、SoftmaxCrossEntropyLoss 和 NonMaxSuppression targeted numerical 通过。
+  - 最近记录结果：Binarizer、NegativeLogLikelihoodLoss、SoftmaxCrossEntropyLoss 和 NonMaxSuppression targeted numerical 通过；NonMaxSuppression 当前包含多 batch/class、排序 tie、阈值等值包含和 float16 空输出边界计划。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 最近记录结果：相关 pytest 通过。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 最近记录结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 最近记录结果：完整默认 numerical 一轮通过。
+  - 最近记录结果：`618` 条默认计划完整 numerical 一轮通过。
 
 ## 已知未完成部分
 
-当前未发现仍需立即后端化或接入默认 numerical 的普通 C-backed 数值/张量算子。本轮已将 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression` 和 `Binarizer` 接入独立 CUDA verifier 与默认 numerical 门禁。
+当前未发现仍需立即后端化或接入默认 numerical 的普通 C-backed 数值/张量算子。本轮已将 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression` 和 `Binarizer` 接入独立 CUDA verifier 与默认 numerical 门禁，并继续扩大 `NonMaxSuppression` 的默认边界 case matrix。
 
 后续未完成重点不再是“是否有 C/CUDA 门禁”，而是继续扩展官方语义的全属性、全 dtype 和全边界 case matrix。补强时仍应优先使用 C/CUDA reference，不应回退为普通数值路径的 Python-only 实现。
 
@@ -86,7 +86,7 @@
 
 ## 混合精度状态
 
-- 当前默认 numerical 中已经包含 `424` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
+- 当前默认 numerical 中已经包含 `425` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
 - 混合精度已经能作为当前工程的常规回归门禁使用，但还不能宣称对所有 ONNX 官方 type constraint、所有属性组合和所有边界输入完成穷尽证明。
 - 位运算、字符串、序列、控制流、随机采样等类别不应机械纳入浮点混合精度口径；这些算子需要按整数位模式、结构语义、随机分布或 ONNX reference 行为分别验证。
 
