@@ -33,8 +33,8 @@
 - forward 实际接入 C 后端：`178` 个算子类。
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
-- CUDA verifier：`165` 个。
-- 默认 active numerical plan：`165` 个唯一算子名称，`586` 条默认计划。
+- CUDA verifier：`166` 个。
+- 默认 active numerical plan：`166` 个唯一算子名称，`587` 条默认计划。
 - 默认 active numerical plan 混合精度覆盖：`409` 条计划。
 
 ## 最近已完成验证
@@ -42,13 +42,15 @@
 - `python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`
 - `git diff --check`
 - `python tools/cli.py compile-cuda`
-  - 最近记录结果：`165` 个 CUDA verifier 编译成功。
+  - 最近记录结果：`166` 个 CUDA verifier 编译成功。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
   - 最近记录结果：位运算 targeted numerical 通过。
 - `python tools/cli.py numerical --op tril --op triu --op trilu --op hann_window --op hamming_window --op blackman_window --iterations 3 --skip-plots`
   - 最近记录结果：三角矩阵和窗函数 targeted numerical 通过。
 - `python tools/cli.py numerical --op range --op one_hot --op reverse_sequence --op det --op mel_weight_matrix --iterations 3 --skip-plots`
   - 最近记录结果：形状/索引、线性代数和特征矩阵 targeted numerical 通过。
+- `python tools/cli.py numerical --op dynamic_quantize_linear --iterations 3 --skip-plots`
+  - 最近记录结果：DynamicQuantizeLinear 三输出 targeted numerical 通过。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 最近记录结果：相关 pytest 通过。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
@@ -58,12 +60,11 @@
 
 ## 已知未完成部分
 
-以下 `12` 个算子已有 C runtime path、C 后端函数或较完整 pytest/ONNX reference 语义覆盖，但尚未全部具备独立 CUDA verifier 和默认 numerical plan。后续补强时应继续优先使用 C/CUDA reference，不应回退为普通数值路径的 Python-only 实现。
+以下 `11` 个算子已有 C runtime path、C 后端函数或较完整 pytest/ONNX reference 语义覆盖，但尚未全部具备独立 CUDA verifier 和默认 numerical plan。后续补强时应继续优先使用 C/CUDA reference，不应回退为普通数值路径的 Python-only 实现。
 
 - 随机/采样：`Bernoulli`、`Multinomial`、`RandomNormal`、`RandomNormalLike`、`RandomUniform`。
 - 随机掩码：`Dropout`。
 - 损失/检测：`NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression`。
-- 量化：`DynamicQuantizeLinear`。
 - 集合：`Unique`。
 - 结构拆分：`Split` 当前通过 `slice_forward` 执行并已有 pytest/ONNX reference 覆盖，但还没有独立默认 numerical plan。
 
@@ -91,6 +92,6 @@
 
 ## 建议后续优先级
 
-1. 优先处理 `Split`、`Unique`、`DynamicQuantizeLinear` 和 `Dropout`；它们相对确定，适合作为下一批收口对象。
+1. 优先处理 `Split`、`Unique` 和 `Dropout`；它们相对确定，适合作为下一批收口对象。
 2. 再处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`；这些算子需要更细的阈值、索引和归约边界设计。
 3. 最后集中处理随机/采样算子：`Bernoulli`、`Multinomial`、`RandomNormal`、`RandomNormalLike`、`RandomUniform`；建议先确定 seed、分布容差和 reference 统计口径，再进入默认 numerical。

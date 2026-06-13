@@ -707,6 +707,14 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             # 输入只提供 shape，数值本身不会参与 reference 计算
             pass
 
+        if op_name == "dynamic_quantize_linear":
+            # DynamicQuantizeLinear 使用固定浮点样本，覆盖负数、零、正数和 min/max 包含 0 的官方缩放规则。
+            values = np.asarray(
+                init_args.get("input_values", np.linspace(-3.0, 6.0, int(np.prod(shapes[0])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            inputs_np[0] = values
+
         inputs_tensor = []
         for data, d in zip(inputs_np, dtypes):
             if data is not None: inputs_tensor.append(Tensor(*data.shape, dtype=d, data=data))
@@ -745,6 +753,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("sample_rate_value", None)
             op_init_args.pop("lower_edge_hertz_value", None)
             op_init_args.pop("upper_edge_hertz_value", None)
+            op_init_args.pop("input_values", None)
             shape_value = op_init_args.pop("shape_value", None)
             fill_value = op_init_args.pop("fill_value", None)
             if op_name == "constant_of_shape" and fill_value is not None:
@@ -795,6 +804,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             elif op_name in {"tril", "triu", "trilu"}:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
                 nps_out = op.forward(*valid_tensors)["tensor"].data
+
+            elif op_name == "dynamic_quantize_linear":
+                op = op_cls(inputs=[], outputs=["y", "y_scale", "y_zero_point"], **op_init_args)
+                nps_out = [tensor.data for tensor in op.forward(valid_tensors[0])["tensor"]]
 
             else:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
@@ -1622,6 +1635,55 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             high = float(init_args.get("high", 1.0))
             seed = np.uint32(int(init_args.get("seed", 123)))
             params_bin = (np.array([numel], dtype=np.int32).tobytes() + np.array([low, high], dtype=np.float32).tobytes() + np.array([seed], dtype=np.uint32).tobytes())
+
+        if op_name == "dynamic_quantize_linear":
+            y_np, scale_np, zp_np = nps_out
+            y_np = np.asarray(y_np, dtype=np.uint8)
+            scale_np = np.asarray(scale_np, dtype=np.float32).reshape(())
+            zp_np = np.asarray(zp_np, dtype=np.uint8).reshape(())
+
+            flat_len = int(y_np.size)
+            cuda_inputs = [np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float32))]
+            cuda_out = run_cuda_ground_truth(
+                op_name,
+                cuda_inputs,
+                params_binary=params_bin,
+                output_dtype=np.float32,
+                target_shape=(flat_len + 2,),
+            )
+            if cuda_out is None:
+                continue
+
+            cuda_flat = np.asarray(cuda_out, dtype=np.float32).reshape(-1)
+            cuda_y = np.rint(cuda_flat[:flat_len]).clip(0, 255).astype(np.uint8).reshape(y_np.shape)
+            cuda_scale = np.asarray(cuda_flat[flat_len], dtype=np.float32).reshape(())
+            cuda_zp = np.asarray(np.rint(cuda_flat[flat_len + 1]).clip(0, 255), dtype=np.uint8).reshape(())
+
+            y_ok = np.array_equal(y_np, cuda_y)
+            scale_abs = float(abs(float(scale_np) - float(cuda_scale)))
+            scale_rel = scale_abs / max(abs(float(cuda_scale)), 1e-12)
+            scale_ok = scale_abs <= 1e-7 + 1e-6 * abs(float(cuda_scale))
+            zp_ok = int(zp_np) == int(cuda_zp)
+
+            y_abs = float(np.max(np.abs(y_np.astype(np.int16) - cuda_y.astype(np.int16)))) if y_np.size else 0.0
+            zp_abs = float(abs(int(zp_np) - int(cuda_zp)))
+            max_abs = max(y_abs, scale_abs, zp_abs)
+            max_rel = scale_rel
+            stats_abs.append(max_abs)
+            stats_rel.append(max_rel)
+
+            if y_ok and scale_ok and zp_ok:
+                pass_cnt += 1
+            else:
+                print(f"  ❌ Iter {i} FAILED")
+                if not y_ok:
+                    print(f"     y mismatch, max uint8 diff: {y_abs:.0f}")
+                if not scale_ok:
+                    print(f"     y_scale mismatch: CUDA={float(cuda_scale):.9g}, C={float(scale_np):.9g}")
+                if not zp_ok:
+                    print(f"     y_zero_point mismatch: CUDA={int(cuda_zp)}, C={int(zp_np)}")
+                break
+            continue
 
         # 4. 数据转换与 广播处理
         expected_shape = nps_out.shape

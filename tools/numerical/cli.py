@@ -36,7 +36,7 @@ from nn.Operators import (
     Det, MelWeightMatrix,
     RotaryEmbedding,
     BitCast,
-    Elu, LeakyRelu, PRelu, Selu, Celu, ThresholdedRelu,
+    Elu, LeakyRelu, PRelu, Selu, Celu, ThresholdedRelu, DynamicQuantizeLinear,
     HardSwish, Swish, Shrink, Gelu, Mish,
     Round, Erf, Acos, Asin, Cosh, Sinh, Asinh, Acosh, Atanh, Identity, Where, Size,
 )
@@ -669,6 +669,7 @@ def build_default_plans():
     (TopK, "topk", [(32, 64), (1,)], ["float32", "int64"], "float32",{"axis": 1, "largest": 1, "sorted": 1, "k_value": 8}),
 
     (RandomUniformLike, "random_uniform_like", [(32, 32)], ["float32"], "float32", {"low": -1.0, "high": 1.0, "seed": 123}),
+    (DynamicQuantizeLinear, "dynamic_quantize_linear", [(2, 4)], ["float32"], "uint8", {"input_values": [-3.0, -1.25, -0.1, 0.0, 0.2, 1.7, 3.4, 6.0]}),
 
     (Range, "range", [(1,), (1,), (1,)], ["float32", "float32", "float32"], "float32", {"start_value": -2.0, "limit_value": 3.0, "delta_value": 0.75}),
     (OneHot, "one_hot", [(2, 3), (), (2,)], ["int64", "int64", "float32"], "float32", {"axis": -1, "depth_value": 4, "values_value": [-0.5, 2.0]}),
