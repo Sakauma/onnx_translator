@@ -28,7 +28,7 @@ from nn.Operators import (
     Gather, GatherElements, GatherND, COS, LOG, EXP, SIGMOID, TANH,
     Sin, Floor, Atan, Sign, Tan, Neg, Mod, Max, Min, Not, And, Or, Xor, IsNaN, IsInf,
     BitwiseAnd, BitwiseOr, BitwiseXor, BitwiseNot, BitShift,
-    CumSum, CumProd, Softmax, Hardmax, LogSoftmax, NonZero, TopK, ArgMin, ArgMax, Resize, AffineGrid, RandomUniformLike, Einsum,
+    CumSum, CumProd, Softmax, Hardmax, LogSoftmax, NonZero, TopK, ArgMin, ArgMax, Resize, AffineGrid, RandomUniformLike, Dropout, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
     Flatten, Reshape, Squeeze, Unsqueeze, Transpose, Tile, Concat, Expand, Pad, CenterCropPad, Slice, Split, Compress, ScatterElements, ConstantOfShape, EyeLike, DepthToSpace, SpaceToDepth,
     Range, OneHot, ReverseSequence, Tril, Triu, Trilu, HannWindow, HammingWindow, BlackmanWindow,
@@ -671,6 +671,7 @@ def build_default_plans():
     (TopK, "topk", [(32, 64), (1,)], ["float32", "int64"], "float32",{"axis": 1, "largest": 1, "sorted": 1, "k_value": 8}),
 
     (RandomUniformLike, "random_uniform_like", [(32, 32)], ["float32"], "float32", {"low": -1.0, "high": 1.0, "seed": 123}),
+    (Dropout, "dropout", [(2, 3), (1,), (1,)], ["float32", "float32", "bool"], "float32", {"ratio_value": 0.5, "training_mode_value": 1, "seed": 0, "input_values": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]}),
     (DynamicQuantizeLinear, "dynamic_quantize_linear", [(2, 4)], ["float32"], "uint8", {"input_values": [-3.0, -1.25, -0.1, 0.0, 0.2, 1.7, 3.4, 6.0]}),
     (Split, "split", [(2, 6), (3,)], ["float32", "int64"], "float32", {"axis": 1, "split_value": [1, 3, 2], "num_outputs": 3, "input_values": [-3.0, -2.5, -1.0, -0.25, 0.0, 0.5, 1.25, 2.0, 3.5, 4.0, 5.25, 6.0]}),
     (Unique, "unique", [(8,)], ["int64"], "int64", {"sorted": 0, "input_values": [3, 1, 3, 2, 1, 3, -1, 2]}),

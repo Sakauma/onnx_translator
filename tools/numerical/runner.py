@@ -707,6 +707,16 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             # 输入只提供 shape，数值本身不会参与 reference 计算
             pass
 
+        if op_name == "dropout":
+            # Dropout 使用固定样本、显式 ratio 和 training_mode，保证随机 mask 可由 seed 复现。
+            values = np.asarray(
+                init_args.get("input_values", np.linspace(0.0, 5.0, int(np.prod(shapes[0])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+            inputs_np[1] = np.asarray(init_args.get("ratio_value", 0.5), dtype=np.float32).reshape(shapes[1])
+            inputs_np[2] = np.asarray(bool(init_args.get("training_mode_value", 1)), dtype=np.bool_).reshape(shapes[2])
+
         if op_name == "dynamic_quantize_linear":
             # DynamicQuantizeLinear 使用固定浮点样本，覆盖负数、零、正数和 min/max 包含 0 的官方缩放规则。
             values = np.asarray(
@@ -776,6 +786,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("lower_edge_hertz_value", None)
             op_init_args.pop("upper_edge_hertz_value", None)
             op_init_args.pop("input_values", None)
+            op_init_args.pop("ratio_value", None)
+            op_init_args.pop("training_mode_value", None)
             op_init_args.pop("split_value", None)
             num_outputs = int(op_init_args.pop("num_outputs", len(init_args.get("split_value", [])) or 1))
             shape_value = op_init_args.pop("shape_value", None)
@@ -790,6 +802,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 high = float(init_args.get("high", 1.0))
                 seed = int(init_args.get("seed", 123))
                 nps_out = random_uniform_like_reference(shapes[0], low, high, seed)
+
+            elif op_name == "dropout":
+                op = op_cls(inputs=[], outputs=["y", "mask"], **op_init_args)
+                nps_out = [tensor.data for tensor in op.forward(*valid_tensors)["tensor"]]
 
             elif op_name in {"conv2d", "conv_transpose", "gemm"}:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
@@ -1669,6 +1685,19 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             seed = np.uint32(int(init_args.get("seed", 123)))
             params_bin = (np.array([numel], dtype=np.int32).tobytes() + np.array([low, high], dtype=np.float32).tobytes() + np.array([seed], dtype=np.uint32).tobytes())
 
+        elif op_name == "dropout":
+            input_len = int(np.prod(shapes[0]))
+            ratio = float(np.asarray(inputs_np[1]).item()) if len(inputs_np) > 1 else float(init_args.get("ratio_value", 0.5))
+            training_mode = int(bool(np.asarray(inputs_np[2]).item())) if len(inputs_np) > 2 else int(bool(init_args.get("training_mode_value", 0)))
+            seed_value = init_args.get("seed", 0)
+            if seed_value is None:
+                seed_value = 0
+            params_bin = (
+                np.array([input_len, training_mode], dtype=np.int32).tobytes()
+                + np.array([np.uint32(int(seed_value))], dtype=np.uint32).tobytes()
+                + np.array([ratio], dtype=np.float32).tobytes()
+            )
+
         elif op_name == "split":
             input_shape = list(map(int, shapes[0]))
             axis = int(init_args.get("axis", 0))
@@ -1692,6 +1721,47 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 [type_code, int(init_args.get("sorted", 1)), int(np.prod(shapes[0]))],
                 dtype=np.int32,
             ).tobytes()
+
+        if op_name == "dropout":
+            y_np, mask_np = [np.asarray(out) for out in nps_out]
+            cuda_inputs = [
+                np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float32)),
+            ]
+            cuda_y = run_cuda_ground_truth(
+                op_name,
+                cuda_inputs,
+                params_binary=params_bin,
+                output_dtype=np.float32,
+                target_shape=y_np.shape,
+            )
+            if cuda_y is None:
+                continue
+
+            mask_path = "tmp_dropout_mask.bin"
+            if not os.path.exists(mask_path):
+                print(f"  ❌ Iter {i} FAILED")
+                print("     Missing Dropout mask sidecar output")
+                break
+            cuda_mask = np.fromfile(mask_path, dtype=np.uint8).reshape(mask_np.shape).astype(np.bool_)
+            os.remove(mask_path)
+
+            nps_y = to_float32(y_np, out_dtype)
+            cuda_y = quantize_to_dtype_float32(cuda_y, out_dtype)
+            y_ok, max_abs, max_rel, _fail_mask = check_accuracy(nps_y, cuda_y, atol, rtol, out_dtype)
+            mask_ok = np.array_equal(mask_np.astype(np.bool_), cuda_mask)
+
+            stats_abs.append(max_abs if max_abs >= 0 else 0.0)
+            stats_rel.append(max_rel if max_rel >= 0 else 0.0)
+            if y_ok and mask_ok:
+                pass_cnt += 1
+            else:
+                print(f"  ❌ Iter {i} FAILED")
+                if not y_ok:
+                    print(f"     Dropout y mismatch: Max Abs Diff {max_abs:.6f}, Max Rel Diff {max_rel:.6f}")
+                if not mask_ok:
+                    print("     Dropout mask mismatch")
+                break
+            continue
 
         if op_name == "dynamic_quantize_linear":
             y_np, scale_np, zp_np = nps_out
