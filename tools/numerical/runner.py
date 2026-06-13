@@ -715,6 +715,16 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             ).reshape(shapes[0])
             inputs_np[0] = values
 
+        if op_name == "split":
+            # Split 使用固定多列样本和非等分 split，覆盖多输出、axis 偏移和每个输出独立 shape。
+            values = np.asarray(
+                init_args.get("input_values", np.linspace(-3.0, 6.0, int(np.prod(shapes[0])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+            if len(inputs_np) > 1:
+                inputs_np[1] = np.asarray(init_args.get("split_value", [shapes[0][init_args.get("axis", 0)]]), dtype=np.int64)
+
         inputs_tensor = []
         for data, d in zip(inputs_np, dtypes):
             if data is not None: inputs_tensor.append(Tensor(*data.shape, dtype=d, data=data))
@@ -754,6 +764,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("lower_edge_hertz_value", None)
             op_init_args.pop("upper_edge_hertz_value", None)
             op_init_args.pop("input_values", None)
+            op_init_args.pop("split_value", None)
+            num_outputs = int(op_init_args.pop("num_outputs", len(init_args.get("split_value", [])) or 1))
             shape_value = op_init_args.pop("shape_value", None)
             fill_value = op_init_args.pop("fill_value", None)
             if op_name == "constant_of_shape" and fill_value is not None:
@@ -808,6 +820,11 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             elif op_name == "dynamic_quantize_linear":
                 op = op_cls(inputs=[], outputs=["y", "y_scale", "y_zero_point"], **op_init_args)
                 nps_out = [tensor.data for tensor in op.forward(valid_tensors[0])["tensor"]]
+
+            elif op_name == "split":
+                outputs = [f"y{idx}" for idx in range(num_outputs)]
+                op = op_cls(inputs=[], outputs=outputs, dtype=out_dtype, **op_init_args)
+                nps_out = [tensor.data for tensor in op.forward(*valid_tensors)["tensor"]]
 
             else:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
@@ -1636,6 +1653,23 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             seed = np.uint32(int(init_args.get("seed", 123)))
             params_bin = (np.array([numel], dtype=np.int32).tobytes() + np.array([low, high], dtype=np.float32).tobytes() + np.array([seed], dtype=np.uint32).tobytes())
 
+        elif op_name == "split":
+            input_shape = list(map(int, shapes[0]))
+            axis = int(init_args.get("axis", 0))
+            if axis < 0:
+                axis += len(input_shape)
+            if len(inputs_np) > 1:
+                split_sizes = [int(v) for v in np.asarray(inputs_np[1], dtype=np.int64).reshape(-1)]
+            else:
+                count = int(init_args.get("num_outputs", len(nps_out)))
+                dim_len = input_shape[axis]
+                div, remainder = divmod(dim_len, count)
+                split_sizes = [div + (1 if idx < remainder else 0) for idx in range(count)]
+            params_bin = np.array(
+                [len(input_shape), axis, len(split_sizes), *input_shape, *split_sizes],
+                dtype=np.int32,
+            ).tobytes()
+
         if op_name == "dynamic_quantize_linear":
             y_np, scale_np, zp_np = nps_out
             y_np = np.asarray(y_np, dtype=np.uint8)
@@ -1682,6 +1716,56 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     print(f"     y_scale mismatch: CUDA={float(cuda_scale):.9g}, C={float(scale_np):.9g}")
                 if not zp_ok:
                     print(f"     y_zero_point mismatch: CUDA={int(cuda_zp)}, C={int(zp_np)}")
+                break
+            continue
+
+        if op_name == "split":
+            flat_outputs = [np.asarray(out) for out in nps_out]
+            flat_len = int(sum(out.size for out in flat_outputs))
+            cuda_inputs = [
+                np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float32)),
+            ]
+            if len(inputs_np) > 1:
+                cuda_inputs.append(np.ascontiguousarray(inputs_np[1].astype(np.int64)))
+            cuda_out = run_cuda_ground_truth(
+                op_name,
+                cuda_inputs,
+                params_binary=params_bin,
+                output_dtype=np.float32,
+                target_shape=(flat_len,),
+            )
+            if cuda_out is None:
+                continue
+
+            cuda_flat = np.asarray(cuda_out, dtype=np.float32).reshape(-1)
+            offset = 0
+            ok_all = True
+            max_abs_all = 0.0
+            max_rel_all = 0.0
+            failed_index = -1
+            for out_idx, expected_piece in enumerate(flat_outputs):
+                piece_len = int(expected_piece.size)
+                cuda_piece = cuda_flat[offset:offset + piece_len].reshape(expected_piece.shape)
+                offset += piece_len
+                nps_piece = to_float32(expected_piece, out_dtype)
+                cuda_piece = quantize_to_dtype_float32(cuda_piece, out_dtype)
+                ok_piece, max_abs, max_rel, _fail_mask = check_accuracy(nps_piece, cuda_piece, atol, rtol, out_dtype)
+                max_abs_all = max(max_abs_all, max_abs if max_abs >= 0 else 0.0)
+                max_rel_all = max(max_rel_all, max_rel if max_rel >= 0 else 0.0)
+                if not ok_piece:
+                    ok_all = False
+                    failed_index = out_idx
+                    break
+
+            stats_abs.append(max_abs_all)
+            stats_rel.append(max_rel_all)
+            if ok_all:
+                pass_cnt += 1
+            else:
+                print(f"  ❌ Iter {i} FAILED")
+                print(f"     Split output {failed_index} mismatch")
+                print(f"     Max Abs Diff: {max_abs_all:.6f} (Limit: {atol})")
+                print(f"     Max Rel Diff: {max_rel_all:.6f} (Limit: {rtol})")
                 break
             continue
 

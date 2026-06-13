@@ -30,7 +30,7 @@ from nn.Operators import (
     BitwiseAnd, BitwiseOr, BitwiseXor, BitwiseNot, BitShift,
     CumSum, CumProd, Softmax, Hardmax, LogSoftmax, NonZero, TopK, ArgMin, ArgMax, Resize, AffineGrid, RandomUniformLike, Einsum,
     QuantizeLinear, DequantizeLinear, MaxUnpool, DFT, STFT, RNN, GRU, LSTM,
-    Flatten, Reshape, Squeeze, Unsqueeze, Transpose, Tile, Concat, Expand, Pad, CenterCropPad, Slice, Compress, ScatterElements, ConstantOfShape, EyeLike, DepthToSpace, SpaceToDepth,
+    Flatten, Reshape, Squeeze, Unsqueeze, Transpose, Tile, Concat, Expand, Pad, CenterCropPad, Slice, Split, Compress, ScatterElements, ConstantOfShape, EyeLike, DepthToSpace, SpaceToDepth,
     Range, OneHot, ReverseSequence, Tril, Triu, Trilu, HannWindow, HammingWindow, BlackmanWindow,
     Mean, Sum, BatchNormalization, InstanceNormalization, LayerNormalization, LpNormalization, GroupNormalization, MeanVarianceNormalization, RMSNormalization, Cast, CastLike, Ceil, Reciprocal, Softplus, Softsign, HardSigmoid,
     Det, MelWeightMatrix,
@@ -438,6 +438,7 @@ def build_mixed_precision_plans():
         (SpaceToDepth, "space_to_depth", [(1, 2, 4, 6)], ["bfloat16"], "bfloat16", {"blocksize": 2}),
         (SpaceToDepth, "space_to_depth", [(1, 2, 4, 6)], ["float8_e4m3"], "float8_e4m3", {"blocksize": 2}),
         (SpaceToDepth, "space_to_depth", [(1, 2, 4, 6)], ["float8_e5m2"], "float8_e5m2", {"blocksize": 2}),
+        (Split, "split", [(2, 6), (3,)], ["float16", "int64"], "float16", {"axis": 1, "split_value": [1, 3, 2], "num_outputs": 3, "input_values": [-3.0, -2.5, -1.0, -0.25, 0.0, 0.5, 1.25, 2.0, 3.5, 4.0, 5.25, 6.0]}),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["float16", "float16", "int8"], "int8"),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["bfloat16", "bfloat16", "int8"], "int8"),
         (DequantizeLinear, "dequantize_linear", [(32, 32), (1,), (1,)], ["int8", "float16", "int8"], "float16"),
@@ -670,6 +671,7 @@ def build_default_plans():
 
     (RandomUniformLike, "random_uniform_like", [(32, 32)], ["float32"], "float32", {"low": -1.0, "high": 1.0, "seed": 123}),
     (DynamicQuantizeLinear, "dynamic_quantize_linear", [(2, 4)], ["float32"], "uint8", {"input_values": [-3.0, -1.25, -0.1, 0.0, 0.2, 1.7, 3.4, 6.0]}),
+    (Split, "split", [(2, 6), (3,)], ["float32", "int64"], "float32", {"axis": 1, "split_value": [1, 3, 2], "num_outputs": 3, "input_values": [-3.0, -2.5, -1.0, -0.25, 0.0, 0.5, 1.25, 2.0, 3.5, 4.0, 5.25, 6.0]}),
 
     (Range, "range", [(1,), (1,), (1,)], ["float32", "float32", "float32"], "float32", {"start_value": -2.0, "limit_value": 3.0, "delta_value": 0.75}),
     (OneHot, "one_hot", [(2, 3), (), (2,)], ["int64", "int64", "float32"], "float32", {"axis": -1, "depth_value": 4, "values_value": [-0.5, 2.0]}),
