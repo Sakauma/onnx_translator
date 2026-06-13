@@ -43,6 +43,7 @@
   * @details     2026.06.05  V1.0.36  补充 LRN CUDA 数值门禁和当前工作收尾记录
   * @details     2026.06.05  V1.0.37  补充 MeanVarianceNormalization CUDA 数值门禁记录
   * @details     2026.06.13  V1.0.38  补充 LayerNormalization aux 多输出 C/CUDA 数值门禁记录
+  * @details     2026.06.13  V1.0.39  补充 GridSample 多属性组合 C/CUDA 数值门禁记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -329,6 +330,8 @@
 
 继续补强 `LayerNormalization` 的 `mean/inv_std` aux 多输出语义：C 后端新增 `layer_norm_multi_output_forward`，按 axis 后缀维度同时计算 `Y`、`mean` 和 `inv_std`；Python runtime 在请求辅助输出时优先调用 C 后端，仅在 C 不可用或 dtype 不承载时保留 fallback。`cuda/verify_layer_normalization.cu` 扩展 `emit_stats` 参数并输出 mean/inv_std sidecar；numerical runner 对三路输出逐一比较。默认 numerical plan 新增 float32、float16、bfloat16 三条 aux 输出计划，默认 active numerical plan 保持 178 个唯一算子、提升到 628 条默认计划和 431 条混合精度计划。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile nn/operators/normalization_ops.py tools/numerical/runner.py tools/numerical/cli.py`、`git diff --check`、`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_normalization_semantics.py -q`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op layer_normalization --iterations 3 --skip-plots`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 和 `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check` 均已通过；完整 pytest 结果为 `298 passed, 1 skipped`，完整 numerical 一轮 628 条默认计划全部通过。
 
+继续扩大 `GridSample` 的默认 C/CUDA 数值属性组合：在原有 linear/reflection/align_corners=0 主路径之外，新增 float32 `nearest + border + align_corners=0`、float32 `cubic + zeros + align_corners=1`，并补充 float16 nearest/border 与 bfloat16 cubic/zeros 混合精度计划。runner 使用内部 `grid_variant` 参数选择固定有限网格样本，构造算子前移除该参数，不改变公共算子接口。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`、`git diff --check`、`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op grid_sample --iterations 3 --skip-plots`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_c_backend.py::test_c_backend_grid_sample_matches_onnx_reference tests/test_operator_complex_attribute_semantics.py::test_c_backend_grid_sample_modes_match_onnx_reference`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 和 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda` 均已通过；完整 pytest 结果为 `298 passed, 1 skipped`，完整 numerical 一轮 632 条默认计划全部通过，默认混合精度计划提升到 433 条。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
@@ -344,5 +347,5 @@
 - `Gelu` 的 exact erf 与 `approximate="tanh"` 已接入导入器、Python/C 后端、CUDA verifier、pytest 和默认 mixed precision numerical；后续风险主要在更多极端输入分布和跨 opset 兼容性穷尽。
 - `DeformConv` 当前 C/CUDA 数值门禁覆盖 2D 主路径，fallback 跟随本地 ONNX reference；如果后续目标模型需要更高维 deformable convolution，需要再扩展 C/CUDA reference 和 pytest 边界集合。
 - `Attention` 当前 C/CUDA 数值门禁覆盖 4D 主路径，完整 cache、nonpad 和 qk 中间输出语义由 Python fallback 跟随本地 ONNX reference；后续可继续把 cache 更新和 nonpad 剪枝路径下沉到 C/CUDA。
-- `GridSample` 已进入默认 C/CUDA mixed precision numerical，当前数值门禁覆盖 4D linear/reflection/align_corners=0 主路径；bicubic、nearest、border 等组合仍主要由 ONNX reference pytest 覆盖。
+- `GridSample` 已进入默认 C/CUDA mixed precision numerical，当前数值门禁覆盖 4D linear/reflection/align_corners=0、nearest/border/align_corners=0 和 cubic/zeros/align_corners=1；更多 5D 输入、极端越界坐标、边界点插值和更多 align_corners 组合仍建议继续补充。
 - ROI、序列和谱算子已进入默认门禁，但仍建议后续继续补充更多 corner case，例如多方向序列、不同布局、异常轴、空张量和边界 window 参数。

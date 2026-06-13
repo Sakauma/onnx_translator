@@ -285,18 +285,42 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[0] = from_float32(theta_values[: size_value[0]], dtypes[0])
 
         if op_name == "grid_sample":
-            # GridSample 使用固定有限样本，覆盖归一化坐标、reflection padding 和低精度写回。
+            # GridSample 使用固定有限样本，按计划覆盖不同 mode/padding/align_corners 属性组合。
             x_values = np.linspace(-1.5, 1.5, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
-            grid_values = np.array(
-                [
+            variant = init_args.get("grid_variant", "linear_reflection")
+            if variant == "nearest_border":
+                grid_values = np.array(
                     [
-                        [[-1.15, -0.85], [-0.35, -0.40], [0.25, -0.10], [1.15, 0.05]],
-                        [[-0.95, 0.45], [-0.25, 0.15], [0.50, 0.35], [1.05, 0.70]],
-                        [[-1.20, 1.10], [-0.45, 0.95], [0.35, 0.80], [1.25, 1.15]],
-                    ]
-                ],
-                dtype=np.float32,
-            )
+                        [
+                            [[-1.40, -1.30], [-0.60, -0.50], [-0.20, 0.00], [1.30, 1.20]],
+                            [[0.20, 0.50], [0.60, 1.40], [-1.00, 1.00], [1.00, -1.00]],
+                            [[-0.35, 0.25], [0.45, -0.75], [1.15, 0.15], [-1.15, 0.85]],
+                        ]
+                    ],
+                    dtype=np.float32,
+                )
+            elif variant == "cubic_zeros":
+                grid_values = np.array(
+                    [
+                        [
+                            [[-1.25, -1.15], [-0.75, -0.35], [-0.10, 0.20], [1.20, -0.65]],
+                            [[-0.55, 0.55], [0.35, -0.15], [0.80, 0.75], [1.35, 1.15]],
+                            [[-1.10, 1.05], [-0.25, 0.95], [0.55, 0.35], [1.05, -1.05]],
+                        ]
+                    ],
+                    dtype=np.float32,
+                )
+            else:
+                grid_values = np.array(
+                    [
+                        [
+                            [[-1.15, -0.85], [-0.35, -0.40], [0.25, -0.10], [1.15, 0.05]],
+                            [[-0.95, 0.45], [-0.25, 0.15], [0.50, 0.35], [1.05, 0.70]],
+                            [[-1.20, 1.10], [-0.45, 0.95], [0.35, 0.80], [1.25, 1.15]],
+                        ]
+                    ],
+                    dtype=np.float32,
+                )
             inputs_np[0] = from_float32(x_values, dtypes[0])
             inputs_np[1] = from_float32(grid_values, dtypes[1])
 
@@ -857,6 +881,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("ratio_value", None)
             op_init_args.pop("training_mode_value", None)
             op_init_args.pop("prob_values", None)
+            op_init_args.pop("grid_variant", None)
             op_init_args.pop("target_values", None)
             op_init_args.pop("weight_values", None)
             op_init_args.pop("score_values", None)

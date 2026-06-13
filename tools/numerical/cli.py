@@ -304,6 +304,8 @@ def build_mixed_precision_plans():
         (LRN, "lrn", [(1, 4, 2, 3)], ["bfloat16"], "bfloat16", {"size": 3, "alpha": 0.3, "beta": 0.5, "bias": 1.0}),
         (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["float16", "float16"], "float16", {"mode": "linear", "padding_mode": "reflection", "align_corners": 0}),
         (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["bfloat16", "bfloat16"], "bfloat16", {"mode": "linear", "padding_mode": "reflection", "align_corners": 0}),
+        (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["float16", "float16"], "float16", {"mode": "nearest", "padding_mode": "border", "align_corners": 0, "grid_variant": "nearest_border"}),
+        (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["bfloat16", "bfloat16"], "bfloat16", {"mode": "cubic", "padding_mode": "zeros", "align_corners": 1, "grid_variant": "cubic_zeros"}),
         (MaxRoiPool, "max_roi_pool", [(2, 2, 5, 5), (2, 5)], ["float16", "float16"], "float16", {"pooled_shape": [2, 3], "spatial_scale": 1.0}),
         (MaxRoiPool, "max_roi_pool", [(2, 2, 5, 5), (2, 5)], ["bfloat16", "bfloat16"], "bfloat16", {"pooled_shape": [2, 3], "spatial_scale": 1.0}),
         (RoiAlign, "roi_align", [(2, 1, 4, 5), (2, 4), (2,)], ["float16", "float16", "int64"], "float16", {"output_height": 2, "output_width": 3, "sampling_ratio": 2, "spatial_scale": 1.0, "mode": "avg", "coordinate_transformation_mode": "half_pixel"}),
@@ -527,6 +529,8 @@ def build_default_plans():
     (MaxUnpool, "max_unpool",[(1, 1, 2, 2), (1, 1, 2, 2)], ["float32", "int64"], "float32",{"kernel_shape":[2,2], "pads":[0,0,0,0], "strides":[2,2]}),
     (MaxRoiPool, "max_roi_pool",[(2, 2, 5, 5), (2, 5)], ["float32", "float32"], "float32", {"pooled_shape":[2, 3], "spatial_scale":1.0}),
     (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["float32", "float32"], "float32", {"mode": "linear", "padding_mode": "reflection", "align_corners": 0}),
+    (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["float32", "float32"], "float32", {"mode": "nearest", "padding_mode": "border", "align_corners": 0, "grid_variant": "nearest_border"}),
+    (GridSample, "grid_sample", [(1, 2, 4, 5), (1, 3, 4, 2)], ["float32", "float32"], "float32", {"mode": "cubic", "padding_mode": "zeros", "align_corners": 1, "grid_variant": "cubic_zeros"}),
     (RoiAlign, "roi_align",[(2, 1, 4, 5), (2, 4), (2,)], ["float32", "float32", "int64"], "float32", {"output_height":2, "output_width":3, "sampling_ratio":2, "spatial_scale":1.0, "mode":"avg", "coordinate_transformation_mode":"half_pixel"}),
 
     (Equal,   "equal",   [(64,64), (64,64)], ["float32", "float32"], "bool"),
