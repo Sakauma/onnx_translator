@@ -26,9 +26,9 @@
 - forward 实际接入 C 后端：`178` 个算子类。
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
-- CUDA verifier：`167` 个。
-- 默认 active numerical plan：`167` 个唯一算子名称，`589` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`410` 条计划。
+- CUDA verifier：`168` 个。
+- 默认 active numerical plan：`168` 个唯一算子名称，`592` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`411` 条计划。
 
 ## 本轮已完成
 
@@ -48,13 +48,14 @@
 - `Range` 和 `MelWeightMatrix` 的 numerical plan 使用 `(1,)` 标量输入形状，避开空 shape 随机数据生成路径；窗函数和 `MelWeightMatrix` 通过 ONNX `output_datatype` 编码显式控制输出类型。
 - 新增 `DynamicQuantizeLinear` 的独立 CUDA verifier 和默认 numerical plan，并在 runner 中按 `y`、`y_scale`、`y_zero_point` 三个输出分别校验。
 - 新增 `Split` 的独立 CUDA verifier 和默认 numerical plan，并在 runner 中支持多输出逐一对比。
+- 新增 `Unique` 的独立 CUDA verifier 和默认 numerical plan，并在 runner 中支持 `values`、`indices`、`inverse`、`counts` 四输出逐一对比。
 
 ## 本轮已运行验证
 
 - `python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`
 - `git diff --check`
 - `python tools/cli.py compile-cuda`
-  - 结果：`167` 个 CUDA verifier 编译成功。
+  - 结果：`168` 个 CUDA verifier 编译成功。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
   - 结果：全部通过，误差为 `0`。
 - `python tools/cli.py numerical --op tril --op triu --op trilu --op hann_window --op hamming_window --op blackman_window --iterations 3 --skip-plots`
@@ -65,6 +66,8 @@
   - 结果：全部通过。
 - `python tools/cli.py numerical --op split --iterations 3 --skip-plots`
   - 结果：全部通过。
+- `python tools/cli.py numerical --op unique --iterations 3 --skip-plots`
+  - 结果：全部通过。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 结果：`2 passed, 56 deselected`。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
@@ -74,12 +77,11 @@
 
 ## 仍未完成的普通 C-backed 数值门禁
 
-以下 `10` 个算子已有 C runtime path 或 C 后端函数，但当前仍缺少 CUDA verifier / 默认 numerical plan，后续应优先补独立 reference，而不是回退到 Python 数值实现：
+以下 `9` 个算子已有 C runtime path 或 C 后端函数，但当前仍缺少 CUDA verifier / 默认 numerical plan，后续应优先补独立 reference，而不是回退到 Python 数值实现：
 
 - 随机/采样：`Bernoulli`、`Multinomial`、`RandomNormal`、`RandomNormalLike`、`RandomUniform`。
 - 随机掩码：`Dropout`。
 - 损失/检测：`NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression`。
-- 集合：`Unique`。
 
 ## 合理保留 Python 调度的范围
 
@@ -93,7 +95,7 @@
 
 ## 后续建议优先级
 
-1. 优先补 `Unique` 和 `Dropout`：这些相对确定，但需要处理排序稳定性、inverse/counts 输出和随机掩码语义。
+1. 优先补 `Dropout`：它相对确定，但需要处理随机掩码、training_mode 和 ratio 语义。
 2. 再处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`：这些需要更细的索引、阈值和归约边界设计。
 3. 最后集中处理随机/采样算子：`Bernoulli`、`Multinomial`、`RandomNormal`、`RandomNormalLike`、`RandomUniform`；这些需要先确定 seed、分布容差和 reference 统计口径。
 

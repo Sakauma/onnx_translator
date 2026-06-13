@@ -725,6 +725,18 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             if len(inputs_np) > 1:
                 inputs_np[1] = np.asarray(init_args.get("split_value", [shapes[0][init_args.get("axis", 0)]]), dtype=np.int64)
 
+        if op_name == "unique":
+            # Unique 使用固定重复样本，分别覆盖首次出现顺序和按值排序后的 indices/inverse/counts。
+            if dtypes[0] == "int64":
+                values = np.asarray(init_args.get("input_values", [3, 1, 3, 2, 1, 3, -1, 2]), dtype=np.int64)
+                inputs_np[0] = values.reshape(shapes[0])
+            else:
+                values = np.asarray(
+                    init_args.get("input_values", [2.0, -1.0, 2.0, 0.5, -1.0, 3.0, 0.5, 4.0]),
+                    dtype=np.float32,
+                ).reshape(shapes[0])
+                inputs_np[0] = from_float32(values, dtypes[0])
+
         inputs_tensor = []
         for data, d in zip(inputs_np, dtypes):
             if data is not None: inputs_tensor.append(Tensor(*data.shape, dtype=d, data=data))
@@ -825,6 +837,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 outputs = [f"y{idx}" for idx in range(num_outputs)]
                 op = op_cls(inputs=[], outputs=outputs, dtype=out_dtype, **op_init_args)
                 nps_out = [tensor.data for tensor in op.forward(*valid_tensors)["tensor"]]
+
+            elif op_name == "unique":
+                op = op_cls(inputs=[], outputs=["y", "indices", "inverse", "counts"], dtype=out_dtype, **op_init_args)
+                nps_out = [tensor.data for tensor in op.forward(valid_tensors[0])["tensor"]]
 
             else:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
@@ -1670,6 +1686,13 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 dtype=np.int32,
             ).tobytes()
 
+        elif op_name == "unique":
+            type_code = 1 if dtypes[0] == "int64" else 0
+            params_bin = np.array(
+                [type_code, int(init_args.get("sorted", 1)), int(np.prod(shapes[0]))],
+                dtype=np.int32,
+            ).tobytes()
+
         if op_name == "dynamic_quantize_linear":
             y_np, scale_np, zp_np = nps_out
             y_np = np.asarray(y_np, dtype=np.uint8)
@@ -1766,6 +1789,77 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 print(f"     Split output {failed_index} mismatch")
                 print(f"     Max Abs Diff: {max_abs_all:.6f} (Limit: {atol})")
                 print(f"     Max Rel Diff: {max_rel_all:.6f} (Limit: {rtol})")
+                break
+            continue
+
+        if op_name == "unique":
+            values_np, indices_np, inverse_np, counts_np = [np.asarray(out) for out in nps_out]
+            input_arr = inputs_np[0]
+            if dtypes[0] == "int64":
+                cuda_inputs = [np.ascontiguousarray(input_arr.astype(np.int64))]
+                cuda_value_dtype = np.int64
+            else:
+                cuda_inputs = [np.ascontiguousarray(to_float32(input_arr, dtypes[0]).astype(np.float32))]
+                cuda_value_dtype = np.float32
+
+            cuda_values = run_cuda_ground_truth(
+                op_name,
+                cuda_inputs,
+                params_binary=params_bin,
+                output_dtype=cuda_value_dtype,
+                target_shape=values_np.shape,
+            )
+            if cuda_values is None:
+                continue
+
+            side_paths = {
+                "indices": "tmp_unique_indices.bin",
+                "inverse": "tmp_unique_inverse.bin",
+                "counts": "tmp_unique_counts.bin",
+            }
+            if not all(os.path.exists(path) for path in side_paths.values()):
+                print(f"  ❌ Iter {i} FAILED")
+                print("     Missing Unique sidecar output")
+                for path in side_paths.values():
+                    if os.path.exists(path):
+                        os.remove(path)
+                break
+
+            cuda_indices = np.fromfile(side_paths["indices"], dtype=np.int64).reshape(indices_np.shape)
+            cuda_inverse = np.fromfile(side_paths["inverse"], dtype=np.int64).reshape(inverse_np.shape)
+            cuda_counts = np.fromfile(side_paths["counts"], dtype=np.int64).reshape(counts_np.shape)
+            for path in side_paths.values():
+                os.remove(path)
+
+            if out_dtype == "int64":
+                values_ok = np.array_equal(values_np.astype(np.int64), cuda_values.astype(np.int64))
+                value_abs = 0.0 if values_ok else -1.0
+                value_rel = 0.0 if values_ok else -1.0
+            else:
+                nps_values = to_float32(values_np, out_dtype)
+                cuda_values = quantize_to_dtype_float32(cuda_values, out_dtype)
+                values_ok, value_abs, value_rel, _fail_mask = check_accuracy(nps_values, cuda_values, atol, rtol, out_dtype)
+
+            indices_ok = np.array_equal(indices_np.astype(np.int64), cuda_indices)
+            inverse_ok = np.array_equal(inverse_np.astype(np.int64), cuda_inverse)
+            counts_ok = np.array_equal(counts_np.astype(np.int64), cuda_counts)
+            max_abs = value_abs if value_abs >= 0 else 0.0
+            max_rel = value_rel if value_rel >= 0 else 0.0
+            stats_abs.append(max_abs)
+            stats_rel.append(max_rel)
+
+            if values_ok and indices_ok and inverse_ok and counts_ok:
+                pass_cnt += 1
+            else:
+                print(f"  ❌ Iter {i} FAILED")
+                if not values_ok:
+                    print("     Unique values mismatch")
+                if not indices_ok:
+                    print("     Unique indices mismatch")
+                if not inverse_ok:
+                    print("     Unique inverse mismatch")
+                if not counts_ok:
+                    print("     Unique counts mismatch")
                 break
             continue
 
