@@ -26,9 +26,9 @@
 - forward 实际接入 C 后端：`178` 个算子类。
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
-- CUDA verifier：`174` 个。
-- 默认 active numerical plan：`174` 个唯一算子名称，`603` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`415` 条计划。
+- CUDA verifier：`178` 个。
+- 默认 active numerical plan：`178` 个唯一算子名称，`616` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`424` 条计划。
 
 ## 本轮已完成
 
@@ -54,13 +54,15 @@
 - `RandomUniformLike` 的 numerical 不再绕过 C 后端 reference，而是统一走 C-backed forward 后与 CUDA verifier 对比。
 - 随机 uniform/normal/Bernoulli 的 C 后端改为按元素由 seed 派生确定性随机状态，避免 OpenMP 线程数或调度顺序影响验证结果。
 - 新增 `Multinomial` 的独立 CUDA verifier 和默认 numerical plan，覆盖 int64/int32 输出、零概率、one-hot 和非归一化概率行。
+- 新增 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression` 的独立 CUDA verifier 和默认 numerical plan，覆盖 ignore_index、reduction、权重、log_prob 多输出、score 阈值、IoU 抑制和 center_point_box 主路径。
+- 新增 `Binarizer` 的独立 CUDA verifier 和默认 numerical plan，覆盖 threshold 两侧和恰好等于 threshold 的严格大于边界，并补入 float16、bfloat16、float8_e4m3、float8_e5m2 混合精度门禁。
 
 ## 本轮已运行验证
 
 - `python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`
 - `git diff --check`
 - `python tools/cli.py compile-cuda`
-  - 结果：`173` 个 CUDA verifier 编译成功。
+  - 结果：`178` 个 CUDA verifier 编译成功。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
   - 结果：全部通过，误差为 `0`。
 - `python tools/cli.py numerical --op tril --op triu --op trilu --op hann_window --op hamming_window --op blackman_window --iterations 3 --skip-plots`
@@ -79,6 +81,8 @@
   - 结果：全部通过。
 - `python tools/cli.py numerical --op multinomial --iterations 3 --skip-plots`
   - 结果：全部通过，int64 与 int32 输出均对齐 CUDA reference。
+- `python tools/cli.py numerical --op binarizer --op negative_log_likelihood_loss --op softmax_cross_entropy_loss --op non_max_suppression --iterations 3 --skip-plots`
+  - 结果：全部通过，Binarizer 的五条计划、NLLLoss 的三条计划、SCE Loss 的三条计划和 NMS 的两条计划均对齐 CUDA reference。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 结果：`2 passed, 56 deselected`。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
@@ -88,9 +92,7 @@
 
 ## 仍未完成的普通 C-backed 数值门禁
 
-以下 `3` 个算子已有 C runtime path 或 C 后端函数，也已有基础语义覆盖；后续仍应继续补更完整的独立 CUDA/numerical 属性、dtype 和边界 case，而不是回退到 Python 数值实现：
-
-- 损失/检测：`NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression`。
+当前未发现仍需立即后端化或接入默认 numerical 的普通 C-backed 数值/张量算子。后续剩余工作转为扩大 case matrix：对已接入门禁的复杂算子继续补全属性组合、dtype 组合和边界输入，而不是回退到 Python 数值实现。
 
 ## 合理保留 Python 调度的范围
 
@@ -104,8 +106,8 @@
 
 ## 后续建议优先级
 
-1. 优先处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`：这些需要更细的索引、阈值、排序和归约边界设计。
-2. 继续扩大已进入默认门禁的复杂算子 case matrix，避免默认单一路径被误读为全属性、全 dtype 和全边界闭环。
+1. 继续扩大已进入默认门禁的复杂算子 case matrix，尤其是损失/NMS、ROI、序列、谱、Attention、DeformConv、量化和随机采样类边界。
+2. 审计所有“含 Python 调度或 fallback”的算子，确认普通数值主路径都由 C 后端承载，Python 只保留导入、shape、调度、ONNX reference 对照或 C 不承载 dtype 的兜底。
 
 ## 当前剩余风险
 

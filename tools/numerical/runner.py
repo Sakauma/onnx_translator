@@ -723,6 +723,54 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             ).reshape(shapes[0])
             inputs_np[0] = from_float32(probs, dtypes[0])
 
+        if op_name == "binarizer":
+            # Binarizer 使用固定样本覆盖阈值两侧和恰好等于阈值的严格大于边界。
+            values = np.asarray(
+                init_args.get("input_values", np.linspace(-1.0, 1.0, int(np.prod(shapes[0])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+
+        if op_name == "negative_log_likelihood_loss":
+            # NLLLoss 使用固定 log-prob、标签和权重，覆盖 ignore_index、加权 mean、none/sum 和低精度写回。
+            values = np.asarray(
+                init_args.get("input_values", np.linspace(-0.25, -2.5, int(np.prod(shapes[0])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+            inputs_np[1] = np.asarray(init_args.get("target_values", [0] * int(np.prod(shapes[1]))), dtype=np.int64).reshape(shapes[1])
+            if len(inputs_np) > 2 and inputs_np[2] is not None:
+                weights = np.asarray(init_args.get("weight_values", np.ones(shapes[2], dtype=np.float32)), dtype=np.float32).reshape(shapes[2])
+                inputs_np[2] = from_float32(weights, dtypes[2])
+
+        if op_name == "softmax_cross_entropy_loss":
+            # SCE 使用固定 scores、标签和可选权重，覆盖 log_prob 多输出、ignore_index 和低精度写回。
+            values = np.asarray(
+                init_args.get("score_values", np.linspace(-1.5, 2.0, int(np.prod(shapes[0])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            inputs_np[0] = from_float32(values, dtypes[0])
+            inputs_np[1] = np.asarray(init_args.get("target_values", [0] * int(np.prod(shapes[1]))), dtype=np.int64).reshape(shapes[1])
+            if len(inputs_np) > 2 and inputs_np[2] is not None:
+                weights = np.asarray(init_args.get("weight_values", np.ones(shapes[2], dtype=np.float32)), dtype=np.float32).reshape(shapes[2])
+                inputs_np[2] = from_float32(weights, dtypes[2])
+
+        if op_name == "non_max_suppression":
+            # NMS 使用固定 boxes/scores/thresholds，覆盖排序、score 阈值、IoU 抑制和 center_point_box。
+            boxes = np.asarray(
+                init_args.get("boxes_values", np.linspace(0.0, 1.0, int(np.prod(shapes[0])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[0])
+            scores = np.asarray(
+                init_args.get("scores_values", np.linspace(0.9, 0.1, int(np.prod(shapes[1])), dtype=np.float32)),
+                dtype=np.float32,
+            ).reshape(shapes[1])
+            inputs_np[0] = from_float32(boxes, dtypes[0])
+            inputs_np[1] = from_float32(scores, dtypes[1])
+            inputs_np[2] = np.asarray(init_args.get("max_output_value", 1), dtype=np.int64).reshape(shapes[2])
+            inputs_np[3] = from_float32(np.asarray(init_args.get("iou_threshold_value", 0.0), dtype=np.float32).reshape(shapes[3]), dtypes[3])
+            inputs_np[4] = from_float32(np.asarray(init_args.get("score_threshold_value", -np.inf), dtype=np.float32).reshape(shapes[4]), dtypes[4])
+
         if op_name == "dropout":
             # Dropout 使用固定样本、显式 ratio 和 training_mode，保证随机 mask 可由 seed 复现。
             values = np.asarray(
@@ -805,6 +853,15 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("ratio_value", None)
             op_init_args.pop("training_mode_value", None)
             op_init_args.pop("prob_values", None)
+            op_init_args.pop("target_values", None)
+            op_init_args.pop("weight_values", None)
+            op_init_args.pop("score_values", None)
+            op_init_args.pop("boxes_values", None)
+            op_init_args.pop("scores_values", None)
+            op_init_args.pop("max_output_value", None)
+            op_init_args.pop("iou_threshold_value", None)
+            op_init_args.pop("score_threshold_value", None)
+            emit_log_prob = int(op_init_args.pop("emit_log_prob", 0))
             op_init_args.pop("split_value", None)
             num_outputs = int(op_init_args.pop("num_outputs", len(init_args.get("split_value", [])) or 1))
             shape_value = op_init_args.pop("shape_value", None)
@@ -876,6 +933,16 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             elif op_name == "unique":
                 op = op_cls(inputs=[], outputs=["y", "indices", "inverse", "counts"], dtype=out_dtype, **op_init_args)
                 nps_out = [tensor.data for tensor in op.forward(valid_tensors[0])["tensor"]]
+
+            elif op_name == "softmax_cross_entropy_loss":
+                outputs = ["loss", "log_prob"] if emit_log_prob else ["loss"]
+                op = op_cls(inputs=[], outputs=outputs, dtype=out_dtype, **op_init_args)
+                out = op.forward(*valid_tensors)["tensor"]
+                nps_out = [tensor.data for tensor in out] if emit_log_prob else out.data
+
+            elif op_name == "negative_log_likelihood_loss":
+                op = op_cls(inputs=[], outputs=["loss"], dtype=out_dtype, **op_init_args)
+                nps_out = op.forward(*valid_tensors)["tensor"].data
 
             else:
                 op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
@@ -1665,6 +1732,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         elif op_name in {"elu", "leaky_relu", "celu", "thresholded_relu"}:
             params_bin = np.array([float(init_args.get("alpha", 1.0))], dtype=np.float32).tobytes()
 
+        elif op_name == "binarizer":
+            params_bin = np.array([float(init_args.get("threshold", 0.0))], dtype=np.float32).tobytes()
+
         elif op_name == "swish":
             params_bin = np.array([float(init_args.get("alpha", 1.0))], dtype=np.float32).tobytes()
 
@@ -1739,6 +1809,36 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             params_bin = (
                 np.array([batch, classes, sample_size, output_dtype_code], dtype=np.int32).tobytes()
                 + np.array([seed], dtype=np.uint32).tobytes()
+            )
+
+        elif op_name in {"negative_log_likelihood_loss", "softmax_cross_entropy_loss"}:
+            data_shape = list(map(int, shapes[0]))
+            batch = int(data_shape[0])
+            classes = int(data_shape[1])
+            spatial = int(np.prod(data_shape[2:])) if len(data_shape) > 2 else 1
+            reduction_code = {"none": 0, "mean": 1, "sum": 2}[init_args.get("reduction", "mean")]
+            has_weight = 1 if len(inputs_np) > 2 and inputs_np[2] is not None else 0
+            has_ignore = 1 if init_args.get("ignore_index", None) is not None else 0
+            emit_log = 1 if op_name == "softmax_cross_entropy_loss" and int(init_args.get("emit_log_prob", 0)) else 0
+            int_params = np.array(
+                [batch, classes, spatial, reduction_code, has_weight, has_ignore, emit_log],
+                dtype=np.int32,
+            )
+            ignore_value = np.array([int(init_args.get("ignore_index", 0) or 0)], dtype=np.int64)
+            params_bin = int_params.tobytes() + ignore_value.tobytes()
+
+        elif op_name == "non_max_suppression":
+            boxes = inputs_np[0]
+            scores = inputs_np[1]
+            max_output = int(np.asarray(inputs_np[2]).item())
+            iou_threshold = np.float32(to_float32(inputs_np[3], dtypes[3]).reshape(-1)[0])
+            score_threshold = np.float32(to_float32(inputs_np[4], dtypes[4]).reshape(-1)[0])
+            params_bin = (
+                np.array(
+                    [boxes.shape[0], boxes.shape[1], scores.shape[1], max_output, int(init_args.get("center_point_box", 0))],
+                    dtype=np.int32,
+                ).tobytes()
+                + np.array([iou_threshold, score_threshold], dtype=np.float32).tobytes()
             )
 
         elif op_name == "dropout":
@@ -1816,6 +1916,64 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     print(f"     Dropout y mismatch: Max Abs Diff {max_abs:.6f}, Max Rel Diff {max_rel:.6f}")
                 if not mask_ok:
                     print("     Dropout mask mismatch")
+                break
+            continue
+
+        if op_name == "softmax_cross_entropy_loss":
+            if isinstance(nps_out, list):
+                loss_np = np.asarray(nps_out[0])
+                log_prob_np = np.asarray(nps_out[1])
+            else:
+                loss_np = np.asarray(nps_out)
+                log_prob_np = None
+            loss_shape = loss_np.shape if loss_np.shape != () else (1,)
+            loss_cmp = loss_np.reshape(loss_shape)
+            cuda_inputs = [
+                np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float64)),
+                np.ascontiguousarray(inputs_np[1].astype(np.int64)),
+                None if len(inputs_np) <= 2 or inputs_np[2] is None else np.ascontiguousarray(to_float32(inputs_np[2], dtypes[2]).astype(np.float64)),
+            ]
+            cuda_loss = run_cuda_ground_truth(
+                op_name,
+                cuda_inputs,
+                params_binary=params_bin,
+                output_dtype=np.float64,
+                target_shape=loss_shape,
+            )
+            if cuda_loss is None:
+                continue
+
+            loss_ref = quantize_to_dtype_float32(cuda_loss, out_dtype)
+            loss_nps = to_float32(loss_cmp, out_dtype)
+            loss_ok, loss_abs, loss_rel, _loss_fail = check_accuracy(loss_nps, loss_ref, atol, rtol, out_dtype)
+
+            log_ok = True
+            log_abs = 0.0
+            log_rel = 0.0
+            if log_prob_np is not None:
+                log_path = "tmp_out_log_prob.bin"
+                if not os.path.exists(log_path):
+                    print(f"  ❌ Iter {i} FAILED")
+                    print("     Missing SoftmaxCrossEntropyLoss log_prob sidecar output")
+                    break
+                cuda_log = np.fromfile(log_path, dtype=np.float64).reshape(log_prob_np.shape)
+                os.remove(log_path)
+                log_ref = quantize_to_dtype_float32(cuda_log, out_dtype)
+                log_nps = to_float32(log_prob_np, out_dtype)
+                log_ok, log_abs, log_rel, _log_fail = check_accuracy(log_nps, log_ref, atol, rtol, out_dtype)
+
+            max_abs = max(loss_abs if loss_abs >= 0 else 0.0, log_abs if log_abs >= 0 else 0.0)
+            max_rel = max(loss_rel if loss_rel >= 0 else 0.0, log_rel if log_rel >= 0 else 0.0)
+            stats_abs.append(max_abs)
+            stats_rel.append(max_rel)
+            if loss_ok and log_ok:
+                pass_cnt += 1
+            else:
+                print(f"  ❌ Iter {i} FAILED")
+                if not loss_ok:
+                    print(f"     SCE loss mismatch: Max Abs Diff {loss_abs:.6f}, Max Rel Diff {loss_rel:.6f}")
+                if not log_ok:
+                    print(f"     SCE log_prob mismatch: Max Abs Diff {log_abs:.6f}, Max Rel Diff {log_rel:.6f}")
                 break
             continue
 
@@ -1994,7 +2152,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if expected_shape == ():
             expected_shape = (1,) # 统一当成 1 元素张量来跑 CUDA/读写 bin
             nps_out = np.array([nps_out], dtype=nps_out.dtype)
-        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im", "deform_conv", "attention", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "lrn", "mean_variance_normalization", "batch_normalization", "instance_normalization", "layer_normalization", "lp_normalization", "group_normalization", "max_unpool", "grid_sample", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
+        is_complex_kernel = op_name in ["conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im", "deform_conv", "attention", "matmul_integer", "qlinear_matmul", "max_pool", "average_pool", "lp_pool", "global_average_pool", "global_max_pool", "global_lp_pool", "lrn", "mean_variance_normalization", "batch_normalization", "instance_normalization", "layer_normalization", "lp_normalization", "group_normalization", "negative_log_likelihood_loss", "softmax_cross_entropy_loss", "non_max_suppression", "max_unpool", "grid_sample", "max_roi_pool", "roi_align", "dft", "stft", "rnn", "gru", "lstm", "gemm", "softmax", "hardmax", "log_softmax"] # 这些算子自己处理形状
         is_double_kernel = is_complex_kernel or op_name in ["quantize_linear", "dequantize_linear"]
         int64_passthrough_ops = {
             "gather", "scatternd", "tensor_scatter", "scatter_elements", "gather_elements", "gathernd",
@@ -2003,6 +2161,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             "constant_of_shape", "rotary_embedding", "tril", "triu", "trilu",
             "hann_window", "hamming_window", "blackman_window",
             "range", "one_hot", "reverse_sequence", "mel_weight_matrix",
+            "negative_log_likelihood_loss", "softmax_cross_entropy_loss", "non_max_suppression",
         }
         no_broadcast_ops = {
             "matmul", "reduce_mean", "reduce_sum", "reduce_max", "reduce_min", "reduce_prod",
@@ -2016,6 +2175,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             "deform_conv", "attention", "tril", "triu", "trilu",
             "hann_window", "hamming_window", "blackman_window",
             "range", "one_hot", "reverse_sequence", "det", "mel_weight_matrix",
+            "negative_log_likelihood_loss", "softmax_cross_entropy_loss", "non_max_suppression",
         }
         
         cuda_inputs = []
@@ -2171,7 +2331,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     if inp_arr is None: val_disp = "None"
                     else:
                         try:
-                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter", "scatter_elements","nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform", "random_uniform_like", "random_normal", "random_normal_like", "bernoulli", "multinomial", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention"]):
+                            if (not is_complex_kernel) and (op_name not in ["matmul", "reduce_mean", "gather", "scatternd", "tensor_scatter", "scatter_elements","nonzero", "argmin", "argmax", "size", "resize", "affine_grid", "grid_sample", "einsum", "topk", "random_uniform", "random_uniform_like", "random_normal", "random_normal_like", "bernoulli", "multinomial", "expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "tile", "concat", "pad", "center_crop_pad", "depth_to_space", "space_to_depth", "slice", "compress", "constant_of_shape", "eye_like", "rotary_embedding", "col2im", "deform_conv", "attention", "negative_log_likelihood_loss", "softmax_cross_entropy_loss", "non_max_suppression"]):
                                 val_disp = np.broadcast_to(inp_arr, expected_shape)[idx]
                             else:
                                 if inp_arr.shape == expected_shape:

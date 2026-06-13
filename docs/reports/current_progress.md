@@ -33,16 +33,16 @@
 - forward 实际接入 C 后端：`178` 个算子类。
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
-- CUDA verifier：`174` 个。
-- 默认 active numerical plan：`174` 个唯一算子名称，`603` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`415` 条计划。
+- CUDA verifier：`178` 个。
+- 默认 active numerical plan：`178` 个唯一算子名称，`616` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`424` 条计划。
 
 ## 最近已完成验证
 
 - `python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`
 - `git diff --check`
 - `python tools/cli.py compile-cuda`
-  - 最近记录结果：`173` 个 CUDA verifier 编译成功。
+  - 最近记录结果：`178` 个 CUDA verifier 编译成功。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
   - 最近记录结果：位运算 targeted numerical 通过。
 - `python tools/cli.py numerical --op tril --op triu --op trilu --op hann_window --op hamming_window --op blackman_window --iterations 3 --skip-plots`
@@ -61,6 +61,8 @@
   - 最近记录结果：随机 uniform/normal 和 Bernoulli 的 C-vs-CUDA targeted numerical 通过。
 - `python tools/cli.py numerical --op multinomial --iterations 3 --skip-plots`
   - 最近记录结果：Multinomial 的 int64/int32 输出、零概率和非归一化概率 targeted numerical 通过。
+- `python tools/cli.py numerical --op binarizer --op negative_log_likelihood_loss --op softmax_cross_entropy_loss --op non_max_suppression --iterations 3 --skip-plots`
+  - 最近记录结果：Binarizer、NegativeLogLikelihoodLoss、SoftmaxCrossEntropyLoss 和 NonMaxSuppression targeted numerical 通过。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 最近记录结果：相关 pytest 通过。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
@@ -70,9 +72,9 @@
 
 ## 已知未完成部分
 
-以下 `3` 个算子已有 C runtime path、C 后端函数或较完整 pytest/ONNX reference 语义覆盖，但仍需要继续扩展更多属性、dtype 和边界条件的独立 CUDA/numerical case。后续补强时应继续优先使用 C/CUDA reference，不应回退为普通数值路径的 Python-only 实现。
+当前未发现仍需立即后端化或接入默认 numerical 的普通 C-backed 数值/张量算子。本轮已将 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression` 和 `Binarizer` 接入独立 CUDA verifier 与默认 numerical 门禁。
 
-- 损失/检测：`NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss`、`NonMaxSuppression`。
+后续未完成重点不再是“是否有 C/CUDA 门禁”，而是继续扩展官方语义的全属性、全 dtype 和全边界 case matrix。补强时仍应优先使用 C/CUDA reference，不应回退为普通数值路径的 Python-only 实现。
 
 以下类别属于合理保留 Python 调度的范围，不适合按普通 C/CUDA 数值门禁处理；后续重点应放在 ONNX reference pytest、导入器语义测试和端到端图测试。
 
@@ -84,7 +86,7 @@
 
 ## 混合精度状态
 
-- 当前默认 numerical 中已经包含 `415` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
+- 当前默认 numerical 中已经包含 `424` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
 - 混合精度已经能作为当前工程的常规回归门禁使用，但还不能宣称对所有 ONNX 官方 type constraint、所有属性组合和所有边界输入完成穷尽证明。
 - 位运算、字符串、序列、控制流、随机采样等类别不应机械纳入浮点混合精度口径；这些算子需要按整数位模式、结构语义、随机分布或 ONNX reference 行为分别验证。
 
@@ -94,9 +96,9 @@
 - 默认 numerical 是固定 case 与随机样本组成的工程门禁，能够发现常见回归，但不是形式化证明。
 - `MaxRoiPool`、`RoiAlign`、`RNN`、`GRU`、`LSTM`、`DFT`、`STFT` 已进入默认门禁，但仍建议继续扩展 layout、direction、axis、window 和边界输入。
 - `Attention`、`DeformConv` 等复杂算子已覆盖主 C/CUDA 路径，部分 cache、nonpad、多输出或高维 fallback 仍主要依赖 ONNX reference pytest。
-- 随机、损失、NMS、量化和集合类算子补 CUDA reference 时，需要特别注意确定性种子、阈值、排序稳定性和低精度舍入规则。
+- 随机、损失、NMS、量化和集合类算子继续扩展 CUDA reference case 时，需要特别注意确定性种子、阈值、排序稳定性和低精度舍入规则。
 
 ## 建议后续优先级
 
-1. 优先处理 `NegativeLogLikelihoodLoss`、`SoftmaxCrossEntropyLoss` 和 `NonMaxSuppression`；这些算子需要更细的阈值、索引、排序和归约边界设计。
-2. 继续扩展已进入默认门禁的复杂算子属性矩阵，尤其是 ROI、序列、谱、Attention、DeformConv、量化和损失类边界。
+1. 继续扩展已进入默认门禁的复杂算子属性矩阵，尤其是 ROI、序列、谱、Attention、DeformConv、量化、损失和 NMS 类边界。
+2. 对仍带 Python fallback 的复杂路径逐项审计，只保留调度、ONNX reference 对照或 C 后端暂不承载 dtype 的兜底，不允许普通数值主路径退回 Python-only。
