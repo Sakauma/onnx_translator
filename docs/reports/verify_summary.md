@@ -320,6 +320,8 @@
 
 继续扩大 `NonMaxSuppression` 的默认 C/CUDA 数值边界集合：新增多 batch/multi-class float32 case，覆盖 score 排序 tie、score 阈值等值包含、跨 batch/class 输出顺序和 `max_output_boxes_per_class=2`；新增 float16 空输出 case，覆盖 `max_output_boxes_per_class > 0` 但所有分数低于阈值时的零长度 selected indices 输出。验证命令：`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op non_max_suppression --iterations 3 --skip-plots` 和完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 均已通过。随后执行 `tools/audit_ops.py --output docs/reports/operator_coverage.md` 刷新覆盖报告，默认 active numerical plan 保持 178 个唯一算子，默认计划提升到 618 条，混合精度计划提升到 425 条，普通数值/张量算子 Python-only 运行时保持为 0。
 
+继续扩大 `LpNormalization` 的默认 C/CUDA 数值边界集合：runner 支持为该算子显式注入固定 `input_values`，新增 float32 `axis=-1,p=2` 全零输入计划，覆盖本地 ONNX reference 明确要求的 `norm == 0` 时输出 0 而非 NaN；新增 bfloat16 `axis=2,p=1` 计划，覆盖非通道轴、p=1、符号保持和低精度位写回。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`、`git diff --check`、`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op lp_normalization --iterations 3 --skip-plots` 均已通过。随后执行完整默认 numerical 一轮：`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`，默认 active numerical plan 保持 178 个唯一算子，默认计划提升到 620 条，混合精度计划提升到 426 条，全部通过；`tools/audit_ops.py --output docs/reports/operator_coverage.md` 已刷新，普通数值/张量算子 Python-only 运行时保持为 0。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
@@ -327,7 +329,7 @@
 - QuantizeLinear/DequantizeLinear 的新版属性，例如 block quantization、output_dtype、precision、saturate 等，仍需结合目标 opset 再决定是否扩展。
 - `BatchNormalization` 当前 C/CUDA numerical 覆盖推理模式主路径；training_mode 的 running mean/var 多输出语义仍主要由 Python runtime 负责，后续如目标模型依赖训练模式导出，需要再补 C/CUDA reference 和 pytest 边界集合。
 - `LayerNormalization` 当前 C/CUDA numerical 覆盖 `axis=-1` 且只输出 `Y` 的主路径；非最后轴、多输出 `mean/inv_std` 路径仍主要由 Python fallback 与 pytest 语义测试覆盖，后续可继续扩展 C/CUDA reference。
-- `LpNormalization` 当前 mixed precision numerical 覆盖 p=2，float32 同时覆盖 p=1/p=2；更多 axis、空维度和全零范数组合仍主要依赖 pytest 语义测试，后续可继续扩展默认计划。
+- `LpNormalization` 当前 mixed precision numerical 覆盖 p=2 以及 axis=2/p=1 的 bfloat16，float32 同时覆盖 p=1/p=2 和全零范数；更多 rank、空维度和异常 axis 组合仍建议继续扩展。
 - `GroupNormalization` 当前 C/CUDA numerical 覆盖 2 组 4 通道 NCHW 主路径；更多 group 数、非 4D 输入和极小方差边界仍建议后续继续补 case。
 - `Where`、`Identity`、`Squeeze`、`Unsqueeze`、`Size` 和 `IsInf` 已进入默认 C/CUDA mixed precision numerical；字符串张量、复杂广播形状、运行时 axes 输入等更宽语义仍主要由 ONNX reference pytest 覆盖。
 - `DepthToSpace` 与 `SpaceToDepth` 已进入默认 C/CUDA mixed precision numerical，当前数值门禁覆盖 4D NCHW、blocksize=2 和主要 mode；更多 blocksize、极小空间尺寸和异常 shape 仍主要由 pytest/导入器边界处理覆盖。

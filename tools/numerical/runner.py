@@ -429,8 +429,11 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
 
         if op_name == "lp_normalization":
             # LpNormalization 使用固定有限样本，覆盖 p=1/p=2 下按 axis 归一化且保留输入符号的路径。
-            values = np.linspace(-1.5, 1.7, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
-            values = np.where(np.abs(values) < 0.05, values + 0.25, values)
+            if "input_values" in init_args:
+                values = np.asarray(init_args["input_values"], dtype=np.float32).reshape(shapes[0])
+            else:
+                values = np.linspace(-1.5, 1.7, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
+                values = np.where(np.abs(values) < 0.05, values + 0.25, values)
             inputs_np[0] = from_float32(values, dtypes[0])
 
         if op_name == "group_normalization":

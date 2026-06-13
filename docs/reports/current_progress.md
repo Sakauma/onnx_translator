@@ -34,8 +34,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`618` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`425` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`620` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`426` 条计划。
 
 ## 最近已完成验证
 
@@ -63,12 +63,14 @@
   - 最近记录结果：Multinomial 的 int64/int32 输出、零概率和非归一化概率 targeted numerical 通过。
 - `python tools/cli.py numerical --op binarizer --op negative_log_likelihood_loss --op softmax_cross_entropy_loss --op non_max_suppression --iterations 3 --skip-plots`
   - 最近记录结果：Binarizer、NegativeLogLikelihoodLoss、SoftmaxCrossEntropyLoss 和 NonMaxSuppression targeted numerical 通过；NonMaxSuppression 当前包含多 batch/class、排序 tie、阈值等值包含和 float16 空输出边界计划。
+- `python tools/cli.py numerical --op lp_normalization --iterations 3 --skip-plots`
+  - 最近记录结果：LpNormalization 的 p=1/p=2、axis=1/axis=2/axis=-1、bfloat16 和零范数边界 targeted numerical 通过。
 - `python -m pytest -q tests/test_operator_misc_semantics.py tests/test_operator_c_backend.py -k "bitwise or bit_shift or unsigned_integer_binary_ops"`
   - 最近记录结果：相关 pytest 通过。
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 最近记录结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 最近记录结果：`618` 条默认计划完整 numerical 一轮通过。
+  - 最近记录结果：`620` 条默认计划完整 numerical 一轮通过。
 
 ## 已知未完成部分
 
@@ -86,7 +88,7 @@
 
 ## 混合精度状态
 
-- 当前默认 numerical 中已经包含 `425` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
+- 当前默认 numerical 中已经包含 `426` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
 - 混合精度已经能作为当前工程的常规回归门禁使用，但还不能宣称对所有 ONNX 官方 type constraint、所有属性组合和所有边界输入完成穷尽证明。
 - 位运算、字符串、序列、控制流、随机采样等类别不应机械纳入浮点混合精度口径；这些算子需要按整数位模式、结构语义、随机分布或 ONNX reference 行为分别验证。
 
@@ -94,6 +96,7 @@
 
 - ONNX opset 17 已达到名称级导入覆盖，但名称级覆盖不等同于所有属性、边界条件、异常路径和高维组合的官方语义穷尽验证。
 - 默认 numerical 是固定 case 与随机样本组成的工程门禁，能够发现常见回归，但不是形式化证明。
+- `LpNormalization` 已补充零范数官方边界和非通道 axis 的 bfloat16 C/CUDA 门禁；更多空维度、不同 rank 和异常 axis 仍建议继续扩展。
 - `MaxRoiPool`、`RoiAlign`、`RNN`、`GRU`、`LSTM`、`DFT`、`STFT` 已进入默认门禁，但仍建议继续扩展 layout、direction、axis、window 和边界输入。
 - `Attention`、`DeformConv` 等复杂算子已覆盖主 C/CUDA 路径，部分 cache、nonpad、多输出或高维 fallback 仍主要依赖 ONNX reference pytest。
 - 随机、损失、NMS、量化和集合类算子继续扩展 CUDA reference case 时，需要特别注意确定性种子、阈值、排序稳定性和低精度舍入规则。
