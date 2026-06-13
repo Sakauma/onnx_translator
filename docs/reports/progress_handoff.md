@@ -7,6 +7,7 @@
   * @details     2026.06.05  V1.0.0  创建
   * @details     2026.06.13  V1.0.1  补充 GridSample 属性数值覆盖记录
   * @details     2026.06.13  V1.0.2  补充 ROI 算子边界属性数值覆盖记录
+  * @details     2026.06.14  V1.0.3  补充循环算子 activation 和 clip 数值覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -15,7 +16,7 @@
 
 # 当前进度与剩余工作交接
 
-> 记录时间：2026-06-13
+> 记录时间：2026-06-14
 > 当前分支：`main`
 > 基准报告：`docs/reports/operator_coverage.md`
 
@@ -29,8 +30,8 @@
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`656` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`445` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`662` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`448` 条计划。
 
 ## 本轮已完成
 
@@ -79,6 +80,9 @@
 - `tools/numerical/runner.py` 的 RNN/GRU/LSTM 固定输入现在按 plan 的 `direction`、`layout`、`hidden_size` 动态生成，避免新增 plan 仍实际复用旧 forward/layout=0 样本。
 - RNN/GRU/LSTM CUDA verifier 现在会写出最终状态 sidecar；numerical runner 已同时比较 RNN/GRU 的 `Y/Y_h` 和 LSTM 的 `Y/Y_h/Y_c`。
 - 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `656` 条，混合精度计划提升到 `445` 条。
+- 继续扩展循环算子 activation/clip 默认 numerical plan：新增 RNN `Relu + clip`、GRU `HardSigmoid/ScaledTanh + activation_alpha/beta + clip`、LSTM `HardSigmoid/Tanh/Relu + activation_alpha/beta + clip` 分支，并同步补入 float16/bfloat16 低精度路径。
+- `tools/numerical/runner.py` 现在会把 recurrent activation code、activation alpha/beta 和 clip 编码到 CUDA 参数块；RNN/GRU/LSTM CUDA verifier 使用同一参数块解码并执行 ONNX recurrent activation 语义。
+- 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `662` 条，混合精度计划提升到 `448` 条。
 
 ## 本轮已运行验证
 
@@ -91,7 +95,7 @@
 - `python -m pytest -q tests/test_operator_spectral_semantics.py`
   - 结果：`2 passed`。
 - `python tools/cli.py numerical --op rnn --op gru --op lstm --iterations 3 --skip-plots`
-  - 结果：全部通过，RNN/GRU/LSTM 各 6 个 active plan 样本均与 CUDA reference 对齐，且覆盖 RNN/GRU `Y_h` 和 LSTM `Y_h/Y_c` sidecar 输出。
+  - 结果：全部通过，RNN/GRU/LSTM 各 8 个 active plan 样本均与 CUDA reference 对齐，且覆盖非默认 activation、activation alpha/beta、clip、RNN/GRU `Y_h` 和 LSTM `Y_h/Y_c` sidecar 输出。
 - `python -m pytest -q tests/test_operator_recurrent_semantics.py`
   - 结果：`2 passed`。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
@@ -135,7 +139,7 @@
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 结果：`656` 条默认计划完整 numerical 一轮全部通过，当前 recurrent 计划包含状态输出 sidecar 对比。
+  - 结果：`662` 条默认计划完整 numerical 一轮全部通过，当前 recurrent 计划包含非默认 activation、activation alpha/beta、clip 和状态输出 sidecar 对比。
 - `python -m pytest -q tests`
   - 结果：`298 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
@@ -168,5 +172,5 @@
 - `LayerNormalization` 已覆盖单输出和 `mean/inv_std` aux 多输出 C/CUDA 主路径；更多 rank、stash_type、极小方差、空维度和异常 axis 组合仍建议继续扩展。
 - `GridSample` 已覆盖 linear/reflection、nearest/border 与 cubic/zeros 的 C/CUDA numerical 路径；更多 5D 输入、极端越界坐标、边界点插值和 align_corners 组合仍建议继续扩展。
 - `MaxRoiPool` 已覆盖默认 ROI、spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 写回；`RoiAlign` 已覆盖 avg/half_pixel、max/output_half_pixel、自适应采样和 float16 写回。更多 ROI 数量、边界点采样、异常 batch index 和不同输出尺寸仍建议继续补充。
-- `DFT`/`STFT` 已补充 full spectrum、复数输入、inverse onesided、STFT 无 window 和低精度分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已补充 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`，并补齐 RNN/GRU `Y_h` 与 LSTM `Y_h/Y_c` 的 C/CUDA sidecar 对比；后续仍建议继续扩展非默认 activation、clip、更多 sequence_lens/initial state。
+- `DFT`/`STFT` 已补充 full spectrum、复数输入、inverse onesided、STFT 无 window 和低精度分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已补充 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`、非默认 activation、activation alpha/beta 和 clip，并补齐 RNN/GRU `Y_h` 与 LSTM `Y_h/Y_c` 的 C/CUDA sidecar 对比；后续仍建议继续扩展更多 activation 组合、sequence_lens/initial state 和极端状态边界。
 - `Attention`、`DeformConv` 等复杂算子已覆盖主 C/CUDA 路径，部分 cache、nonpad、多输出或高维 fallback 仍主要由 ONNX reference pytest 覆盖。

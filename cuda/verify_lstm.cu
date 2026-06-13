@@ -15,6 +15,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define MAX_ACTIVATIONS 6
+
+struct RecurrentRuntimeParams {
+    int32_t activations[MAX_ACTIVATIONS];
+    float alphas[MAX_ACTIVATIONS];
+    float betas[MAX_ACTIVATIONS];
+    float clip;
+    int32_t num_activations;
+    int32_t has_clip;
+};
+
 __device__ size_t lstm_x_index(int layout, int seq_len, int batch, int input_size, int t, int b, int i) {
     return layout == 1 ? ((size_t)b * seq_len + t) * input_size + i : ((size_t)t * batch + b) * input_size + i;
 }
@@ -29,7 +40,74 @@ __device__ double lstm_sigmoid(double x) {
     return 1.0 / (1.0 + exp(-x));
 }
 
-// 实现 LSTM 主输出 `Y`、最终隐藏状态 `Y_h` 和最终 cell 状态 `Y_c` 的 CUDA 参考 kernel，覆盖默认激活、peephole 和 input_forget 语义。
+// 读取可选 recurrent activation 参数，未提供时使用 ONNX 默认值。
+__device__ double recurrent_optional_float(const float* values, int index, double default_value) {
+    float value = values[index];
+    return isnan(value) ? default_value : (double)value;
+}
+
+// 对 recurrent gate pre-activation 应用 clip 属性。
+__device__ double recurrent_clip_value(double value, RecurrentRuntimeParams params) {
+    if (!params.has_clip) return value;
+    if (value > (double)params.clip) return (double)params.clip;
+    if (value < -(double)params.clip) return -(double)params.clip;
+    return value;
+}
+
+// 根据 ONNX activation code 执行 recurrent activation。
+__device__ double recurrent_activation_value(double x, int code, RecurrentRuntimeParams params, int index) {
+    switch (code) {
+        case 1:
+            return 1.0 / (1.0 + exp(-x));
+        case 2:
+            return x > 0.0 ? x : 0.0;
+        case 3: {
+            double a = recurrent_optional_float(params.alphas, index, 1.0);
+            double b = recurrent_optional_float(params.betas, index, 0.0);
+            return a * x + b;
+        }
+        case 4: {
+            double a = recurrent_optional_float(params.alphas, index, 0.01);
+            return x >= 0.0 ? x : a * x;
+        }
+        case 5: {
+            double a = recurrent_optional_float(params.alphas, index, 1.0);
+            return x >= a ? x : 0.0;
+        }
+        case 6: {
+            double a = recurrent_optional_float(params.alphas, index, 1.0);
+            double b = recurrent_optional_float(params.betas, index, 1.0);
+            return a * tanh(b * x);
+        }
+        case 7: {
+            double a = recurrent_optional_float(params.alphas, index, 0.2);
+            double b = recurrent_optional_float(params.betas, index, 0.5);
+            double y = a * x + b;
+            if (y < 0.0) return 0.0;
+            if (y > 1.0) return 1.0;
+            return y;
+        }
+        case 8: {
+            double a = recurrent_optional_float(params.alphas, index, 1.0);
+            return x >= 0.0 ? x : a * (exp(x) - 1.0);
+        }
+        case 9:
+            return x / (1.0 + fabs(x));
+        case 10:
+            return log1p(exp(x));
+        case 0:
+        default:
+            return tanh(x);
+    }
+}
+
+// 按 ONNX activation 列表取指定 gate 的 activation code。
+__device__ int recurrent_activation_code(RecurrentRuntimeParams params, int index, int default_code) {
+    if (index >= params.num_activations) return default_code;
+    return params.activations[index];
+}
+
+// 实现 LSTM 主输出 `Y`、最终隐藏状态 `Y_h` 和最终 cell 状态 `Y_c` 的 CUDA 参考 kernel，覆盖 activation、clip、peephole 和 input_forget 语义。
 __global__ void lstm_kernel(
     const double* X,
     const double* W,
@@ -50,7 +128,8 @@ __global__ void lstm_kernel(
     int hidden,
     int direction,
     int layout,
-    int input_forget
+    int input_forget,
+    RecurrentRuntimeParams runtime
 ) {
     if (blockIdx.x != 0 || threadIdx.x != 0) return;
 
@@ -73,6 +152,9 @@ __global__ void lstm_kernel(
 
     for (int d = 0; d < num_dirs; ++d) {
         int reverse = direction == 1 || (direction == 2 && d == 1);
+        int f_code = recurrent_activation_code(runtime, d * 3, 1);
+        int g_code = recurrent_activation_code(runtime, d * 3 + 1, 0);
+        int h_code = recurrent_activation_code(runtime, d * 3 + 2, 0);
         for (int step = 0; step < seq_len; ++step) {
             int t = reverse ? (seq_len - 1 - step) : step;
 
@@ -96,13 +178,13 @@ __global__ void lstm_kernel(
                     double p_i = P[(size_t)d * 3 * hidden + h];
                     double p_o = P[(size_t)d * 3 * hidden + hidden + h];
                     double p_f = P[(size_t)d * 3 * hidden + 2 * hidden + h];
-                    double i_gate = lstm_sigmoid(gates[0] + p_i * c_prev);
-                    double f_gate = input_forget ? (1.0 - i_gate) : lstm_sigmoid(gates[2] + p_f * c_prev);
-                    double c_bar = tanh(gates[3]);
+                    double i_gate = recurrent_activation_value(recurrent_clip_value(gates[0] + p_i * c_prev, runtime), f_code, runtime, d * 3);
+                    double f_gate = input_forget ? (1.0 - i_gate) : recurrent_activation_value(recurrent_clip_value(gates[2] + p_f * c_prev, runtime), f_code, runtime, d * 3);
+                    double c_bar = recurrent_activation_value(recurrent_clip_value(gates[3], runtime), g_code, runtime, d * 3 + 1);
                     double c_val = f_gate * c_prev + i_gate * c_bar;
-                    double o_gate = lstm_sigmoid(gates[1] + p_o * c_val);
+                    double o_gate = recurrent_activation_value(recurrent_clip_value(gates[1] + p_o * c_val, runtime), f_code, runtime, d * 3);
 
-                    h_next[(size_t)b * hidden + h] = o_gate * tanh(c_val);
+                    h_next[(size_t)b * hidden + h] = o_gate * recurrent_activation_value(c_val, h_code, runtime, d * 3 + 2);
                     c_next[(size_t)b * hidden + h] = c_val;
                 }
             }
@@ -138,16 +220,30 @@ int main(int argc, char** argv) {
     if (argc != 12) return 1;
 
     size_t out_len = (size_t)atoll(argv[1]);
-    int32_t p[8];
+    int32_t p[10 + MAX_ACTIVATIONS];
+    float fp_values[2 * MAX_ACTIVATIONS + 1];
     FILE* fp = fopen(argv[10], "rb");
     if (!fp) return 2;
-    if (fread(p, sizeof(int32_t), 8, fp) != 8) {
+    if (fread(p, sizeof(int32_t), 10 + MAX_ACTIVATIONS, fp) != 10 + MAX_ACTIVATIONS) {
+        fclose(fp);
+        return 3;
+    }
+    if (fread(fp_values, sizeof(float), 2 * MAX_ACTIVATIONS + 1, fp) != 2 * MAX_ACTIVATIONS + 1) {
         fclose(fp);
         return 3;
     }
     fclose(fp);
 
     int seq_len = p[0], batch = p[1], input_size = p[2], num_dirs = p[3], hidden = p[4], direction = p[5], layout = p[6], input_forget = p[7];
+    RecurrentRuntimeParams runtime;
+    runtime.num_activations = p[8];
+    runtime.has_clip = p[9];
+    for (int i = 0; i < MAX_ACTIVATIONS; ++i) {
+        runtime.activations[i] = p[10 + i];
+        runtime.alphas[i] = fp_values[i];
+        runtime.betas[i] = fp_values[MAX_ACTIVATIONS + i];
+    }
+    runtime.clip = fp_values[2 * MAX_ACTIVATIONS];
     if (out_len != (size_t)seq_len * num_dirs * batch * hidden) return 4;
 
     size_t x_len = (size_t)seq_len * batch * input_size;
@@ -202,7 +298,7 @@ int main(int argc, char** argv) {
     cudaMemcpy(d_init_c, h_init_c, h_len * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(d_p, h_p, p_len * sizeof(double), cudaMemcpyHostToDevice);
 
-    lstm_kernel<<<1, 1>>>(d_x, d_w, d_r, d_b, d_seq, d_init_h, d_init_c, d_p, d_y, d_yh, d_yc, d_workspace, seq_len, batch, input_size, num_dirs, hidden, direction, layout, input_forget);
+    lstm_kernel<<<1, 1>>>(d_x, d_w, d_r, d_b, d_seq, d_init_h, d_init_c, d_p, d_y, d_yh, d_yc, d_workspace, seq_len, batch, input_size, num_dirs, hidden, direction, layout, input_forget, runtime);
     cudaDeviceSynchronize();
     cudaMemcpy(h_y, d_y, out_len * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(h_yh, d_yh, h_len * sizeof(double), cudaMemcpyDeviceToHost);

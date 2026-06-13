@@ -23,6 +23,45 @@ from .data import generate_random_data
 from .dtype import from_float32, quantize_to_dtype_float32, to_float32
 
 
+_RECURRENT_MAX_ACTIVATIONS = 6
+_RECURRENT_ACTIVATION_CODES = {
+    "tanh": 0,
+    "sigmoid": 1,
+    "relu": 2,
+    "affine": 3,
+    "leakyrelu": 4,
+    "thresholdedrelu": 5,
+    "scaledtanh": 6,
+    "hardsigmoid": 7,
+    "elu": 8,
+    "softsign": 9,
+    "softplus": 10,
+}
+
+
+def _recurrent_params_binary(base_values, init_args):
+    activations = init_args.get("activations", []) or []
+    alphas = init_args.get("activation_alpha", []) or []
+    betas = init_args.get("activation_beta", []) or []
+    codes = [0] * _RECURRENT_MAX_ACTIVATIONS
+    alpha_values = [np.nan] * _RECURRENT_MAX_ACTIVATIONS
+    beta_values = [np.nan] * _RECURRENT_MAX_ACTIVATIONS
+    for idx, activation in enumerate(list(activations)[:_RECURRENT_MAX_ACTIVATIONS]):
+        name = activation.decode("utf-8") if isinstance(activation, bytes) else activation
+        key = str(name).lower()
+        if key not in _RECURRENT_ACTIVATION_CODES:
+            raise ValueError(f"Unsupported recurrent activation {activation!r}")
+        codes[idx] = _RECURRENT_ACTIVATION_CODES[key]
+    for idx, value in enumerate(list(alphas)[:_RECURRENT_MAX_ACTIVATIONS]):
+        alpha_values[idx] = float(value)
+    for idx, value in enumerate(list(betas)[:_RECURRENT_MAX_ACTIVATIONS]):
+        beta_values[idx] = float(value)
+    clip = init_args.get("clip", None)
+    int_values = list(base_values) + [min(len(activations), _RECURRENT_MAX_ACTIVATIONS), int(clip is not None)] + codes
+    float_values = alpha_values + beta_values + [0.0 if clip is None else float(clip)]
+    return np.array(int_values, dtype=np.int32).tobytes() + np.array(float_values, dtype=np.float32).tobytes()
+
+
 def _slice_io_values(init_args, input_shape):
     rank = len(input_shape)
     starts = np.asarray(init_args.get("starts_value", [0] * rank), dtype=np.int64).reshape(-1)
@@ -1364,10 +1403,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 op_specific = int(init_args.get("linear_before_reset", 0))
             elif op_name == "lstm":
                 op_specific = int(init_args.get("input_forget", 0))
-            params_bin = np.array(
+            params_bin = _recurrent_params_binary(
                 [seq_len, batch, input_size, num_dirs, hidden, direction_code, layout, op_specific],
-                dtype=np.int32,
-            ).tobytes()
+                init_args,
+            )
         elif op_name == "gemm":
             a, b, c = inputs_np[0], inputs_np[1], inputs_np[2]
             tA, tB = init_args['transA'], init_args['transB']
