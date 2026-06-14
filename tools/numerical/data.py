@@ -21,7 +21,10 @@ def generate_random_data(shape, dtype):
     
     # --- 整数生成 ---
     if "int" in dtype and "float" not in dtype:
-        if dtype == "int4": return np.random.randint(-7, 7, shape).astype(np.int8)
+        if dtype == "int4": return np.random.randint(-8, 8, shape).astype(np.int8)
+        if dtype == "uint4": return np.random.randint(0, 16, shape).astype(np.uint8)
+        if dtype == "int2": return np.random.randint(-2, 2, shape).astype(np.int8)
+        if dtype == "uint2": return np.random.randint(0, 4, shape).astype(np.uint8)
         if dtype == "int8": return np.random.randint(-120, 120, shape).astype(np.int8)
         limit = 1000
         return np.random.randint(-limit, limit, shape).astype(nn.DTYPE_TO_NUMPY.get(dtype, np.int32))

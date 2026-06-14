@@ -35,6 +35,12 @@ def get_dtype_limits(dtype):
         return -128, 127, True
     if dtype == "int4":
         return -8, 7, True
+    if dtype == "uint4":
+        return 0, 15, True
+    if dtype == "int2":
+        return -2, 1, True
+    if dtype == "uint2":
+        return 0, 3, True
     if dtype == "int32":
         return -2147483648, 2147483647, False 
     
@@ -82,6 +88,14 @@ def from_float32(data, dtype):
     if dtype == "float16":
         with np.errstate(over="ignore", invalid="ignore"):
             return arr.astype(np.float16)
+    if dtype == "int4":
+        return np.clip(np.rint(arr), -8, 7).astype(np.int8)
+    if dtype == "uint4":
+        return np.clip(np.rint(arr), 0, 15).astype(np.uint8)
+    if dtype == "int2":
+        return np.clip(np.rint(arr), -2, 1).astype(np.int8)
+    if dtype == "uint2":
+        return np.clip(np.rint(arr), 0, 3).astype(np.uint8)
     if dtype == "float64":
         return arr.astype(np.float64)
     if dtype == "float32":
@@ -92,7 +106,7 @@ def quantize_to_dtype_float32(data, dtype):
     """
     将参考结果按目标 dtype 量化后再解码成 float32，匹配 C 后端写回后的可观测数值。
     """
-    if dtype in {"float8_e4m3", "float8_e5m2", "float8_e4m3fnuz", "float8_e5m2fnuz", "float16", "bfloat16"}:
+    if dtype in {"float8_e4m3", "float8_e5m2", "float8_e4m3fnuz", "float8_e5m2fnuz", "float16", "bfloat16", "int4", "uint4", "int2", "uint2"}:
         return to_float32(from_float32(data, dtype), dtype)
     return np.asarray(data)
 

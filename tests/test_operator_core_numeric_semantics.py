@@ -36,6 +36,10 @@ from nn.Operators import (
 
 _FLOAT8_E4M3FNUZ_PROTO = getattr(TensorProto, "FLOAT8E4M3FNUZ", None)
 _FLOAT8_E5M2FNUZ_PROTO = getattr(TensorProto, "FLOAT8E5M2FNUZ", None)
+_UINT4_PROTO = getattr(TensorProto, "UINT4", None)
+_INT4_PROTO = getattr(TensorProto, "INT4", None)
+_UINT2_PROTO = getattr(TensorProto, "UINT2", None)
+_INT2_PROTO = getattr(TensorProto, "INT2", None)
 
 
 # 构造 Tensor，避免测试主体重复 shape、dtype 和 data 样板。
@@ -629,6 +633,58 @@ def test_c_backend_quantize_and_dequantize_16bit_integer_dtypes_match_onnx_refer
         _tensor(np.array([5], dtype=np.uint16), "uint16"),
     )["tensor"]
     _assert_tensor_matches(dequant_u16_actual, dequant_u16_expected, rtol=1e-6, atol=1e-6)
+
+
+# 验证 QuantizeLinear/DequantizeLinear 的 2-bit/4-bit 低比特整数 dtype 约束。
+def test_c_backend_quantize_and_dequantize_low_bit_integer_dtypes_match_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+    if any(proto is None for proto in [_UINT4_PROTO, _INT4_PROTO, _UINT2_PROTO, _INT2_PROTO]):
+        pytest.skip("Current ONNX package does not expose all low-bit integer dtypes")
+
+    ml_dtypes = pytest.importorskip("ml_dtypes")
+    cases = [
+        ("uint4", _UINT4_PROTO, ml_dtypes.uint4, np.uint8, [-10.0, -0.5, 0.0, 0.5, 3.4, 7.5, 15.4, 20.0], [0, 1, 2, 3, 7, 8, 14, 15], 0.5),
+        ("int4", _INT4_PROTO, ml_dtypes.int4, np.int8, [-20.0, -8.6, -8.4, -0.5, 0.5, 1.2, 7.4, 20.0], [-8, -4, -1, 0, 1, 3, 6, 7], 0.5),
+        ("uint2", _UINT2_PROTO, ml_dtypes.uint2, np.uint8, [-3.0, -0.5, 0.0, 0.5, 1.4, 2.5, 3.4, 7.0], [0, 1, 2, 3, 0, 1, 2, 3], 0.25),
+        ("int2", _INT2_PROTO, ml_dtypes.int2, np.int8, [-5.0, -2.5, -1.5, -0.5, 0.0, 0.5, 1.4, 4.0], [-2, -1, 0, 1, -2, -1, 0, 1], 0.25),
+    ]
+
+    for dtype_name, proto, ml_dtype, storage_dtype, x_values, q_values, dq_scale in cases:
+        x = np.asarray(x_values, dtype=np.float32)
+        scale = np.asarray([1.0], dtype=np.float32)
+        expected_quant = _onnx_reference(
+            "QuantizeLinear",
+            [x, scale],
+            [TensorProto.FLOAT, TensorProto.FLOAT],
+            {"output_dtype": proto},
+            [x.shape],
+            [proto],
+            opset=25,
+        )[0]
+        actual_quant = QuantizeLinear(["x", "scale"], ["y"], dtype=dtype_name).forward(
+            _tensor(x, "float32"),
+            _tensor(scale, "float32"),
+        )["tensor"]
+        np.testing.assert_array_equal(actual_quant.data, np.asarray(expected_quant).astype(storage_dtype))
+
+        q_reference = np.asarray(q_values, dtype=ml_dtype)
+        q_storage = q_reference.astype(storage_dtype)
+        dq_scale_arr = np.asarray([dq_scale], dtype=np.float32)
+        expected_dequant = _onnx_reference(
+            "DequantizeLinear",
+            [q_reference, dq_scale_arr],
+            [proto, TensorProto.FLOAT],
+            {},
+            [q_reference.shape],
+            [TensorProto.FLOAT],
+            opset=25,
+        )[0]
+        actual_dequant = DequantizeLinear(["x", "scale"], ["y"], dtype="float32").forward(
+            _tensor(q_storage, dtype_name),
+            _tensor(dq_scale_arr, "float32"),
+        )["tensor"]
+        np.testing.assert_allclose(actual_dequant.data, expected_dequant, rtol=1e-6, atol=1e-6)
 
 
 # 验证 DequantizeLinear 的 int32 官方输入 dtype 约束。

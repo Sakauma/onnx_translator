@@ -658,8 +658,8 @@ class CastLike(Ops):
 
 
 def _bitcast_itemsize(dtype):
-    # BitCast 使用官方 bit-width 判断；当前工程的 int4 是 int8 容器存储，不能代表官方 4-bit packed 语义。
-    if dtype == "int4":
+    # BitCast 使用官方 bit-width 判断；当前低比特整数是 8-bit 容器存储，不能代表官方 packed 语义。
+    if dtype in {"int2", "uint2", "int4", "uint4"}:
         return None
     np_dtype = nn.DTYPE_TO_NUMPY.get(dtype)
     return None if np_dtype is None else np.dtype(np_dtype).itemsize

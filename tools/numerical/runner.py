@@ -226,7 +226,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
           
         if op_name in ["quantize_linear", "dequantize_linear"]:
             if init_args.get("input_values") is not None:
-                if dtypes[0] in {"bool", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"}:
+                if dtypes[0] in {"bool", "int2", "uint2", "int4", "uint4", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"}:
                     inputs_np[0] = np.asarray(init_args["input_values"], dtype=nn.DTYPE_TO_NUMPY[dtypes[0]]).reshape(shapes[0])
                 else:
                     input_values = np.asarray(init_args["input_values"], dtype=np.float32).reshape(shapes[0])
@@ -247,7 +247,15 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 else:
                     inputs_np[2] = np.round(inputs_np[2])
                     if op_name == "quantize_linear":
-                        if dtypes[2] == "uint8":
+                        if dtypes[2] == "uint2":
+                            inputs_np[2] = np.clip(inputs_np[2], 0, 3)
+                        elif dtypes[2] == "int2":
+                            inputs_np[2] = np.clip(inputs_np[2], -2, 1)
+                        elif dtypes[2] == "uint4":
+                            inputs_np[2] = np.clip(inputs_np[2], 0, 15)
+                        elif dtypes[2] == "int4":
+                            inputs_np[2] = np.clip(inputs_np[2], -8, 7)
+                        elif dtypes[2] == "uint8":
                             inputs_np[2] = np.clip(inputs_np[2], 0, 255)
                         else:
                             inputs_np[2] = np.clip(inputs_np[2], -128, 127)
@@ -1518,6 +1526,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     "float8_e5m2": 5,
                     "float8_e4m3fnuz": 6,
                     "float8_e5m2fnuz": 7,
+                    "uint4": 8,
+                    "int4": 9,
+                    "uint2": 10,
+                    "int2": 11,
                 }.get(out_dtype, 0)
                 precision = int(init_args.get("precision", 0))
                 if precision == 11:  # ONNX TensorProto.DOUBLE

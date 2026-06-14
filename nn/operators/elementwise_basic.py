@@ -533,8 +533,8 @@ class Pow(Ops):
 
     # 执行 `Pow` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input_a: Tensor, input_b: Tensor) -> dict:
-        integer_dtypes = {"int4", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"}
-        signed_integer_dtypes = {"int4", "int8", "int16", "int32", "int64"}
+        integer_dtypes = {"int2", "uint2", "int4", "uint4", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"}
+        signed_integer_dtypes = {"int2", "int4", "int8", "int16", "int32", "int64"}
         if input_a.dtype in integer_dtypes and input_b.dtype in signed_integer_dtypes:
             if np.any(np.asarray(input_b.data) < 0):
                 raise ValueError("Integers to negative integer powers are not allowed.")

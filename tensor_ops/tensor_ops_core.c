@@ -89,7 +89,10 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
             elem_size = 16; // 128位复数
             break;
         case DTYPE_INT4:
-            elem_size = 1;  // 4位整数
+        case DTYPE_UINT4:
+        case DTYPE_INT2:
+        case DTYPE_UINT2:
+            elem_size = 1;  // 低 bit 整数当前使用 1 字节运行时容器
             break;
         case DTYPE_INT8:
             elem_size = 1;  // 8位整数

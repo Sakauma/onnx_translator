@@ -593,6 +593,10 @@ def build_default_plans():
     (QuantizeLinear, "quantize_linear", [(6,), (1,), (1,)], ["float32", "float32", "float8_e4m3fnuz"], "float8_e4m3fnuz", {"axis": 0, "omit_zero_point": 1, "saturate": 0, "input_values": [-1000.0, -248.0, -247.0, 247.0, 248.0, 1000.0], "scale_values": [1.0]}),
     (QuantizeLinear, "quantize_linear", [(6,), (1,), (1,)], ["float32", "float32", "float8_e5m2fnuz"], "float8_e5m2fnuz", {"axis": 0, "omit_zero_point": 1, "saturate": 1, "input_values": [-70000.0, -61440.0, -61439.0, 61439.0, 61440.0, 70000.0], "scale_values": [1.0]}),
     (QuantizeLinear, "quantize_linear", [(6,), (1,), (1,)], ["float32", "float32", "float8_e5m2fnuz"], "float8_e5m2fnuz", {"axis": 0, "omit_zero_point": 1, "saturate": 0, "input_values": [-70000.0, -61440.0, -61439.0, 61439.0, 61440.0, 70000.0], "scale_values": [1.0]}),
+    (QuantizeLinear, "quantize_linear", [(8,), (1,), (1,)], ["float32", "float32", "uint4"], "uint4", {"axis": 0, "omit_zero_point": 1, "input_values": [-10.0, -0.5, 0.0, 0.5, 3.4, 7.5, 15.4, 20.0], "scale_values": [1.0]}),
+    (QuantizeLinear, "quantize_linear", [(8,), (1,), (1,)], ["float32", "float32", "int4"], "int4", {"axis": 0, "omit_zero_point": 1, "input_values": [-20.0, -8.6, -8.4, -0.5, 0.5, 1.2, 7.4, 20.0], "scale_values": [1.0]}),
+    (QuantizeLinear, "quantize_linear", [(8,), (1,), (1,)], ["float32", "float32", "uint2"], "uint2", {"axis": 0, "omit_zero_point": 1, "input_values": [-3.0, -0.5, 0.0, 0.5, 1.4, 2.5, 3.4, 7.0], "scale_values": [1.0]}),
+    (QuantizeLinear, "quantize_linear", [(8,), (1,), (1,)], ["float32", "float32", "int2"], "int2", {"axis": 0, "omit_zero_point": 1, "input_values": [-5.0, -2.5, -1.5, -0.5, 0.0, 0.5, 1.4, 4.0], "scale_values": [1.0]}),
     (DequantizeLinear, "dequantize_linear", [(64,64), (1,), (1,)], ["int8", "float32", "int8"], "float32"),
     (DequantizeLinear, "dequantize_linear", [(1, 3, 4), (3,), (3,)], ["uint8", "float32", "uint8"], "float32", {"axis": 1, "input_values": [0, 1, 128, 255, 0, 128, 129, 255, 0, 250, 251, 255], "scale_values": [0.1, 0.25, 0.5], "zero_point_values": [0, 128, 250]}),
     (DequantizeLinear, "dequantize_linear", [(2, 3, 4), (4,), (1,)], ["int8", "float32", "int8"], "float32", {"axis": -1, "omit_zero_point": 1, "input_values": [-128, -4, 0, 127, -64, -3, 3, 64, -25, -1, 1, 25, -10, -2, 2, 10, -5, -1, 1, 5, -100, -8, 8, 100], "scale_values": [0.1, 0.25, 0.5, 1.25]}),
@@ -602,6 +606,10 @@ def build_default_plans():
     (DequantizeLinear, "dequantize_linear", [(8,), (1,), (1,)], ["int32", "float32", "int32"], "float32", {"axis": 0, "input_values": [-2147483648, -65536, -1024, 0, 1024, 65536, 123456789, 2147483647], "scale_values": [0.25], "zero_point_values": [-17]}),
     (DequantizeLinear, "dequantize_linear", [(6,), (1,), (1,)], ["float8_e4m3fnuz", "float32", "float8_e4m3fnuz"], "float32", {"axis": 0, "omit_zero_point": 1, "input_values": [-240.0, -1.0, -0.0009765625, 0.0, 0.0009765625, 240.0], "scale_values": [1.0]}),
     (DequantizeLinear, "dequantize_linear", [(6,), (1,), (1,)], ["float8_e5m2fnuz", "float32", "float8_e5m2fnuz"], "float32", {"axis": 0, "omit_zero_point": 1, "input_values": [-57344.0, -1.0, -0.00000762939453125, 0.0, 0.00000762939453125, 57344.0], "scale_values": [1.0]}),
+    (DequantizeLinear, "dequantize_linear", [(8,), (1,), (1,)], ["uint4", "float32", "uint4"], "float32", {"axis": 0, "omit_zero_point": 1, "input_values": [0, 1, 2, 3, 7, 8, 14, 15], "scale_values": [0.5]}),
+    (DequantizeLinear, "dequantize_linear", [(8,), (1,), (1,)], ["int4", "float32", "int4"], "float32", {"axis": 0, "omit_zero_point": 1, "input_values": [-8, -4, -1, 0, 1, 3, 6, 7], "scale_values": [0.5]}),
+    (DequantizeLinear, "dequantize_linear", [(8,), (1,), (1,)], ["uint2", "float32", "uint2"], "float32", {"axis": 0, "omit_zero_point": 1, "input_values": [0, 1, 2, 3, 0, 1, 2, 3], "scale_values": [0.25]}),
+    (DequantizeLinear, "dequantize_linear", [(8,), (1,), (1,)], ["int2", "float32", "int2"], "float32", {"axis": 0, "omit_zero_point": 1, "input_values": [-2, -1, 0, 1, -2, -1, 0, 1], "scale_values": [0.25]}),
 
     (SQRT, "sqrt", [(64, 64)], ["float32"], "float32"),
 

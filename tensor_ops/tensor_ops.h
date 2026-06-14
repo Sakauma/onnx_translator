@@ -39,6 +39,9 @@ typedef enum {
     DTYPE_COMPLEX128,  // 128位复数
     DTYPE_FLOAT8_E4M3FNUZ, // 8位 FNUZ E4M3 浮点数
     DTYPE_FLOAT8_E5M2FNUZ, // 8位 FNUZ E5M2 浮点数
+    DTYPE_UINT4,       // 4位无符号整数
+    DTYPE_INT2,        // 2位整数
+    DTYPE_UINT2,       // 2位无符号整数
 } DataType;
 
 /**

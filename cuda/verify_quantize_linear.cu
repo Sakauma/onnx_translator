@@ -22,6 +22,34 @@ __device__ double saturate_cast_int8(double val) {
     return val;
 }
 
+// 实现 `saturate_cast_int4` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
+__device__ double saturate_cast_int4(double val) {
+    if (val > 7.0) return 7.0;
+    if (val < -8.0) return -8.0;
+    return val;
+}
+
+// 实现 `saturate_cast_uint4` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
+__device__ double saturate_cast_uint4(double val) {
+    if (val > 15.0) return 15.0;
+    if (val < 0.0) return 0.0;
+    return val;
+}
+
+// 实现 `saturate_cast_int2` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
+__device__ double saturate_cast_int2(double val) {
+    if (val > 1.0) return 1.0;
+    if (val < -2.0) return -2.0;
+    return val;
+}
+
+// 实现 `saturate_cast_uint2` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
+__device__ double saturate_cast_uint2(double val) {
+    if (val > 3.0) return 3.0;
+    if (val < 0.0) return 0.0;
+    return val;
+}
+
 // 实现 `saturate_cast_uint8` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
 __device__ double saturate_cast_uint8(double val) {
     if (val > 255.0) return 255.0;
@@ -101,6 +129,10 @@ __device__ double saturate_quantized(double val, int target_dtype_code, int satu
     if (target_dtype_code == 5) return quantize_float8_e5m2_value(val, saturate);
     if (target_dtype_code == 6) return quantize_float8_e4m3fnuz_value(val, saturate);
     if (target_dtype_code == 7) return quantize_float8_e5m2fnuz_value(val, saturate);
+    if (target_dtype_code == 8) return saturate_cast_uint4(val);
+    if (target_dtype_code == 9) return saturate_cast_int4(val);
+    if (target_dtype_code == 10) return saturate_cast_uint2(val);
+    if (target_dtype_code == 11) return saturate_cast_int2(val);
     return saturate_cast_uint8(val);
 }
 

@@ -620,6 +620,10 @@ def parse_numerical_plan_details() -> tuple[set[str], int, int]:
             "float8_e5m2",
             "float8_e4m3fnuz",
             "float8_e5m2fnuz",
+            "int4",
+            "uint4",
+            "int2",
+            "uint2",
         }
         dtypes = []
         if len(plan.elts) > 3 and isinstance(plan.elts[3], ast.List):

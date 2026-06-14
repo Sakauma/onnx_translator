@@ -76,6 +76,9 @@ static inline size_t get_dtype_size(DataType dtype) {
         case DTYPE_FLOAT8_E5M2FNUZ:
         case DTYPE_BOOL:
         case DTYPE_INT4:
+        case DTYPE_UINT4:
+        case DTYPE_INT2:
+        case DTYPE_UINT2:
         case DTYPE_INT8:
         case DTYPE_UINT8:
             return 1;
@@ -103,6 +106,9 @@ static inline size_t get_dtype_size(DataType dtype) {
 // 判断 dtype 是否属于整数族，包含 ONNX 支持的有符号和无符号整数。
 static inline int is_integer_dtype(DataType dtype) {
     return dtype == DTYPE_INT4 ||
+           dtype == DTYPE_UINT4 ||
+           dtype == DTYPE_INT2 ||
+           dtype == DTYPE_UINT2 ||
            dtype == DTYPE_INT8 ||
            dtype == DTYPE_UINT8 ||
            dtype == DTYPE_INT16 ||
@@ -115,7 +121,9 @@ static inline int is_integer_dtype(DataType dtype) {
 
 // 判断 dtype 是否属于无符号整数族，供比较、排序和回绕写回路径选择。
 static inline int is_unsigned_integer_dtype(DataType dtype) {
-    return dtype == DTYPE_UINT8 ||
+    return dtype == DTYPE_UINT4 ||
+           dtype == DTYPE_UINT2 ||
+           dtype == DTYPE_UINT8 ||
            dtype == DTYPE_UINT16 ||
            dtype == DTYPE_UINT32 ||
            dtype == DTYPE_UINT64;
@@ -125,6 +133,9 @@ static inline int is_unsigned_integer_dtype(DataType dtype) {
 static inline int integer_dtype_bits(DataType dtype) {
     switch (dtype) {
         case DTYPE_INT4: return 4;
+        case DTYPE_UINT4: return 4;
+        case DTYPE_INT2: return 2;
+        case DTYPE_UINT2: return 2;
         case DTYPE_INT8:
         case DTYPE_UINT8: return 8;
         case DTYPE_INT16:
@@ -190,6 +201,30 @@ static inline int8_t saturate_cast_int4(int64_t val) {
     if (val > 7) return 7;
     if (val < -8) return -8;
     return (int8_t)val;
+}
+
+// 4-bit 无符号饱和截断 (0 ~ 15)
+// 实现 `saturate_cast_uint4` 的数值格式转换或饱和裁剪，保证低精度存储符合 ONNX dtype 语义。
+static inline uint8_t saturate_cast_uint4(int64_t val) {
+    if (val > 15) return 15;
+    if (val < 0) return 0;
+    return (uint8_t)val;
+}
+
+// 2-bit 饱和截断 (-2 ~ 1)
+// 实现 `saturate_cast_int2` 的数值格式转换或饱和裁剪，保证低精度存储符合 ONNX dtype 语义。
+static inline int8_t saturate_cast_int2(int64_t val) {
+    if (val > 1) return 1;
+    if (val < -2) return -2;
+    return (int8_t)val;
+}
+
+// 2-bit 无符号饱和截断 (0 ~ 3)
+// 实现 `saturate_cast_uint2` 的数值格式转换或饱和裁剪，保证低精度存储符合 ONNX dtype 语义。
+static inline uint8_t saturate_cast_uint2(int64_t val) {
+    if (val > 3) return 3;
+    if (val < 0) return 0;
+    return (uint8_t)val;
 }
 
 // 8-bit 饱和截断
@@ -669,6 +704,9 @@ static inline float get_value_as_float(const Tensor* tensor, size_t index) {
             }
             return (float)val;
         }
+        case DTYPE_UINT4: return (float)(((uint8_t*)tensor->data)[index] & 0x0F);
+        case DTYPE_INT2: return (float)sign_extend_integer_bits(((uint8_t*)tensor->data)[index], 2);
+        case DTYPE_UINT2: return (float)(((uint8_t*)tensor->data)[index] & 0x03);
         case DTYPE_INT8: return (float)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (float)((uint8_t*)tensor->data)[index];
         case DTYPE_BOOL: return ((uint8_t*)tensor->data)[index] ? 1.0f : 0.0f;
@@ -707,6 +745,9 @@ static inline double get_value_as_double(const Tensor* tensor, size_t index) {
             }
             return (double)val;
         }
+        case DTYPE_UINT4: return (double)(((uint8_t*)tensor->data)[index] & 0x0F);
+        case DTYPE_INT2: return (double)sign_extend_integer_bits(((uint8_t*)tensor->data)[index], 2);
+        case DTYPE_UINT2: return (double)(((uint8_t*)tensor->data)[index] & 0x03);
         case DTYPE_INT8: return (double)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (double)((uint8_t*)tensor->data)[index];
         case DTYPE_BOOL: return ((uint8_t*)tensor->data)[index] ? 1.0 : 0.0;
@@ -746,6 +787,9 @@ static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
             }
             return (int64_t)val;
         }
+        case DTYPE_UINT4: return (int64_t)(((uint8_t*)tensor->data)[index] & 0x0F);
+        case DTYPE_INT2: return sign_extend_integer_bits(((uint8_t*)tensor->data)[index], 2);
+        case DTYPE_UINT2: return (int64_t)(((uint8_t*)tensor->data)[index] & 0x03);
         case DTYPE_INT8: return (int64_t)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (int64_t)((uint8_t*)tensor->data)[index];
         case DTYPE_BOOL: return ((uint8_t*)tensor->data)[index] ? 1 : 0;
@@ -775,6 +819,9 @@ static inline uint64_t get_integer_value_as_uint64(const Tensor* tensor, size_t 
             }
             return (uint64_t)(int64_t)val;
         }
+        case DTYPE_UINT4: return (uint64_t)(((uint8_t*)tensor->data)[index] & 0x0F);
+        case DTYPE_INT2: return (uint64_t)sign_extend_integer_bits(((uint8_t*)tensor->data)[index], 2);
+        case DTYPE_UINT2: return (uint64_t)(((uint8_t*)tensor->data)[index] & 0x03);
         case DTYPE_INT8: return (uint64_t)(int64_t)((int8_t*)tensor->data)[index];
         case DTYPE_UINT8: return (uint64_t)((uint8_t*)tensor->data)[index];
         case DTYPE_BOOL: return ((uint8_t*)tensor->data)[index] ? 1ULL : 0ULL;
@@ -858,6 +905,9 @@ static inline int compare_tensor_values(const Tensor* A, size_t a_index, const T
 static inline void set_integer_value_wrapped(Tensor* tensor, size_t index, uint64_t raw_value) {
     switch (tensor->dtype) {
         case DTYPE_INT4:   ((int8_t*)tensor->data)[index] = (int8_t)sign_extend_integer_bits(raw_value, 4); break;
+        case DTYPE_UINT4:  ((uint8_t*)tensor->data)[index] = (uint8_t)(raw_value & 0x0F); break;
+        case DTYPE_INT2:   ((int8_t*)tensor->data)[index] = (int8_t)sign_extend_integer_bits(raw_value, 2); break;
+        case DTYPE_UINT2:  ((uint8_t*)tensor->data)[index] = (uint8_t)(raw_value & 0x03); break;
         case DTYPE_INT8:   ((int8_t*)tensor->data)[index] = (int8_t)sign_extend_integer_bits(raw_value, 8); break;
         case DTYPE_UINT8:  ((uint8_t*)tensor->data)[index] = (uint8_t)raw_value; break;
         case DTYPE_BOOL:   ((uint8_t*)tensor->data)[index] = raw_value != 0; break;
@@ -879,6 +929,9 @@ static inline void set_integer_value_wrapped(Tensor* tensor, size_t index, uint6
 static inline void set_tensor_value_from_int(Tensor* tensor, size_t index, int64_t value) {
     switch (tensor->dtype) {
         case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = saturate_cast_int4(value); break;
+        case DTYPE_UINT4:   ((uint8_t*)tensor->data)[index] = saturate_cast_uint4(value); break;
+        case DTYPE_INT2:    ((int8_t*)tensor->data)[index] = saturate_cast_int2(value); break;
+        case DTYPE_UINT2:   ((uint8_t*)tensor->data)[index] = saturate_cast_uint2(value); break;
         case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = saturate_cast_int8(value); break;
         case DTYPE_UINT8: ((uint8_t*)tensor->data)[index] = saturate_cast_uint8(value); break;
         case DTYPE_BOOL:    ((uint8_t*)tensor->data)[index] = value != 0; break;
@@ -914,6 +967,9 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
         case DTYPE_FLOAT64: ((double*)tensor->data)[index] = value; break;
         // 如果目标是整数，使用饱和截断转换
         case DTYPE_INT4:    ((int8_t*)tensor->data)[index] = saturate_cast_int4((int64_t)rint(value)); break; 
+        case DTYPE_UINT4:   ((uint8_t*)tensor->data)[index] = saturate_cast_uint4((int64_t)rint(value)); break;
+        case DTYPE_INT2:    ((int8_t*)tensor->data)[index] = saturate_cast_int2((int64_t)rint(value)); break;
+        case DTYPE_UINT2:   ((uint8_t*)tensor->data)[index] = saturate_cast_uint2((int64_t)rint(value)); break;
         case DTYPE_INT8:    ((int8_t*)tensor->data)[index] = saturate_cast_int8((int64_t)rint(value)); break;
         case DTYPE_UINT8: ((uint8_t*)tensor->data)[index] = saturate_cast_uint8((int64_t)rint(value)); break;
         case DTYPE_BOOL:    ((uint8_t*)tensor->data)[index] = value != 0.0; break;
@@ -1042,6 +1098,8 @@ void FUNC_NAME(const Tensor* input, Tensor* output) { \
             } \
             break; \
         } \
+        case DTYPE_UINT2: \
+        case DTYPE_UINT4: \
         case DTYPE_UINT8: \
         case DTYPE_UINT16: { \
             _Pragma("omp parallel for") \
@@ -1064,6 +1122,7 @@ void FUNC_NAME(const Tensor* input, Tensor* output) { \
             } \
             break; \
         } \
+        case DTYPE_INT2: \
         case DTYPE_INT4: { \
             _Pragma("omp parallel for") \
             for (size_t i = 0; i < O->size; i++) { \
