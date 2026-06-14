@@ -20,6 +20,8 @@
   * @details     2026.06.14  V1.0.13 补充 DequantizeLinear int32 输入 dtype 覆盖记录
   * @details     2026.06.14  V1.0.14 补充 RNN/GRU/LSTM 零长度 sequence_lens 边界覆盖记录
   * @details     2026.06.14  V1.0.15 补充 DFT/STFT 高维 axis 和前缀维数值覆盖记录
+  * @details     2026.06.14  V1.0.16 补充 QuantizeLinear float8 saturate 属性数值覆盖记录
+  * @details     2026.06.14  V1.0.17 补充 QuantizeLinear saturate 后完整 numerical 收尾记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -42,8 +44,8 @@
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`702` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`467` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`705` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`470` 条计划。
 
 ## 本轮已完成
 
@@ -116,6 +118,7 @@
 - 继续补强 DequantizeLinear 官方 dtype 约束中的 int32 输入路径：默认 numerical 新增 int32 输入、int32 zero point、float32 scale 的极值反量化计划，runner 现在对整数 `input_values` 直接按目标整数 dtype 构造输入，避免 int32 极值先经过 float32 时丢精度；本轮后默认计划提升到 `692` 条，混合精度计划保持 `462` 条。
 - 继续补强循环算子 `sequence_lens` 边界：默认 numerical 为 RNN、GRU、LSTM 分别新增 float32 和低精度的 `sequence_lens=[0, 2]` 计划，固定验证零长度 batch 不执行任何时间步，并保持 `initial_h/initial_c` 状态；本轮后默认计划提升到 `698` 条，混合精度计划提升到 `465` 条。
 - 继续补强谱算子 axis 和高维前缀边界：`cuda/verify_dft.cu` 从扁平 `batch x length x complex` 参数升级为 rank/shape/axis 坐标映射协议，默认 numerical 新增 DFT 4D 中间轴 `axis=1`、`dft_length=5` 的 float32/float16 计划，并新增 STFT 4D 多前缀维输入的 float32/bfloat16 计划；本轮后默认计划提升到 `702` 条，混合精度计划提升到 `467` 条。
+- 继续补强 QuantizeLinear 最新 schema 的 `saturate` 属性：C 后端新增 `quantize_linear_forward_precision_saturate` 入口，float8 输出按 `saturate=1/0` 区分最大有限值、Inf 和 NaN 溢出行为；CUDA verifier 同步接收 saturate 参数并对 float8_e4m3/float8_e5m2 使用独立溢出阈值。默认 numerical 新增 3 条 float8 saturate 计划；本轮后默认计划提升到 `705` 条，混合精度计划提升到 `470` 条。
 
 ## 本轮已运行验证
 
@@ -195,10 +198,16 @@
   - 结果：`1 passed`，覆盖 DequantizeLinear int32 输入和 int32 zero point 的官方 dtype 约束，以及 int32 最小值、最大值和大整数反量化边界。
 - `python tools/cli.py numerical --op quantize_linear --op dequantize_linear --iterations 3 --skip-plots`
   - 结果：全部通过，QuantizeLinear/DequantizeLinear 共 `28` 组计划、`84` 个样本均与 CUDA reference 对齐，新增 DequantizeLinear int32 输入 dtype 路径，并保留负轴尾块不满 blocked 映射和对应低精度写回路径。
+- `python -m pytest -q tests/test_operator_core_numeric_semantics.py -k 'quantize_linear_float8_saturate or precision_double'`
+  - 结果：`4 passed, 17 deselected`，覆盖 QuantizeLinear float8_e5m2 `saturate=1/0` 和 float8_e4m3 `saturate=0` 输出位模式与 ONNX ReferenceEvaluator 对齐。
+- `python tools/cli.py compile-cuda`
+  - 结果：`178` 个 CUDA verifier 编译成功，包含新增 saturate 参数协议后的 `verify_quantize_linear`。
+- `python tools/cli.py numerical --op quantize_linear --iterations 3 --skip-plots`
+  - 结果：全部通过，QuantizeLinear 共 `17` 组计划、`51` 个样本均与 CUDA reference 对齐，新增 float8_e5m2 `saturate=1/0` 和 float8_e4m3 `saturate=0` 溢出边界计划。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 结果：`702` 条默认计划完整 numerical 一轮全部通过，当前 DeformConv 计划包含分组、offset group、无 bias/无 mask 和 stride/pad/dilation 属性扩展；Attention 计划包含 mask/scale 属性扩展，recurrent 计划包含 `sequence_lens=0`、非默认 activation、activation alpha/beta、clip 和状态输出 sidecar 对比；谱算子计划包含 DFT 高维中间轴和 STFT 多前缀维输入；QuantizeLinear/DequantizeLinear 覆盖 scalar、`axis=1` per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点、`output_dtype`、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 dtype、DequantizeLinear int32 输入 dtype 和 `precision=DOUBLE` 路径。
+  - 结果：本轮新增 QuantizeLinear float8 saturate 计划后默认计划提升到 `705` 条；完整 numerical 一轮已全部通过，覆盖 `178` 个唯一算子和 `470` 条混合精度计划。
 - `python -m pytest -q tests`
-  - 结果：`307 passed, 1 skipped`。
+  - 结果：`310 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
   - 结果：静态 Python 编译检查通过。
 
@@ -227,7 +236,7 @@
 - 已进入 numerical 的 mixed precision 计划主要覆盖项目当前支持和官方 type constraint 中合理的低精度路径；非官方约束内的 float8 或字符串/序列路径不应强行纳入数值门禁。
 - `BatchNormalization` 已覆盖推理态和 training_mode 三输出主路径；更多 rank、极小方差、不同 momentum/epsilon、空维度和异常 shape 组合仍建议继续扩展。
 - `LayerNormalization` 已覆盖单输出和 `mean/inv_std` aux 多输出 C/CUDA 主路径；更多 rank、stash_type、极小方差、空维度和异常 axis 组合仍建议继续扩展。
-- `QuantizeLinear`/`DequantizeLinear` 已覆盖 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点、`output_dtype` 属性、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 量化 dtype、DequantizeLinear int32 输入 dtype 和 `precision=DOUBLE` 除法精度的 C/CUDA numerical 与 pytest；`saturate`、更多 precision dtype、更多 block 形状/轴组合以及 float4/float8/2-bit/4-bit packed dtype 仍需继续扩展。
+- `QuantizeLinear`/`DequantizeLinear` 已覆盖 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点、`output_dtype` 属性、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 量化 dtype、DequantizeLinear int32 输入 dtype、`precision=DOUBLE` 除法精度，以及 QuantizeLinear float8_e4m3/float8_e5m2 `saturate=1/0` 溢出边界的 C/CUDA numerical 与 pytest；更多 precision dtype、更多 block 形状/轴组合以及 float4/float8 fnuz/2-bit/4-bit packed dtype 仍需继续扩展。
 - `GridSample` 已覆盖 linear/reflection、nearest/border 与 cubic/zeros 的 C/CUDA numerical 路径；更多 5D 输入、极端越界坐标、边界点插值和 align_corners 组合仍建议继续扩展。
 - `MaxRoiPool` 已覆盖默认 ROI、spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 写回；`RoiAlign` 已覆盖 avg/half_pixel、max/output_half_pixel、自适应采样和 float16 写回。更多 ROI 数量、边界点采样、异常 batch index 和不同输出尺寸仍建议继续补充。
 - `DFT`/`STFT` 已补充 full spectrum、复数输入、inverse onesided、STFT 无 window、低精度分支、DFT 4D 中间轴和 STFT 多前缀维输入；后续仍建议继续扩展更多轴组合、不同长度、异常输入和边界 window 参数。`RNN`、`GRU`、`LSTM` 已补充 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`、非默认 activation、activation alpha/beta、clip、`sequence_lens=0` 保持初始状态边界，并补齐 RNN/GRU `Y_h` 与 LSTM `Y_h/Y_c` 的 C/CUDA sidecar 对比；后续仍建议继续扩展更多 activation 组合、不同 sequence_lens 分布、更多 initial state 极端值和极端状态边界。

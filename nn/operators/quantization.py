@@ -74,7 +74,10 @@ class QuantizeLinear(Ops):
 
         c_func_name = "quantize_linear_forward"
         extra_int_arg = None
-        if self.precision and hasattr(self.lib, "quantize_linear_forward_precision"):
+        if (self.precision or self.saturate != 1) and hasattr(self.lib, "quantize_linear_forward_precision_saturate"):
+            c_func_name = "quantize_linear_forward_precision_saturate"
+            extra_int_arg = (self.precision, self.saturate)
+        elif self.precision and hasattr(self.lib, "quantize_linear_forward_precision"):
             c_func_name = "quantize_linear_forward_precision"
             extra_int_arg = self.precision
         out_tensor = self._execute_ternary(x, scale_tensor, zp_tensor, c_func_name, extra_int_arg=extra_int_arg)

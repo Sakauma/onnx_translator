@@ -43,11 +43,38 @@ __device__ double saturate_cast_uint16(double val) {
     return val;
 }
 
-// 根据目标量化 dtype 选择官方整数范围，输出仍用 double 便于 runner 统一比较。
-__device__ double saturate_quantized(double val, int target_dtype_code) {
+// 根据 QuantizeLinear 的 saturate 属性处理 float8 溢出，正常范围内交给 runner 的 dtype 量化复用同一编码表。
+__device__ double quantize_float8_e4m3_value(double val, int saturate) {
+    if (isnan(val)) return NAN;
+    if (saturate) {
+        if (val > 448.0) return 448.0;
+        if (val < -448.0) return -448.0;
+    } else {
+        if (val > 464.0 || val < -464.0) return NAN;
+    }
+    return val;
+}
+
+// 根据 QuantizeLinear 的 saturate 属性处理 E5M2 溢出；非饱和模式保留 +/-Inf。
+__device__ double quantize_float8_e5m2_value(double val, int saturate) {
+    if (isnan(val)) return NAN;
+    if (saturate) {
+        if (val > 57344.0) return 57344.0;
+        if (val < -57344.0) return -57344.0;
+    } else {
+        if (val >= 61440.0) return INFINITY;
+        if (val <= -61440.0) return -INFINITY;
+    }
+    return val;
+}
+
+// 根据目标量化 dtype 选择官方整数范围或 float8 溢出规则，输出仍用 double 便于 runner 统一比较。
+__device__ double saturate_quantized(double val, int target_dtype_code, int saturate) {
     if (target_dtype_code == 1) return saturate_cast_int8(val);
     if (target_dtype_code == 2) return saturate_cast_uint16(val);
     if (target_dtype_code == 3) return saturate_cast_int16(val);
+    if (target_dtype_code == 4) return quantize_float8_e4m3_value(val, saturate);
+    if (target_dtype_code == 5) return quantize_float8_e5m2_value(val, saturate);
     return saturate_cast_uint8(val);
 }
 
@@ -117,7 +144,8 @@ __global__ void quantize_kernel(
     int block_size,
     int scale_rank,
     int target_dtype_code,
-    int use_float_math
+    int use_float_math,
+    int saturate
 ) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
@@ -135,7 +163,7 @@ __global__ void quantize_kernel(
             res = rint(x[idx] / s) + z;
         }
         
-        out[idx] = saturate_quantized(res, target_dtype_code);
+        out[idx] = saturate_quantized(res, target_dtype_code, saturate);
     }
 }
 
@@ -147,6 +175,7 @@ int main(int argc, char** argv) {
     
     int target_dtype_code = 1;
     int use_float_math = 1;
+    int saturate = 1;
     int rank = 1;
     int axis = 0;
     size_t scale_count = n;
@@ -170,7 +199,34 @@ int main(int argc, char** argv) {
                 target_dtype_code = params[0];
                 use_float_math = params[1];
             }
-            if (param_count >= 8) {
+            if (param_count >= 9 && (params[2] == 0 || params[2] == 1)) {
+                saturate = params[2];
+                rank = params[3];
+                axis = params[4];
+                scale_count = (size_t)params[5];
+                zp_count = (size_t)params[6];
+                block_size = params[7];
+                scale_rank = params[8];
+                if (rank > 0 && param_count >= (size_t)(9 + rank)) {
+                    input_shape = (int*)calloc((size_t)rank, sizeof(int));
+                    scale_shape = (int*)calloc((size_t)rank, sizeof(int));
+                    for (int i = 0; i < rank; ++i) {
+                        input_shape[i] = params[9 + i];
+                    }
+                    if (scale_rank == rank && param_count >= (size_t)(9 + 2 * rank)) {
+                        for (int i = 0; i < rank; ++i) {
+                            scale_shape[i] = params[9 + rank + i];
+                        }
+                    }
+                }
+                if (rank > 0 && axis >= 0 && axis < rank && input_shape) {
+                    axis_dim = input_shape[axis];
+                    axis_stride = 1;
+                    for (int i = axis + 1; i < rank; ++i) {
+                        axis_stride *= (size_t)input_shape[i];
+                    }
+                }
+            } else if (param_count >= 8) {
                 rank = params[2];
                 axis = params[3];
                 scale_count = (size_t)params[4];
@@ -250,7 +306,7 @@ int main(int argc, char** argv) {
     cudaMemcpy(d_s, h_s, scale_bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_z, h_z, zp_bytes, cudaMemcpyHostToDevice);
 
-    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, scale_count, zp_count, axis_dim, axis_stride, d_input_shape, d_scale_shape, rank, axis, block_size, scale_rank, target_dtype_code, use_float_math);
+    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, scale_count, zp_count, axis_dim, axis_stride, d_input_shape, d_scale_shape, rank, axis, block_size, scale_rank, target_dtype_code, use_float_math, saturate);
     
     cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost);
     FILE *fout = fopen(argv[6], "wb"); fwrite(h_out, 1, x_bytes, fout); fclose(fout);

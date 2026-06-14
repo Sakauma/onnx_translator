@@ -172,6 +172,12 @@ void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor*
 void quantize_linear_forward_precision(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y, int precision);
 
 /**
+ * QuantizeLinear 前向传播，显式指定除法精度和 float8 溢出饱和属性
+ * precision 使用 ONNX TensorProto dtype 编码；saturate 仅影响 float8 目标 dtype
+ */
+void quantize_linear_forward_precision_saturate(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y, int precision, int saturate);
+
+/**
  * DequantizeLinear 前向传播 (INT8/UINT8 -> FP32 等)
  * 公式: y = (x - zero_point) * scale
  */

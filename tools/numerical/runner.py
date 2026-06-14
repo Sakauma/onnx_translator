@@ -1514,6 +1514,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     "int8": 1,
                     "uint16": 2,
                     "int16": 3,
+                    "float8_e4m3": 4,
+                    "float8_e5m2": 5,
                 }.get(out_dtype, 0)
                 precision = int(init_args.get("precision", 0))
                 if precision == 11:  # ONNX TensorProto.DOUBLE
@@ -1522,7 +1524,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     use_float_math = 1
                 else:
                     use_float_math = 0 if "float64" in {dtypes[0], dtypes[1]} else 1
-                params_bin = np.array([target_dtype_code, use_float_math, *shape_params], dtype=np.int32).tobytes()
+                saturate = int(init_args.get("saturate", 1))
+                params_bin = np.array([target_dtype_code, use_float_math, saturate, *shape_params], dtype=np.int32).tobytes()
         elif op_name == "matmul":
             M, K = shapes[0]
             K2, N = shapes[1]

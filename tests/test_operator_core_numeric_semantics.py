@@ -459,6 +459,50 @@ def test_c_backend_quantize_linear_precision_double_uses_double_division():
     np.testing.assert_array_equal(double_actual.data, np.array([-127], dtype=np.int8))
 
 
+# 验证 QuantizeLinear 的 saturate 属性真实控制 float8 溢出，而不是只在导入器保存字段。
+@pytest.mark.parametrize(
+    "dtype_name,dtype_proto,saturate,x_values",
+    [
+        ("float8_e5m2", TensorProto.FLOAT8E5M2, 1, [-1.0e10, -1000.0, 1000.0, 1.0e10]),
+        ("float8_e5m2", TensorProto.FLOAT8E5M2, 0, [-1.0e10, -1000.0, 1000.0, 1.0e10]),
+        ("float8_e4m3", TensorProto.FLOAT8E4M3FN, 0, [-1000.0, -449.0, 449.0, 1000.0]),
+    ],
+)
+def test_c_backend_quantize_linear_float8_saturate_matches_onnx_reference(dtype_name, dtype_proto, saturate, x_values):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x_data = np.asarray(x_values, dtype=np.float32)
+    scale_data = np.asarray([1.0], dtype=np.float32)
+    graph = helper.make_graph(
+        [
+            helper.make_node(
+                "QuantizeLinear",
+                ["x", "scale"],
+                ["y"],
+                axis=0,
+                output_dtype=dtype_proto,
+                saturate=saturate,
+            )
+        ],
+        "quant_float8_saturate",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [len(x_values)]),
+            helper.make_tensor_value_info("scale", TensorProto.FLOAT, [1]),
+        ],
+        [helper.make_tensor_value_info("y", dtype_proto, [len(x_values)])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 25)], ir_version=8)
+    expected_bits = ReferenceEvaluator(model).run(None, {"x": x_data, "scale": scale_data})[0].view(np.uint8)
+
+    actual = QuantizeLinear(["x", "scale"], ["y"], dtype=dtype_name, saturate=saturate).forward(
+        _tensor(x_data, "float32"),
+        _tensor(scale_data, "float32"),
+    )["tensor"]
+
+    np.testing.assert_array_equal(actual.data, expected_bits)
+
+
 # 验证 QuantizeLinear/DequantizeLinear 的 int16 与 uint16 官方 dtype 约束。
 def test_c_backend_quantize_and_dequantize_16bit_integer_dtypes_match_onnx_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):

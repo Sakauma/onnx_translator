@@ -243,6 +243,10 @@ class Ops:
                 cls._lib.quantize_linear_forward_precision.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int]
             except AttributeError:
                 pass
+            try:
+                cls._lib.quantize_linear_forward_precision_saturate.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_int]
+            except AttributeError:
+                pass
             cls._lib.dequantize_linear_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             
             # 初始化余弦查找表
@@ -356,7 +360,8 @@ class Ops:
         if extra_int_arg is None:
             getattr(self.lib, c_func_name)(a_c, b_c, c_c, output_c)
         else:
-            getattr(self.lib, c_func_name)(a_c, b_c, c_c, output_c, ctypes.c_int(int(extra_int_arg)))
+            extra_args = extra_int_arg if isinstance(extra_int_arg, (tuple, list)) else (extra_int_arg,)
+            getattr(self.lib, c_func_name)(a_c, b_c, c_c, output_c, *[ctypes.c_int(int(arg)) for arg in extra_args])
 
         out_data = self._ctensor_to_numpy(output_c, out_dtype)
         self.lib.free_tensor(a_c)
