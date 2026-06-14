@@ -8,6 +8,7 @@
   * @details     2026.06.13  V1.0.1  补充 GridSample 属性数值覆盖记录
   * @details     2026.06.13  V1.0.2  补充 ROI 算子边界属性数值覆盖记录
   * @details     2026.06.14  V1.0.3  补充循环算子 activation 和 clip 数值覆盖记录
+  * @details     2026.06.14  V1.0.4  补充 Attention mask 和 scale 数值覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -37,8 +38,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`662` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`448` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`666` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`450` 条计划。
 
 ## 最近已完成验证
 
@@ -80,6 +81,8 @@
   - 最近记录结果：LayerNormalization 的 axis=-1 与 axis=1 后缀归一化、float32/float16/bfloat16 单输出和 `mean/inv_std` aux 多输出 C/CUDA targeted numerical 通过。
 - `python tools/cli.py numerical --op grid_sample --iterations 3 --skip-plots`
   - 最近记录结果：GridSample 的 linear/reflection、nearest/border、cubic/zeros 属性组合，以及 float32、float16、bfloat16 C/CUDA targeted numerical 通过，共 7 条计划、21 个样本。
+- `python tools/cli.py numerical --op attention --iterations 3 --skip-plots`
+  - 最近记录结果：Attention 的 4D GQA 主路径、float mask、bool broadcast mask、显式 scale、causal/非 causal、softcap/无 softcap，以及 float16/bfloat16 低精度写回 targeted numerical 通过，共 7 条计划、21 个样本。
 - `python tools/cli.py numerical --op max_roi_pool --op roi_align --iterations 3 --skip-plots`
   - 最近记录结果：MaxRoiPool 的 spatial_scale=0.5、越界裁剪、空 ROI 输出，以及 RoiAlign 的 max/output_half_pixel/自适应采样属性组合 targeted numerical 通过；两类算子各 15 个样本。
 - `python tools/cli.py numerical --op batch_normalization --iterations 3 --skip-plots`
@@ -91,7 +94,7 @@
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 最近记录结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 最近记录结果：`662` 条默认计划完整 numerical 一轮通过，当前 recurrent 计划包含非默认 activation、activation alpha/beta、clip 和状态输出 sidecar 对比。
+  - 最近记录结果：`666` 条默认计划完整 numerical 一轮通过，当前 Attention 计划包含 mask/scale 属性扩展，recurrent 计划包含非默认 activation、activation alpha/beta、clip 和状态输出 sidecar 对比。
 - `python -m pytest -q tests`
   - 最近记录结果：`298 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
@@ -113,7 +116,7 @@
 
 ## 混合精度状态
 
-- 当前默认 numerical 中已经包含 `448` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
+- 当前默认 numerical 中已经包含 `450` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
 - 混合精度已经能作为当前工程的常规回归门禁使用，但还不能宣称对所有 ONNX 官方 type constraint、所有属性组合和所有边界输入完成穷尽证明。
 - 位运算、字符串、序列、控制流、随机采样等类别不应机械纳入浮点混合精度口径；这些算子需要按整数位模式、结构语义、随机分布或 ONNX reference 行为分别验证。
 
@@ -127,7 +130,7 @@
 - `GridSample` 已将 numerical 从 linear/reflection 主路径扩展到 nearest/border 与 cubic/zeros 属性组合，并覆盖 float32、float16、bfloat16；后续仍建议继续补充 5D、更多坐标边界、极端越界坐标和更多 align_corners 组合。
 - `MaxRoiPool` 已补充 spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 低精度 C/CUDA numerical；`RoiAlign` 已补充 max 模式、output_half_pixel、自适应 sampling_ratio=0、spatial_scale=0.75 和 float16 低精度 C/CUDA numerical。后续仍建议继续扩展更多 ROI 数量、不同 pooled/output 尺寸、边界点采样和异常 batch index。
 - `DFT`/`STFT` 已从基础 onesided 实数样本扩展到 full spectrum、复数输入、inverse onesided、STFT 无 window 和 float16/bfloat16 分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已从基础 forward/layout=0 样本扩展到 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`、非默认 activation、activation alpha/beta 和 clip，并补齐 RNN/GRU `Y_h` 与 LSTM `Y_h/Y_c` 的 C/CUDA sidecar 对比；后续仍建议继续扩展更多 activation 组合、sequence_lens/initial state 和极端状态边界。
-- `Attention`、`DeformConv` 等复杂算子已覆盖主 C/CUDA 路径，部分 cache、nonpad、多输出或高维 fallback 仍主要依赖 ONNX reference pytest。
+- `Attention` 已从基础 4D GQA causal/softcap 主路径扩展到 float mask、bool broadcast mask、显式 scale、非 causal、无 softcap 和 float16/bfloat16 低精度 C/CUDA numerical；cache、nonpad、3D 输入和 qk 中间输出仍主要依赖 ONNX reference pytest。`DeformConv` 等复杂算子的部分高维或特殊 fallback 仍主要依赖 ONNX reference pytest。
 - 随机、损失、NMS、量化和集合类算子继续扩展 CUDA reference case 时，需要特别注意确定性种子、阈值、排序稳定性和低精度舍入规则。
 
 ## 建议后续优先级

@@ -543,13 +543,32 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[4] = from_float32(mask_values, dtypes[4])
 
         if op_name == "attention":
-            # Attention 使用有限 4D GQA 样本，覆盖 Q/K/V matmul、causal、softcap 和低精度写回。
+            # Attention 使用有限 4D GQA 样本，覆盖 Q/K/V matmul、mask、causal、softcap 和低精度写回。
             q_values = np.linspace(-1.0, 1.0, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
             k_values = np.linspace(0.8, -0.9, int(np.prod(shapes[1])), dtype=np.float32).reshape(shapes[1])
             v_values = np.linspace(-0.6, 0.7, int(np.prod(shapes[2])), dtype=np.float32).reshape(shapes[2])
             inputs_np[0] = from_float32(q_values, dtypes[0])
             inputs_np[1] = from_float32(k_values, dtypes[1])
             inputs_np[2] = from_float32(v_values, dtypes[2])
+            if len(inputs_np) > 3 and inputs_np[3] is not None:
+                mask_shape = tuple(shapes[3])
+                mask_variant = init_args.get("attention_mask_variant", "float_bias")
+                if dtypes[3] == "bool":
+                    mask_values = np.ones(mask_shape, dtype=np.bool_)
+                    if mask_values.size:
+                        flat = mask_values.reshape(-1)
+                        flat[-1] = False
+                        if mask_variant == "bool_broadcast" and flat.size > 2:
+                            flat[1] = False
+                    inputs_np[3] = mask_values
+                else:
+                    mask_values = np.zeros(mask_shape, dtype=np.float32)
+                    if mask_values.size:
+                        flat = mask_values.reshape(-1)
+                        flat[min(1, flat.size - 1)] = -1.0e4
+                        if mask_variant == "float_bias" and flat.size > 3:
+                            flat[-1] = -0.75
+                    inputs_np[3] = from_float32(mask_values, dtypes[3])
 
         if op_name in {"softmax", "hardmax", "log_softmax"}:
             # Softmax 族算子使用有限样本，覆盖 axis 分段并避免低精度随机 NaN 干扰验证。
@@ -976,6 +995,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("prob_values", None)
             op_init_args.pop("grid_variant", None)
             op_init_args.pop("roi_variant", None)
+            op_init_args.pop("attention_mask_variant", None)
             op_init_args.pop("target_values", None)
             op_init_args.pop("weight_values", None)
             op_init_args.pop("score_values", None)

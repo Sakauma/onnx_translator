@@ -8,6 +8,7 @@
   * @details     2026.06.13  V1.0.1  补充 GridSample 属性数值覆盖记录
   * @details     2026.06.13  V1.0.2  补充 ROI 算子边界属性数值覆盖记录
   * @details     2026.06.14  V1.0.3  补充循环算子 activation 和 clip 数值覆盖记录
+  * @details     2026.06.14  V1.0.4  补充 Attention mask 和 scale 数值覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -30,8 +31,8 @@
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`662` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`448` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`666` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`450` 条计划。
 
 ## 本轮已完成
 
@@ -83,6 +84,9 @@
 - 继续扩展循环算子 activation/clip 默认 numerical plan：新增 RNN `Relu + clip`、GRU `HardSigmoid/ScaledTanh + activation_alpha/beta + clip`、LSTM `HardSigmoid/Tanh/Relu + activation_alpha/beta + clip` 分支，并同步补入 float16/bfloat16 低精度路径。
 - `tools/numerical/runner.py` 现在会把 recurrent activation code、activation alpha/beta 和 clip 编码到 CUDA 参数块；RNN/GRU/LSTM CUDA verifier 使用同一参数块解码并执行 ONNX recurrent activation 语义。
 - 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `662` 条，混合精度计划提升到 `448` 条。
+- 继续扩展 Attention 默认 numerical plan：新增 float mask、bool broadcast mask、显式 scale、非 causal、无 softcap，以及 float16/bfloat16 低精度写回路径。
+- `tools/numerical/runner.py` 为 Attention 新增固定 mask 样本生成，确保默认门禁覆盖 CUDA verifier 已支持的 mask 广播和布尔屏蔽语义。
+- 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `666` 条，混合精度计划提升到 `450` 条。
 
 ## 本轮已运行验证
 
@@ -124,6 +128,8 @@
   - 结果：全部通过，8 条 LayerNormalization 默认计划均对齐 CUDA reference，包含 `Y/mean/inv_std` 三路输出。
 - `python tools/cli.py numerical --op grid_sample --iterations 3 --skip-plots`
   - 结果：全部通过，7 条 GridSample 默认计划、21 个样本均对齐 CUDA reference。
+- `python tools/cli.py numerical --op attention --iterations 3 --skip-plots`
+  - 结果：全部通过，7 条 Attention 默认计划、21 个样本均对齐 CUDA reference，覆盖 float mask、bool broadcast mask、显式 scale、causal/非 causal、softcap/无 softcap 和低精度写回。
 - `python tools/cli.py numerical --op max_roi_pool --op roi_align --iterations 3 --skip-plots`
   - 结果：全部通过，MaxRoiPool 与 RoiAlign 各 15 个样本均对齐 CUDA reference。
 - `python -m pytest -q tests/test_operator_roi_semantics.py`
@@ -139,7 +145,7 @@
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 结果：`662` 条默认计划完整 numerical 一轮全部通过，当前 recurrent 计划包含非默认 activation、activation alpha/beta、clip 和状态输出 sidecar 对比。
+  - 结果：`666` 条默认计划完整 numerical 一轮全部通过，当前 Attention 计划包含 mask/scale 属性扩展，recurrent 计划包含非默认 activation、activation alpha/beta、clip 和状态输出 sidecar 对比。
 - `python -m pytest -q tests`
   - 结果：`298 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
@@ -173,4 +179,4 @@
 - `GridSample` 已覆盖 linear/reflection、nearest/border 与 cubic/zeros 的 C/CUDA numerical 路径；更多 5D 输入、极端越界坐标、边界点插值和 align_corners 组合仍建议继续扩展。
 - `MaxRoiPool` 已覆盖默认 ROI、spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 写回；`RoiAlign` 已覆盖 avg/half_pixel、max/output_half_pixel、自适应采样和 float16 写回。更多 ROI 数量、边界点采样、异常 batch index 和不同输出尺寸仍建议继续补充。
 - `DFT`/`STFT` 已补充 full spectrum、复数输入、inverse onesided、STFT 无 window 和低精度分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已补充 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`、非默认 activation、activation alpha/beta 和 clip，并补齐 RNN/GRU `Y_h` 与 LSTM `Y_h/Y_c` 的 C/CUDA sidecar 对比；后续仍建议继续扩展更多 activation 组合、sequence_lens/initial state 和极端状态边界。
-- `Attention`、`DeformConv` 等复杂算子已覆盖主 C/CUDA 路径，部分 cache、nonpad、多输出或高维 fallback 仍主要由 ONNX reference pytest 覆盖。
+- `Attention` 已从基础 4D GQA causal/softcap 主路径扩展到 float mask、bool broadcast mask、显式 scale、非 causal、无 softcap 和 float16/bfloat16 低精度 C/CUDA numerical；cache、nonpad、3D 输入和 qk 中间输出仍主要由 ONNX reference pytest 覆盖。`DeformConv` 等复杂算子的部分高维或特殊 fallback 仍主要由 ONNX reference pytest 覆盖。

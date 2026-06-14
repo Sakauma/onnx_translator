@@ -294,6 +294,8 @@ def build_mixed_precision_plans():
         (DeformConv, "deform_conv", [(1, 2, 4, 4), (2, 2, 3, 3), (1, 18, 2, 2), (2,), (1, 9, 2, 2)], ["bfloat16", "bfloat16", "bfloat16", "bfloat16", "bfloat16"], "bfloat16", {"pads": [0, 0, 0, 0], "strides": [1, 1], "dilations": [1, 1], "group": 1, "offset_group": 1}),
         (Attention, "attention", [(1, 4, 3, 4), (1, 2, 5, 4), (1, 2, 5, 3)], ["float16", "float16", "float16"], "float16", {"is_causal": 1, "softcap": 3.0}),
         (Attention, "attention", [(1, 4, 3, 4), (1, 2, 5, 4), (1, 2, 5, 3)], ["bfloat16", "bfloat16", "bfloat16"], "bfloat16", {"is_causal": 1, "softcap": 3.0}),
+        (Attention, "attention", [(1, 4, 3, 4), (1, 2, 4, 4), (1, 2, 4, 3), (1, 1, 3, 4)], ["float16", "float16", "float16", "float16"], "float16", {"is_causal": 1, "softcap": 3.0, "attention_mask_variant": "float_bias"}),
+        (Attention, "attention", [(1, 2, 2, 3), (1, 2, 4, 3), (1, 2, 4, 2), (1, 1, 1, 4)], ["bfloat16", "bfloat16", "bfloat16", "bool"], "bfloat16", {"scale": 0.5, "is_causal": 0, "attention_mask_variant": "bool_broadcast"}),
         (MaxPool, "max_pool", [(1, 2, 8, 8)], ["float16"], "float16", {"kernel_shape": [2, 2], "pads": [0, 0, 0, 0], "strides": [2, 2]}),
         (MaxPool, "max_pool", [(1, 2, 8, 8)], ["bfloat16"], "bfloat16", {"kernel_shape": [2, 2], "pads": [0, 0, 0, 0], "strides": [2, 2]}),
         (AveragePool, "average_pool", [(1, 2, 7, 7)], ["float16"], "float16", {"kernel_shape": [3, 3], "pads": [1, 1, 1, 1], "strides": [2, 2], "dilations": [1, 1], "count_include_pad": 1}),
@@ -524,6 +526,8 @@ def build_default_plans():
     (Col2Im, "col2im", [(1, 4, 4), (2,), (2,)], ["float32", "int64", "int64"], "float32", {"image_shape_value": [3, 3], "block_shape_value": [2, 2], "pads": [0, 0, 0, 0], "strides": [1, 1], "dilations": [1, 1]}),
     (DeformConv, "deform_conv", [(1, 2, 4, 4), (2, 2, 3, 3), (1, 18, 2, 2), (2,), (1, 9, 2, 2)], ["float32", "float32", "float32", "float32", "float32"], "float32", {"pads": [0, 0, 0, 0], "strides": [1, 1], "dilations": [1, 1], "group": 1, "offset_group": 1}),
     (Attention, "attention", [(1, 4, 3, 4), (1, 2, 5, 4), (1, 2, 5, 3)], ["float32", "float32", "float32"], "float32", {"is_causal": 1, "softcap": 3.0}),
+    (Attention, "attention", [(1, 4, 3, 4), (1, 2, 4, 4), (1, 2, 4, 3), (1, 1, 3, 4)], ["float32", "float32", "float32", "float32"], "float32", {"is_causal": 1, "softcap": 3.0, "attention_mask_variant": "float_bias"}),
+    (Attention, "attention", [(1, 2, 2, 3), (1, 2, 4, 3), (1, 2, 4, 2), (1, 1, 1, 4)], ["float32", "float32", "float32", "bool"], "float32", {"scale": 0.5, "is_causal": 0, "attention_mask_variant": "bool_broadcast"}),
 
     # ---- Softmax ----
     (Softmax, "softmax",[(4, 64)], ["float32"], "float32", {"axis":-1}),
