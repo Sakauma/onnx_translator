@@ -776,6 +776,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 )
             elif dft_variant == "inverse_onesided":
                 values = np.array([[[10.0, 0.0], [-2.0, 1.0], [3.0, 0.0]]], dtype=np.float32)
+            elif dft_variant == "high_rank_axis":
+                values = np.linspace(-2.0, 2.5, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
             else:
                 values = np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32)
             inputs_np[0] = from_float32(values, dtypes[0])
@@ -792,6 +794,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             elif stft_variant == "real_window_full":
                 signal_values = np.array([[[1.0], [2.0], [3.0], [4.0], [5.0]]], dtype=np.float32)
                 window_values = np.array([1.0, 0.5, 0.25], dtype=np.float32)
+            elif stft_variant == "high_rank_prefix":
+                signal_values = np.linspace(-1.5, 2.0, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
+                window_values = np.array([1.0, 0.5, -0.25, 0.75], dtype=np.float32)
             else:
                 signal_values = np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32)
                 window_values = np.array([1.0, 0.5], dtype=np.float32)
@@ -1399,22 +1404,24 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         elif op_name == "dft":
             x = inputs_np[0]
             dft_length = int(np.asarray(inputs_np[1]).item())
-            axis = init_args.get("axis", 1)
+            axis = int(init_args.get("axis", 1))
+            if axis < 0:
+                axis += x.ndim
             inverse = init_args.get("inverse", 0)
             onesided = init_args.get("onesided", 0)
-            output_axis_len = dft_length // 2 + 1 if onesided and not inverse else dft_length
-            output_complex_dim = 1 if inverse and onesided else 2
+            output_shape = list(map(int, np.asarray(nps_out).shape))
+            input_shape = list(map(int, x.shape))
             params_bin = np.array(
                 [
-                    x.shape[0],
-                    x.shape[1],
-                    x.shape[2],
-                    output_axis_len,
-                    output_complex_dim,
+                    len(input_shape),
                     axis,
                     inverse,
                     onesided,
                     dft_length,
+                    input_shape[-1],
+                    output_shape[-1],
+                    *input_shape,
+                    *output_shape,
                 ],
                 dtype=np.int32,
             ).tobytes()
@@ -1422,14 +1429,17 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             signal = inputs_np[0]
             frame_step = int(np.asarray(inputs_np[1]).item())
             frame_length = int(np.asarray(inputs_np[3]).item())
-            n_frames = 1 + (signal.shape[1] - frame_length) // frame_step
+            signal_len = int(signal.shape[-2])
+            signal_complex_dim = int(signal.shape[-1])
+            prefix_total = int(np.prod(signal.shape[:-2])) if signal.ndim > 2 else 1
+            n_frames = 1 + (signal_len - frame_length) // frame_step
             bins = frame_length // 2 + 1 if init_args.get("onesided", 1) else frame_length
             has_window = 1 if inputs_np[2] is not None else 0
             params_bin = np.array(
                 [
-                    signal.shape[0],
-                    signal.shape[1],
-                    signal.shape[2],
+                    prefix_total,
+                    signal_len,
+                    signal_complex_dim,
                     n_frames,
                     bins,
                     frame_step,

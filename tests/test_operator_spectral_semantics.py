@@ -76,6 +76,20 @@ def test_c_backend_dft_mixed_precision_matches_independent_fft():
     np.testing.assert_allclose(_output_values(bf16_out), expected_bf16.astype(np.float32), rtol=1e-2, atol=1e-2)
 
 
+# 验证 DFT 在高维输入的中间轴上执行变换时，C 后端坐标映射符合独立 FFT 公式。
+def test_c_backend_dft_high_rank_middle_axis_matches_independent_fft():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    signal_values = np.linspace(-2.0, 2.5, 2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4, 1)
+    signal = Tensor(*signal_values.shape, dtype="float32", data=signal_values)
+    dft_length = Tensor(dtype="int64", data=np.array(5, dtype=np.int64))
+    actual = DFT(["x", "dft_length"], ["y"], axis=1, onesided=0, dtype="float32").forward(signal, dft_length)["tensor"]
+
+    expected = _from_complex(np.fft.fft(signal_values.squeeze(-1), n=5, axis=1))
+    np.testing.assert_allclose(actual.data, expected.astype(np.float32), rtol=1e-5, atol=1e-5)
+
+
 # 验证 C 后端 STFT 在 bfloat16 输入、窗口和输出组合下正确读取低精度位模式。
 def test_c_backend_stft_bfloat16_matches_independent_fft():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
@@ -96,3 +110,25 @@ def test_c_backend_stft_bfloat16_matches_independent_fft():
     weighted = frames * window_values.reshape((1, 1, 2, 1))
     expected = _from_complex(np.fft.fft(weighted.squeeze(-1), n=2, axis=-1)[..., :2])
     np.testing.assert_allclose(_output_values(actual), expected.astype(np.float32), rtol=1e-2, atol=1e-2)
+
+
+# 验证 STFT 在多前缀维输入上逐前缀独立切帧，并沿每帧长度维执行 DFT。
+def test_c_backend_stft_high_rank_prefix_matches_independent_fft():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    signal_values = np.linspace(-1.5, 2.0, 2 * 2 * 6, dtype=np.float32).reshape(2, 2, 6, 1)
+    window_values = np.array([1.0, 0.5, -0.25, 0.75], dtype=np.float32)
+    signal = Tensor(*signal_values.shape, dtype="float32", data=signal_values)
+    window = Tensor(*window_values.shape, dtype="float32", data=window_values)
+    actual = STFT(["x", "step", "window", "length"], ["y"], onesided=1, dtype="float32").forward(
+        signal,
+        Tensor(dtype="int64", data=np.array(2, dtype=np.int64)),
+        window,
+        Tensor(dtype="int64", data=np.array(4, dtype=np.int64)),
+    )["tensor"]
+
+    frames = np.stack([signal_values[..., 0:4, :], signal_values[..., 2:6, :]], axis=-3)
+    weighted = frames * window_values.reshape((1, 1, 1, 4, 1))
+    expected = _from_complex(np.fft.fft(weighted.squeeze(-1), n=4, axis=-1)[..., :3])
+    np.testing.assert_allclose(actual.data, expected.astype(np.float32), rtol=1e-5, atol=1e-5)
