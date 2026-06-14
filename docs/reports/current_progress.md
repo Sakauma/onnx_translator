@@ -22,6 +22,7 @@
   * @details     2026.06.14  V1.0.15 补充 DFT/STFT 高维 axis 和前缀维数值覆盖记录
   * @details     2026.06.14  V1.0.16 补充 QuantizeLinear float8 saturate 属性数值覆盖记录
   * @details     2026.06.14  V1.0.17 补充 QuantizeLinear saturate 后完整 numerical 收尾记录
+  * @details     2026.06.14  V1.0.18 补充 float8 FNUZ 量化/反量化数值覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -51,8 +52,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`705` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`470` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`711` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`476` 条计划。
 
 ## 最近已完成验证
 
@@ -132,10 +133,12 @@
   - 最近记录结果：QuantizeLinear/DequantizeLinear 共 `28` 组计划、`84` 个样本全部通过；新增 DequantizeLinear int32 输入 dtype 路径，并保留负轴尾块不满 blocked scale/zero_point 映射和对应低精度写回路径。
 - `python tools/cli.py numerical --op quantize_linear --iterations 3 --skip-plots`
   - 最近记录结果：QuantizeLinear 共 `17` 组计划、`51` 个样本全部通过；新增 float8_e5m2 `saturate=1/0` 溢出有限值/Inf 行为，以及 float8_e4m3 `saturate=0` 有限舍入与 NaN 溢出边界，均与独立 CUDA verifier 对齐。
+- `python tools/cli.py numerical --op quantize_linear --op dequantize_linear --iterations 3 --skip-plots`
+  - 最近记录结果：QuantizeLinear/DequantizeLinear 覆盖 float8_e4m3fnuz 与 float8_e5m2fnuz 的 `saturate=1/0`、FNUZ NaN 位模式和反量化解码边界，共 `63` 个 QuantizeLinear 样本与 `48` 个 DequantizeLinear 样本全部通过。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 最近记录结果：本轮新增 3 条 QuantizeLinear float8 saturate 默认计划后，当前默认门禁提升到 `705` 条；完整 numerical 一轮已全部通过，覆盖 `178` 个唯一算子和 `470` 条混合精度计划。
+  - 最近记录结果：本轮新增 6 条 QuantizeLinear/DequantizeLinear FNUZ 默认计划后，当前默认门禁提升到 `711` 条；完整 numerical 一轮已全部通过，覆盖 `178` 个唯一算子和 `476` 条混合精度计划。
 - `python -m pytest -q tests`
-  - 最近记录结果：`310 passed, 1 skipped`。
+  - 最近记录结果：`315 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
   - 最近记录结果：静态 Python 编译检查通过。
 
@@ -155,7 +158,7 @@
 
 ## 混合精度状态
 
-- 当前默认 numerical 中已经包含 `470` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
+- 当前默认 numerical 中已经包含 `476` 条混合精度计划，覆盖 float16、bfloat16、float8_e4m3/e5m2、float8_e4m3fnuz/e5m2fnuz 以及相关低精度存储路径。
 - 混合精度已经能作为当前工程的常规回归门禁使用，但还不能宣称对所有 ONNX 官方 type constraint、所有属性组合和所有边界输入完成穷尽证明。
 - 位运算、字符串、序列、控制流、随机采样等类别不应机械纳入浮点混合精度口径；这些算子需要按整数位模式、结构语义、随机分布或 ONNX reference 行为分别验证。
 
@@ -165,7 +168,7 @@
 - 默认 numerical 是固定 case 与随机样本组成的工程门禁，能够发现常见回归，但不是形式化证明。
 - `LayerNormalization` 已将单输出 C 后端从最后一维扩展到任意 axis 后缀归一化，并补充 `mean/inv_std` aux 多输出 C/CUDA 门禁；后续仍建议继续扩展更多 rank、stash_type、极小方差、空维度和异常 axis 组合。
 - `BatchNormalization` 已将推理态和 training_mode 三输出主路径都接入 C/CUDA numerical；后续仍建议继续补充更多 rank、极小方差、空维度和不同 momentum/epsilon 组合。
-- `QuantizeLinear`/`DequantizeLinear` 已补充 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点、`output_dtype`、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 量化 dtype、DequantizeLinear int32 输入 dtype、`precision=DOUBLE` 除法精度，以及 QuantizeLinear float8_e4m3/float8_e5m2 `saturate=1/0` 溢出边界的 C/CUDA numerical 与 pytest 覆盖；更多 precision dtype、更多 block 形状/轴组合以及 float4/float8 fnuz/2-bit/4-bit packed dtype 仍需继续扩展。
+- `QuantizeLinear`/`DequantizeLinear` 已补充 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点、`output_dtype`、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 量化 dtype、DequantizeLinear int32 输入 dtype、`precision=DOUBLE` 除法精度、QuantizeLinear float8_e4m3/float8_e5m2 `saturate=1/0` 溢出边界，以及 float8_e4m3fnuz/float8_e5m2fnuz 的 FNUZ NaN/饱和/反量化解码 C/CUDA numerical 与 pytest 覆盖；更多 precision dtype、更多 block 形状/轴组合以及 float4/FLOAT8E8M0/2-bit/4-bit packed dtype 仍需继续扩展。
 - `LpNormalization` 已补充零范数官方边界和非通道 axis 的 bfloat16 C/CUDA 门禁；更多空维度、不同 rank 和异常 axis 仍建议继续扩展。
 - `GridSample` 已将 numerical 从 linear/reflection 主路径扩展到 nearest/border 与 cubic/zeros 属性组合，并覆盖 float32、float16、bfloat16；后续仍建议继续补充 5D、更多坐标边界、极端越界坐标和更多 align_corners 组合。
 - `MaxRoiPool` 已补充 spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 低精度 C/CUDA numerical；`RoiAlign` 已补充 max 模式、output_half_pixel、自适应 sampling_ratio=0、spatial_scale=0.75 和 float16 低精度 C/CUDA numerical。后续仍建议继续扩展更多 ROI 数量、不同 pooled/output 尺寸、边界点采样和异常 batch index。

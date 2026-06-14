@@ -53,6 +53,7 @@
   * @details     2026.06.14  V1.0.46  补充 DFT/STFT 高维 axis 与前缀维 C/CUDA 数值门禁记录
   * @details     2026.06.14  V1.0.47  补充 QuantizeLinear float8 saturate 属性 C/CUDA 数值门禁记录
   * @details     2026.06.14  V1.0.48  补充 QuantizeLinear saturate 后完整 numerical 收尾记录
+  * @details     2026.06.14  V1.0.49  补充 float8 FNUZ 量化/反量化数值门禁记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -367,11 +368,13 @@
 
 随后执行当前收尾完整门禁：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests` 结果为 `310 passed, 1 skipped`，`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check` 静态编译检查通过，完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 的 `705` 条默认计划全部通过，覆盖 `178` 个唯一算子和 `470` 条混合精度计划。
 
+继续补强 float8 FNUZ 量化与反量化语义：`nn/__init__.py` 将 ONNX `FLOAT8E4M3FNUZ` 与 `FLOAT8E5M2FNUZ` 映射到独立 dtype，C 后端新增 FNUZ 读写、默认饱和编码和 QuantizeLinear `saturate=0/1` 写回路径，CUDA `verify_quantize_linear` 使用独立溢出阈值区分最大有限值与 FNUZ NaN。`tools/numerical/dtype.py` 同步补充 FNUZ raw uint8 编解码，默认 numerical 新增 4 条 QuantizeLinear FNUZ 溢出计划和 2 条 DequantizeLinear FNUZ 解码计划；pytest 使用 ONNX `ReferenceEvaluator` 与 `ml_dtypes` raw view 校验 QuantizeLinear 输出位模式和 DequantizeLinear raw bits 解码。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile nn/__init__.py tools/numerical/dtype.py tools/numerical/runner.py tools/numerical/cli.py tests/test_operator_core_numeric_semantics.py`、`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_core_numeric_semantics.py -k 'float8 or quantize or dequantize'`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op quantize_linear --op dequantize_linear --iterations 3 --skip-plots`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests`、`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 和 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/audit_ops.py --output docs/reports/operator_coverage.md` 均已通过；targeted pytest 结果为 `15 passed, 11 deselected`，完整 pytest 结果为 `315 passed, 1 skipped`，完整 CUDA 编译结果为 `178` 个 verifier 成功，完整 numerical 默认计划提升到 `711` 条，混合精度计划提升到 `476` 条且全部通过。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
 - 当前安装 ONNX 最新默认 domain schema 名称级缺口为 0，ONNXImport 已覆盖当前环境可见的 200 个最新默认 domain 官方算子。
-- QuantizeLinear/DequantizeLinear 当前 C/CUDA numerical 已覆盖 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点、`output_dtype` 属性、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 量化 dtype、DequantizeLinear int32 输入 dtype、`precision=DOUBLE` 除法精度，以及 QuantizeLinear float8_e4m3/float8_e5m2 `saturate=1/0` 溢出边界；更多 precision dtype、更多 block 形状/轴组合以及 float4/float8 fnuz/2-bit/4-bit packed dtype 仍需继续扩展。
+- QuantizeLinear/DequantizeLinear 当前 C/CUDA numerical 已覆盖 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点、`output_dtype` 属性、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 量化 dtype、DequantizeLinear int32 输入 dtype、`precision=DOUBLE` 除法精度、QuantizeLinear float8_e4m3/float8_e5m2 `saturate=1/0` 溢出边界，以及 float8_e4m3fnuz/float8_e5m2fnuz 的 FNUZ NaN/饱和/反量化解码路径；更多 precision dtype、更多 block 形状/轴组合以及 float4/FLOAT8E8M0/2-bit/4-bit packed dtype 仍需继续扩展。
 - `BatchNormalization` 当前 C/CUDA numerical 覆盖推理模式和 training_mode 三输出主路径；更多 rank、极小方差、不同 momentum/epsilon、空维度和异常 shape 组合仍建议继续补充 case matrix。
 - `LayerNormalization` 当前 C/CUDA numerical 覆盖单输出 `Y` 的 `axis=-1`、axis=1 后缀归一化主路径，以及 `mean/inv_std` aux 多输出主路径；更多 rank、stash_type、极小方差、空维度和异常 axis 组合仍建议继续补充 case matrix。
 - `LpNormalization` 当前 mixed precision numerical 覆盖 p=2 以及 axis=2/p=1 的 bfloat16，float32 同时覆盖 p=1/p=2 和全零范数；更多 rank、空维度和异常 axis 组合仍建议继续扩展。

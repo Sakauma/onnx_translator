@@ -68,6 +68,30 @@ __device__ double quantize_float8_e5m2_value(double val, int saturate) {
     return val;
 }
 
+// 根据 QuantizeLinear 的 saturate 属性处理 E4M3FNUZ 溢出；非饱和模式写入 FNUZ NaN。
+__device__ double quantize_float8_e4m3fnuz_value(double val, int saturate) {
+    if (isnan(val)) return NAN;
+    if (saturate) {
+        if (val > 240.0) return 240.0;
+        if (val < -240.0) return -240.0;
+    } else {
+        if (val >= 248.0 || val <= -248.0) return NAN;
+    }
+    return val;
+}
+
+// 根据 QuantizeLinear 的 saturate 属性处理 E5M2FNUZ 溢出；非饱和模式写入 FNUZ NaN。
+__device__ double quantize_float8_e5m2fnuz_value(double val, int saturate) {
+    if (isnan(val)) return NAN;
+    if (saturate) {
+        if (val > 57344.0) return 57344.0;
+        if (val < -57344.0) return -57344.0;
+    } else {
+        if (val >= 61440.0 || val <= -61440.0) return NAN;
+    }
+    return val;
+}
+
 // 根据目标量化 dtype 选择官方整数范围或 float8 溢出规则，输出仍用 double 便于 runner 统一比较。
 __device__ double saturate_quantized(double val, int target_dtype_code, int saturate) {
     if (target_dtype_code == 1) return saturate_cast_int8(val);
@@ -75,6 +99,8 @@ __device__ double saturate_quantized(double val, int target_dtype_code, int satu
     if (target_dtype_code == 3) return saturate_cast_int16(val);
     if (target_dtype_code == 4) return quantize_float8_e4m3_value(val, saturate);
     if (target_dtype_code == 5) return quantize_float8_e5m2_value(val, saturate);
+    if (target_dtype_code == 6) return quantize_float8_e4m3fnuz_value(val, saturate);
+    if (target_dtype_code == 7) return quantize_float8_e5m2fnuz_value(val, saturate);
     return saturate_cast_uint8(val);
 }
 

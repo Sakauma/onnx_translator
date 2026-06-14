@@ -613,7 +613,14 @@ def parse_numerical_plan_details() -> tuple[set[str], int, int]:
 
     # 判断单条计划是否覆盖低精度 dtype，便于报告混合精度门禁覆盖规模。
     def is_mixed_precision_plan(plan: ast.Tuple) -> bool:
-        low_precision = {"float16", "bfloat16", "float8_e4m3", "float8_e5m2"}
+        low_precision = {
+            "float16",
+            "bfloat16",
+            "float8_e4m3",
+            "float8_e5m2",
+            "float8_e4m3fnuz",
+            "float8_e5m2fnuz",
+        }
         dtypes = []
         if len(plan.elts) > 3 and isinstance(plan.elts[3], ast.List):
             dtypes.extend(

@@ -69,6 +69,8 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
     switch (dtype) {
         case DTYPE_FLOAT8_E4M3:
         case DTYPE_FLOAT8_E5M2:
+        case DTYPE_FLOAT8_E4M3FNUZ:
+        case DTYPE_FLOAT8_E5M2FNUZ:
         case DTYPE_BOOL:
             elem_size = 1;  // 8位浮点数
             break;

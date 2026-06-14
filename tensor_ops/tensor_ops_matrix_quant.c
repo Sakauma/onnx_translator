@@ -85,6 +85,10 @@ static void set_quantize_linear_value(Tensor* Y, size_t index, double value, int
         ((uint8_t*)Y->data)[index] = quantize_float_to_fp8_e4m3((float)value, saturate);
     } else if (Y->dtype == DTYPE_FLOAT8_E5M2) {
         ((uint8_t*)Y->data)[index] = quantize_float_to_fp8_e5m2((float)value, saturate);
+    } else if (Y->dtype == DTYPE_FLOAT8_E4M3FNUZ) {
+        ((uint8_t*)Y->data)[index] = float_to_fp8_e4m3fnuz_saturate((float)value, saturate);
+    } else if (Y->dtype == DTYPE_FLOAT8_E5M2FNUZ) {
+        ((uint8_t*)Y->data)[index] = float_to_fp8_e5m2fnuz_saturate((float)value, saturate);
     } else {
         set_tensor_value_from_float(Y, index, value);
     }

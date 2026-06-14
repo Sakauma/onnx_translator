@@ -1516,6 +1516,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     "int16": 3,
                     "float8_e4m3": 4,
                     "float8_e5m2": 5,
+                    "float8_e4m3fnuz": 6,
+                    "float8_e5m2fnuz": 7,
                 }.get(out_dtype, 0)
                 precision = int(init_args.get("precision", 0))
                 if precision == 11:  # ONNX TensorProto.DOUBLE

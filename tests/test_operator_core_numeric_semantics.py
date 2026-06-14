@@ -34,6 +34,10 @@ from nn.Operators import (
 )
 
 
+_FLOAT8_E4M3FNUZ_PROTO = getattr(TensorProto, "FLOAT8E4M3FNUZ", None)
+_FLOAT8_E5M2FNUZ_PROTO = getattr(TensorProto, "FLOAT8E5M2FNUZ", None)
+
+
 # 构造 Tensor，避免测试主体重复 shape、dtype 和 data 样板。
 def _tensor(data, dtype):
     data = np.asarray(data)
@@ -466,11 +470,17 @@ def test_c_backend_quantize_linear_precision_double_uses_double_division():
         ("float8_e5m2", TensorProto.FLOAT8E5M2, 1, [-1.0e10, -1000.0, 1000.0, 1.0e10]),
         ("float8_e5m2", TensorProto.FLOAT8E5M2, 0, [-1.0e10, -1000.0, 1000.0, 1.0e10]),
         ("float8_e4m3", TensorProto.FLOAT8E4M3FN, 0, [-1000.0, -449.0, 449.0, 1000.0]),
+        ("float8_e4m3fnuz", _FLOAT8_E4M3FNUZ_PROTO, 1, [-1000.0, -248.0, -247.0, 247.0, 248.0, 1000.0]),
+        ("float8_e4m3fnuz", _FLOAT8_E4M3FNUZ_PROTO, 0, [-1000.0, -248.0, -247.0, 247.0, 248.0, 1000.0]),
+        ("float8_e5m2fnuz", _FLOAT8_E5M2FNUZ_PROTO, 1, [-70000.0, -61440.0, -61439.0, 61439.0, 61440.0, 70000.0]),
+        ("float8_e5m2fnuz", _FLOAT8_E5M2FNUZ_PROTO, 0, [-70000.0, -61440.0, -61439.0, 61439.0, 61440.0, 70000.0]),
     ],
 )
 def test_c_backend_quantize_linear_float8_saturate_matches_onnx_reference(dtype_name, dtype_proto, saturate, x_values):
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
         pytest.skip("C backend library is not built")
+    if dtype_proto is None:
+        pytest.skip("Current ONNX package does not expose this float8 dtype")
 
     x_data = np.asarray(x_values, dtype=np.float32)
     scale_data = np.asarray([1.0], dtype=np.float32)
@@ -501,6 +511,48 @@ def test_c_backend_quantize_linear_float8_saturate_matches_onnx_reference(dtype_
     )["tensor"]
 
     np.testing.assert_array_equal(actual.data, expected_bits)
+
+
+# 验证 DequantizeLinear 对 FNUZ float8 原始位模式的解码语义。
+def test_c_backend_dequantize_linear_float8_fnuz_raw_bits_match_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+    if _FLOAT8_E4M3FNUZ_PROTO is None or _FLOAT8_E5M2FNUZ_PROTO is None:
+        pytest.skip("Current ONNX package does not expose FNUZ float8 dtypes")
+
+    ml_dtypes = pytest.importorskip("ml_dtypes")
+    scale = np.asarray([1.0], dtype=np.float32)
+    cases = [
+        (
+            "float8_e4m3fnuz",
+            _FLOAT8_E4M3FNUZ_PROTO,
+            ml_dtypes.float8_e4m3fnuz,
+            [0x00, 0x01, 0x7F, 0x80, 0x81, 0xFF],
+        ),
+        (
+            "float8_e5m2fnuz",
+            _FLOAT8_E5M2FNUZ_PROTO,
+            ml_dtypes.float8_e5m2fnuz,
+            [0x00, 0x01, 0x7F, 0x80, 0x81, 0xFF],
+        ),
+    ]
+    for dtype_name, dtype_proto, ml_dtype, bit_values in cases:
+        raw_bits = np.asarray(bit_values, dtype=np.uint8)
+        reference_input = raw_bits.view(ml_dtype)
+        expected = _onnx_reference(
+            "DequantizeLinear",
+            [reference_input, scale],
+            [dtype_proto, TensorProto.FLOAT],
+            {},
+            [raw_bits.shape],
+            [TensorProto.FLOAT],
+            opset=25,
+        )[0]
+        actual = DequantizeLinear(["x", "scale"], ["y"], dtype="float32").forward(
+            _tensor(raw_bits, dtype_name),
+            _tensor(scale, "float32"),
+        )["tensor"]
+        np.testing.assert_allclose(actual.data, expected, rtol=1e-6, atol=1e-6, equal_nan=True)
 
 
 # 验证 QuantizeLinear/DequantizeLinear 的 int16 与 uint16 官方 dtype 约束。

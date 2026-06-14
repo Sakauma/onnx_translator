@@ -72,6 +72,8 @@ static inline size_t get_dtype_size(DataType dtype) {
     switch (dtype) {
         case DTYPE_FLOAT8_E4M3:
         case DTYPE_FLOAT8_E5M2:
+        case DTYPE_FLOAT8_E4M3FNUZ:
+        case DTYPE_FLOAT8_E5M2FNUZ:
         case DTYPE_BOOL:
         case DTYPE_INT4:
         case DTYPE_INT8:
@@ -504,6 +506,126 @@ static inline uint8_t float_to_fp8_e5m2(float f) {
     return (uint8_t)(sign | (exp << 2) | mant_2);
 }
 
+// 实现 `fp8_e4m3fnuz_to_float` 的 FNUZ 解码；0x80 是 NaN，零值不保留负号。
+static inline float fp8_e4m3fnuz_to_float(uint8_t val) {
+    if (val == 0x80) return bits_to_float(0x7FC00000);
+    uint32_t sign = ((uint32_t)val & 0x80) << 24;
+    uint32_t exp = (val & 0x78) >> 3;
+    uint32_t mant = val & 0x07;
+    if (exp == 0 && mant == 0) return 0.0f;
+    if (exp == 0) {
+        int32_t new_exp = -7 + 127;
+        while ((mant & 0x08) == 0) {
+            mant <<= 1;
+            new_exp--;
+        }
+        mant &= 0x07;
+        return bits_to_float(sign | ((uint32_t)new_exp << 23) | (mant << 20));
+    }
+    uint32_t new_exp = exp + 119;
+    return bits_to_float(sign | (new_exp << 23) | (mant << 20));
+}
+
+// 实现 `fp8_e5m2fnuz_to_float` 的 FNUZ 解码；0x80 是 NaN，零值不保留负号。
+static inline float fp8_e5m2fnuz_to_float(uint8_t val) {
+    if (val == 0x80) return bits_to_float(0x7FC00000);
+    uint32_t sign = ((uint32_t)val & 0x80) << 24;
+    uint32_t exp = (val & 0x7C) >> 2;
+    uint32_t mant = val & 0x03;
+    if (exp == 0 && mant == 0) return 0.0f;
+    if (exp == 0) {
+        int32_t new_exp = -15 + 127;
+        while ((mant & 0x04) == 0) {
+            mant <<= 1;
+            new_exp--;
+        }
+        mant &= 0x03;
+        return bits_to_float(sign | ((uint32_t)new_exp << 23) | (mant << 21));
+    }
+    uint32_t new_exp = exp + 111;
+    return bits_to_float(sign | (new_exp << 23) | (mant << 21));
+}
+
+// 将 float32 编码为 E4M3FNUZ；saturate=0 时溢出写入 FNUZ NaN。
+static inline uint8_t float_to_fp8_e4m3fnuz_saturate(float f, int saturate) {
+    uint32_t bits = float_to_bits(f);
+    uint32_t sign = (bits & 0x80000000) >> 24;
+    int32_t exp = (int32_t)((bits & 0x7F800000) >> 23);
+    uint32_t mant = bits & 0x007FFFFF;
+
+    if (exp == 255 && mant != 0) return 0x80;
+    if (exp == 255) return saturate ? (uint8_t)(sign | 0x7F) : 0x80;
+    if ((bits & 0x7FFFFFFF) == 0) return 0;
+
+    double abs_value = fabs((double)f);
+    int32_t target_exp = exp - 127 + 8;
+    if (target_exp < 1) {
+        uint32_t q = (uint32_t)rint(abs_value * 1024.0);
+        if (q == 0) return 0;
+        if (q >= 8) return (uint8_t)(sign | 0x08);
+        return (uint8_t)(sign | q);
+    }
+
+    uint32_t mant_3 = (mant >> 20) & 0x7;
+    uint32_t guard = (mant >> 19) & 1;
+    uint32_t sticky = (mant & 0x7FFFF) != 0;
+    uint32_t lsb = mant_3 & 1;
+    if (guard && (sticky || lsb)) {
+        mant_3++;
+        if (mant_3 > 7) {
+            mant_3 = 0;
+            target_exp++;
+        }
+    }
+    if (target_exp > 15) return saturate ? (uint8_t)(sign | 0x7F) : 0x80;
+    return (uint8_t)(sign | ((uint32_t)target_exp << 3) | mant_3);
+}
+
+// 默认低精度写回采用饱和语义，与 ONNX Cast/QuantizeLinear 默认 saturate=1 对齐。
+static inline uint8_t float_to_fp8_e4m3fnuz(float f) {
+    return float_to_fp8_e4m3fnuz_saturate(f, 1);
+}
+
+// 将 float32 编码为 E5M2FNUZ；saturate=0 时溢出写入 FNUZ NaN。
+static inline uint8_t float_to_fp8_e5m2fnuz_saturate(float f, int saturate) {
+    uint32_t bits = float_to_bits(f);
+    uint32_t sign = (bits & 0x80000000) >> 24;
+    int32_t exp = (int32_t)((bits & 0x7F800000) >> 23);
+    uint32_t mant = bits & 0x007FFFFF;
+
+    if (exp == 255 && mant != 0) return 0x80;
+    if (exp == 255) return saturate ? (uint8_t)(sign | 0x7F) : 0x80;
+    if ((bits & 0x7FFFFFFF) == 0) return 0;
+
+    double abs_value = fabs((double)f);
+    int32_t target_exp = exp - 127 + 16;
+    if (target_exp < 1) {
+        uint32_t q = (uint32_t)rint(abs_value * 131072.0);
+        if (q == 0) return 0;
+        if (q >= 4) return (uint8_t)(sign | 0x04);
+        return (uint8_t)(sign | q);
+    }
+
+    uint32_t mant_2 = (mant >> 21) & 0x3;
+    uint32_t guard = (mant >> 20) & 1;
+    uint32_t sticky = (mant & 0xFFFFF) != 0;
+    uint32_t lsb = mant_2 & 1;
+    if (guard && (sticky || lsb)) {
+        mant_2++;
+        if (mant_2 > 3) {
+            mant_2 = 0;
+            target_exp++;
+        }
+    }
+    if (target_exp > 31) return saturate ? (uint8_t)(sign | 0x7F) : 0x80;
+    return (uint8_t)(sign | ((uint32_t)target_exp << 2) | mant_2);
+}
+
+// 默认低精度写回采用饱和语义，与 ONNX Cast/QuantizeLinear 默认 saturate=1 对齐。
+static inline uint8_t float_to_fp8_e5m2fnuz(float f) {
+    return float_to_fp8_e5m2fnuz_saturate(f, 1);
+}
+
 /**
  * 创建张量
  * 
@@ -530,6 +652,8 @@ static inline float get_value_as_float(const Tensor* tensor, size_t index) {
     switch (tensor->dtype) {
         case DTYPE_FLOAT8_E4M3: return fp8_e4m3_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT8_E5M2: return fp8_e5m2_to_float(((uint8_t*)tensor->data)[index]);
+        case DTYPE_FLOAT8_E4M3FNUZ: return fp8_e4m3fnuz_to_float(((uint8_t*)tensor->data)[index]);
+        case DTYPE_FLOAT8_E5M2FNUZ: return fp8_e5m2fnuz_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT16: return float16_to_float(((uint16_t*)tensor->data)[index]);
         case DTYPE_BFLOAT16: return bfloat16_to_float(((uint16_t*)tensor->data)[index]);
         case DTYPE_FLOAT32: return ((float*)tensor->data)[index];
@@ -567,6 +691,8 @@ static inline double get_value_as_double(const Tensor* tensor, size_t index) {
     switch (tensor->dtype) {
         case DTYPE_FLOAT8_E4M3: return (double)fp8_e4m3_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT8_E5M2: return (double)fp8_e5m2_to_float(((uint8_t*)tensor->data)[index]);
+        case DTYPE_FLOAT8_E4M3FNUZ: return (double)fp8_e4m3fnuz_to_float(((uint8_t*)tensor->data)[index]);
+        case DTYPE_FLOAT8_E5M2FNUZ: return (double)fp8_e5m2fnuz_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT32: return (double)((float*)tensor->data)[index];
         case DTYPE_FLOAT16: return (double)float16_to_float(((uint16_t*)tensor->data)[index]);
         case DTYPE_BFLOAT16: return (double)bfloat16_to_float(((uint16_t*)tensor->data)[index]);
@@ -607,6 +733,8 @@ static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
         case DTYPE_BFLOAT16: return (int64_t)rintf(bfloat16_to_float(((uint16_t*)tensor->data)[index]));
         case DTYPE_FLOAT8_E4M3: return (int64_t)rintf(fp8_e4m3_to_float(((uint8_t*)tensor->data)[index]));
         case DTYPE_FLOAT8_E5M2: return (int64_t)rintf(fp8_e5m2_to_float(((uint8_t*)tensor->data)[index]));
+        case DTYPE_FLOAT8_E4M3FNUZ: return (int64_t)rintf(fp8_e4m3fnuz_to_float(((uint8_t*)tensor->data)[index]));
+        case DTYPE_FLOAT8_E5M2FNUZ: return (int64_t)rintf(fp8_e5m2fnuz_to_float(((uint8_t*)tensor->data)[index]));
         case DTYPE_INT4: {
             // INT4: 符号扩展到int8_t
             int8_t val = ((int8_t*)tensor->data)[index];
@@ -763,6 +891,8 @@ static inline void set_tensor_value_from_int(Tensor* tensor, size_t index, int64
         // 如果目标是浮点，进行转换
         case DTYPE_FLOAT8_E4M3: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3((float)value); break;
         case DTYPE_FLOAT8_E5M2: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2((float)value); break;
+        case DTYPE_FLOAT8_E4M3FNUZ: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3fnuz((float)value); break;
+        case DTYPE_FLOAT8_E5M2FNUZ: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2fnuz((float)value); break;
         case DTYPE_FLOAT16:     ((uint16_t*)tensor->data)[index] = float_to_float16((float)value); break;
         case DTYPE_BFLOAT16:    ((uint16_t*)tensor->data)[index] = float_to_bfloat16((float)value); break;
         case DTYPE_FLOAT32: ((float*)tensor->data)[index] = (float)value; break;
@@ -776,6 +906,8 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
     switch (tensor->dtype) {
         case DTYPE_FLOAT8_E4M3: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3((float)value); break;
         case DTYPE_FLOAT8_E5M2: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2((float)value); break;
+        case DTYPE_FLOAT8_E4M3FNUZ: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3fnuz((float)value); break;
+        case DTYPE_FLOAT8_E5M2FNUZ: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2fnuz((float)value); break;
         case DTYPE_FLOAT16:  ((uint16_t*)tensor->data)[index] = float_to_float16((float)value); break;
         case DTYPE_BFLOAT16: ((uint16_t*)tensor->data)[index] = float_to_bfloat16((float)value); break;
         case DTYPE_FLOAT32: ((float*)tensor->data)[index] = (float)value; break;

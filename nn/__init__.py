@@ -55,12 +55,16 @@ DTYPE_MAP = {
     "bool": 15,
     "complex64": 16,
     "complex128": 17,
+    "float8_e4m3fnuz": 18,
+    "float8_e5m2fnuz": 19,
 }
 
 # 数据类型映射到NumPy类型
 DTYPE_TO_NUMPY = {
     "float8_e4m3": np.uint8, 
     "float8_e5m2": np.uint8,
+    "float8_e4m3fnuz": np.uint8,
+    "float8_e5m2fnuz": np.uint8,
     "float16": np.float16,
     "bfloat16": np.uint16,
     "float32": np.float32,
@@ -129,9 +133,9 @@ onnx_dtype_mapping = {
     15: "complex128",
     16: "bfloat16",
     17: "float8_e4m3",
-    18: "float8_e4m3",
+    18: "float8_e4m3fnuz",
     19: "float8_e5m2",
-    20: "float8_e5m2",
+    20: "float8_e5m2fnuz",
     22: "int4",
 }
 

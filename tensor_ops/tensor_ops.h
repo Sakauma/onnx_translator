@@ -37,6 +37,8 @@ typedef enum {
     DTYPE_BOOL,        // 布尔值
     DTYPE_COMPLEX64,   // 64位复数
     DTYPE_COMPLEX128,  // 128位复数
+    DTYPE_FLOAT8_E4M3FNUZ, // 8位 FNUZ E4M3 浮点数
+    DTYPE_FLOAT8_E5M2FNUZ, // 8位 FNUZ E5M2 浮点数
 } DataType;
 
 /**
