@@ -443,6 +443,22 @@ def test_c_backend_quantize_dequantize_output_dtype_without_zero_point_matches_o
     _assert_tensor_matches(dequant_actual, dequant_expected, rtol=1e-3, atol=1e-3)
 
 
+# 验证 QuantizeLinear 的 precision=DOUBLE 会真实改变除法精度，而不是只保存属性。
+def test_c_backend_quantize_linear_precision_double_uses_double_division():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = _tensor(np.array([-12.75], dtype=np.float32), "float32")
+    scale = _tensor(np.array([0.1], dtype=np.float32), "float32")
+    zp = _tensor(np.array([0], dtype=np.int8), "int8")
+
+    default_actual = QuantizeLinear(["x", "scale", "zp"], ["y"], dtype="int8").forward(x, scale, zp)["tensor"]
+    double_actual = QuantizeLinear(["x", "scale", "zp"], ["y"], dtype="int8", precision=TensorProto.DOUBLE).forward(x, scale, zp)["tensor"]
+
+    np.testing.assert_array_equal(default_actual.data, np.array([-128], dtype=np.int8))
+    np.testing.assert_array_equal(double_actual.data, np.array([-127], dtype=np.int8))
+
+
 # 验证 QuantizeLinear/DequantizeLinear 的 int16 与 uint16 官方 dtype 约束。
 def test_c_backend_quantize_and_dequantize_16bit_integer_dtypes_match_onnx_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):

@@ -166,6 +166,12 @@ void div_forward(const Tensor* A, const Tensor* B, Tensor* O);
 void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y);
 
 /**
+ * QuantizeLinear 前向传播，显式指定除法精度属性
+ * precision 使用 ONNX TensorProto dtype 编码；0 表示沿用默认 Scale dtype 语义
+ */
+void quantize_linear_forward_precision(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y, int precision);
+
+/**
  * DequantizeLinear 前向传播 (INT8/UINT8 -> FP32 等)
  * 公式: y = (x - zero_point) * scale
  */

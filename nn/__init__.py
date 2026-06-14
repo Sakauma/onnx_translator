@@ -239,6 +239,10 @@ class Ops:
             cls._lib.mul_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             cls._lib.div_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             cls._lib.quantize_linear_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
+            try:
+                cls._lib.quantize_linear_forward_precision.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.c_int]
+            except AttributeError:
+                pass
             cls._lib.dequantize_linear_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
             
             # 初始化余弦查找表
@@ -327,7 +331,7 @@ class Ops:
         return Tensor(*out_shape, dtype=out_dtype, data=out_data)
     
     # 封装 `_execute_ternary` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
-    def _execute_ternary(self, in_a, in_b, in_c, c_func_name):
+    def _execute_ternary(self, in_a, in_b, in_c, c_func_name, extra_int_arg=None):
         """通用三元算子执行模板 (含广播逻辑，用于 QDQ)"""
         try:
             a_bc, b_bc, c_bc = np.broadcast_arrays(in_a.data, in_b.data, in_c.data)
@@ -349,7 +353,10 @@ class Ops:
         
         output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
         output_c = self.lib.create_tensor(output_shape_c, len(out_shape), nn.DTYPE_MAP[out_dtype])
-        getattr(self.lib, c_func_name)(a_c, b_c, c_c, output_c)
+        if extra_int_arg is None:
+            getattr(self.lib, c_func_name)(a_c, b_c, c_c, output_c)
+        else:
+            getattr(self.lib, c_func_name)(a_c, b_c, c_c, output_c, ctypes.c_int(int(extra_int_arg)))
 
         out_data = self._ctensor_to_numpy(output_c, out_dtype)
         self.lib.free_tensor(a_c)

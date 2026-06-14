@@ -12,18 +12,27 @@
 #include "tensor_ops_internal.h"
 
 
-// 实现 `quantize linear` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
-void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y) {
+// 根据 ONNX precision 属性选择除法精度；0 表示沿用既有默认路径。
+static int quantize_linear_use_double_precision(const Tensor* X, const Tensor* Scale, int precision) {
+    if (precision == 11) return 1;  // ONNX TensorProto.DOUBLE
+    if (precision == 1 || precision == 10 || precision == 16) return 0;  // FLOAT/FLOAT16/BFLOAT16
+    return X->dtype == DTYPE_FLOAT64 || Scale->dtype == DTYPE_FLOAT64;
+}
+
+
+// 实现 `quantize linear` 的共享计算逻辑，支持默认精度和显式 precision 属性。
+static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y, int precision) {
     if (!X || !Scale || !ZeroPoint || !Y) return;
     
     size_t loop_size = Y->size;
+    int use_double_precision = quantize_linear_use_double_precision(X, Scale, precision);
 
     #pragma omp parallel for
     for (size_t i = 0; i < loop_size; i++) {
         double zp_val = get_value_as_double(ZeroPoint, i);
         
         double res = zp_val; 
-        if (X->dtype == DTYPE_FLOAT64 || Scale->dtype == DTYPE_FLOAT64) {
+        if (use_double_precision) {
             double x_val = get_value_as_double(X, i);
             double s_val = get_value_as_double(Scale, i);
             if (s_val != 0.0) {
@@ -38,6 +47,18 @@ void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor*
         }
         set_tensor_value_from_float(Y, i, res);
     }
+}
+
+
+// 实现 `quantize linear` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
+void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y) {
+    quantize_linear_forward_impl(X, Scale, ZeroPoint, Y, 0);
+}
+
+
+// 实现 `quantize linear` 的显式 precision 属性入口，用于 ONNX opset 25 的除法精度覆盖。
+void quantize_linear_forward_precision(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y, int precision) {
+    quantize_linear_forward_impl(X, Scale, ZeroPoint, Y, precision);
 }
 
 

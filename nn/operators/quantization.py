@@ -39,12 +39,14 @@ def _expand_blocked_qdq_param(param, input_shape, axis, block_size):
 
 class QuantizeLinear(Ops):
     # 初始化 `QuantizeLinear` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, axis=1, dtype=None, output_dtype=None, block_size=0, version="17"):
+    def __init__(self, inputs, outputs, axis=1, dtype=None, output_dtype=None, block_size=0, precision=0, saturate=1, version="17"):
         super(QuantizeLinear, self).__init__(inputs, outputs)
         self.output_dtype = output_dtype
         self.dtype = dtype or output_dtype or "uint8"
         self.axis = axis # 保存 axis
         self.block_size = int(block_size or 0)
+        self.precision = int(precision or 0)
+        self.saturate = int(saturate)
         self.version = version
 
     # 封装 `_default_zero_point` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
@@ -70,7 +72,12 @@ class QuantizeLinear(Ops):
             if zp_tensor.data.size == y_scale.data.size:
                 zp_tensor = Tensor(*new_shape, dtype=zp_tensor.dtype, data=zp_tensor.data.reshape(new_shape))
 
-        out_tensor = self._execute_ternary(x, scale_tensor, zp_tensor, "quantize_linear_forward")
+        c_func_name = "quantize_linear_forward"
+        extra_int_arg = None
+        if self.precision and hasattr(self.lib, "quantize_linear_forward_precision"):
+            c_func_name = "quantize_linear_forward_precision"
+            extra_int_arg = self.precision
+        out_tensor = self._execute_ternary(x, scale_tensor, zp_tensor, c_func_name, extra_int_arg=extra_int_arg)
         values = {"tensor": out_tensor, "parameters": None, "graph": None}
         self.parameters = {"values": values}
         return values

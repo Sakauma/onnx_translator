@@ -1505,7 +1505,13 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     "uint16": 2,
                     "int16": 3,
                 }.get(out_dtype, 0)
-                use_float_math = 0 if "float64" in {dtypes[0], dtypes[1]} else 1
+                precision = int(init_args.get("precision", 0))
+                if precision == 11:  # ONNX TensorProto.DOUBLE
+                    use_float_math = 0
+                elif precision in {1, 10, 16}:  # FLOAT/FLOAT16/BFLOAT16 均走 float 参考路径
+                    use_float_math = 1
+                else:
+                    use_float_math = 0 if "float64" in {dtypes[0], dtypes[1]} else 1
                 params_bin = np.array([target_dtype_code, use_float_math, *shape_params], dtype=np.int32).tobytes()
         elif op_name == "matmul":
             M, K = shapes[0]

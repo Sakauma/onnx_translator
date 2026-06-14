@@ -410,6 +410,8 @@ def _factory_019_quantizelinear(node, import_context):
     axis = 1
     output_dtype_proto = 0
     block_size = 0
+    precision = 0
+    saturate = 1
     for attr in node.attribute:
         if attr.name == "axis":
             axis = attr.i
@@ -417,6 +419,10 @@ def _factory_019_quantizelinear(node, import_context):
             output_dtype_proto = attr.i
         elif attr.name == "block_size":
             block_size = attr.i
+        elif attr.name == "precision":
+            precision = attr.i
+        elif attr.name == "saturate":
+            saturate = attr.i
     output_dtype = onnx_dtype_mapping.get(output_dtype_proto) if output_dtype_proto else None
     if len(node.input) >= 3 and node.input[2]:
         zp_name = node.input[2]
@@ -431,7 +437,8 @@ def _factory_019_quantizelinear(node, import_context):
             target_dtype = onnx_dtype_mapping[get_dtype(node.output[0])]
         except Exception:
             target_dtype = "uint8"
-    onnx_graph_list.append(nn.Operators.QuantizeLinear(node.input, node.output, axis=axis, dtype=target_dtype, output_dtype=output_dtype, block_size=block_size, version="25" if output_dtype is not None or block_size else "17"))
+    is_v25 = output_dtype is not None or block_size or precision or saturate != 1
+    onnx_graph_list.append(nn.Operators.QuantizeLinear(node.input, node.output, axis=axis, dtype=target_dtype, output_dtype=output_dtype, block_size=block_size, precision=precision, saturate=saturate, version="25" if is_v25 else "17"))
     return onnx_graph_list[-1]
 
 
