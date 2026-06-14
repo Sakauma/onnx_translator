@@ -407,6 +407,42 @@ def test_c_backend_quantize_and_dequantize_negative_axis_match_onnx_reference():
     _assert_tensor_matches(dequant_actual, dequant_expected, rtol=1e-6, atol=1e-6)
 
 
+# 验证 output_dtype 属性在 zero_point 缺省时决定 Q/DQ 输出类型。
+def test_c_backend_quantize_dequantize_output_dtype_without_zero_point_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.array(
+        [[-12.8, -0.25, 0.25, 12.7], [-6.4, -1.0, 1.0, 6.4]],
+        dtype=np.float32,
+    )
+    scale = np.array([0.1, 0.25, 0.5, 1.25], dtype=np.float32)
+    quant_expected = _onnx_reference(
+        "QuantizeLinear",
+        [x, scale],
+        [TensorProto.FLOAT, TensorProto.FLOAT],
+        {"axis": -1, "output_dtype": TensorProto.INT8},
+        [x.shape],
+        [TensorProto.INT8],
+        opset=25,
+    )[0]
+    quant_actual = QuantizeLinear(["x", "scale"], ["y"], axis=-1, output_dtype="int8").forward(
+        _tensor(x, "float32"),
+        _tensor(scale, "float32"),
+    )["tensor"]
+    _assert_tensor_matches(quant_actual, quant_expected)
+
+    dequant_expected = (
+        quant_expected.astype(np.float32) * scale.reshape(1, scale.size).astype(np.float32)
+    ).astype(np.float16)
+    dequant_actual = DequantizeLinear(["x", "scale"], ["y"], axis=-1, output_dtype="float16").forward(
+        _tensor(quant_expected, "int8"),
+        _tensor(scale, "float32"),
+    )["tensor"]
+    assert dequant_actual.dtype == "float16"
+    _assert_tensor_matches(dequant_actual, dequant_expected, rtol=1e-3, atol=1e-3)
+
+
 # 验证整数矩阵乘法和量化矩阵乘法的零点、scale 广播语义。
 def test_c_backend_integer_matmul_ops_match_onnx_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):

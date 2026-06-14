@@ -13,9 +13,10 @@ from .common import *
 
 class QuantizeLinear(Ops):
     # 初始化 `QuantizeLinear` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, axis=1, dtype=None, version="17"):
+    def __init__(self, inputs, outputs, axis=1, dtype=None, output_dtype=None, version="17"):
         super(QuantizeLinear, self).__init__(inputs, outputs)
-        self.dtype = dtype or "uint8"
+        self.output_dtype = output_dtype
+        self.dtype = dtype or output_dtype or "uint8"
         self.axis = axis # 保存 axis
         self.version = version
 
@@ -50,9 +51,10 @@ class QuantizeLinear(Ops):
 
 class DequantizeLinear(Ops):
     # 初始化 `DequantizeLinear` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, dtype=None, axis=1, version="17"):
+    def __init__(self, inputs, outputs, dtype=None, axis=1, output_dtype=None, version="17"):
         super(DequantizeLinear, self).__init__(inputs, outputs)
-        self.dtype = dtype or "float32" # 通常为 float32
+        self.output_dtype = output_dtype
+        self.dtype = dtype or output_dtype or "float32" # 通常为 float32
         self.axis = axis
         self.version = version
 

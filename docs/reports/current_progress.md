@@ -12,6 +12,7 @@
   * @details     2026.06.14  V1.0.5  补充 DeformConv 分组和可选输入数值覆盖记录
   * @details     2026.06.14  V1.0.6  补充 QuantizeLinear/DequantizeLinear per-axis 数值覆盖记录
   * @details     2026.06.14  V1.0.7  补充 QuantizeLinear/DequantizeLinear 负轴和省略 zero_point 数值覆盖记录
+  * @details     2026.06.14  V1.0.8  补充 QuantizeLinear/DequantizeLinear output_dtype 属性覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -100,6 +101,8 @@
   - 最近记录结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --op quantize_linear --op dequantize_linear --iterations 3 --skip-plots`
   - 最近记录结果：QuantizeLinear/DequantizeLinear 共 14 组计划、42 个样本全部通过；新增 `axis=-1` signed int8 per-axis 且省略 `zero_point` 的默认零点 case，并保留 `axis=1` uint8 per-axis 量化和反量化覆盖。
+- `python -m pytest -q tests/test_operator_import_and_shape.py::test_quantize_linear_forward_shape_and_optional_zero_point_import tests/test_operator_core_numeric_semantics.py::test_c_backend_quantize_dequantize_output_dtype_without_zero_point_matches_onnx_reference tests/test_operator_core_numeric_semantics.py::test_c_backend_quantize_and_dequantize_negative_axis_match_onnx_reference`
+  - 最近记录结果：`3 passed`；新增 `output_dtype` 属性导入覆盖，并验证缺省 `zero_point` 时 QuantizeLinear 输出 int8、DequantizeLinear 输出 float16 的主路径。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
   - 最近记录结果：`678` 条默认计划完整 numerical 一轮通过，当前 DeformConv 计划包含分组、offset group、无 bias/无 mask 和 stride/pad/dilation 属性扩展；Attention 计划包含 mask/scale 属性扩展，recurrent 计划包含非默认 activation、activation alpha/beta、clip 和状态输出 sidecar 对比；QuantizeLinear/DequantizeLinear 覆盖 scalar、`axis=1` per-axis scale/zero_point、`axis=-1` signed int8 per-axis 和省略 `zero_point` 默认零点路径。
 - `python -m pytest -q tests`
@@ -133,7 +136,7 @@
 - 默认 numerical 是固定 case 与随机样本组成的工程门禁，能够发现常见回归，但不是形式化证明。
 - `LayerNormalization` 已将单输出 C 后端从最后一维扩展到任意 axis 后缀归一化，并补充 `mean/inv_std` aux 多输出 C/CUDA 门禁；后续仍建议继续扩展更多 rank、stash_type、极小方差、空维度和异常 axis 组合。
 - `BatchNormalization` 已将推理态和 training_mode 三输出主路径都接入 C/CUDA numerical；后续仍建议继续补充更多 rank、极小方差、空维度和不同 momentum/epsilon 组合。
-- `QuantizeLinear`/`DequantizeLinear` 已补充 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis 以及省略 `zero_point` 默认零点的 C/CUDA numerical，并修正 CUDA reference 的原始 1D 参数映射；新版 block quantization、`output_dtype`、`precision`、`saturate` 等属性仍需结合目标 opset 继续扩展。
+- `QuantizeLinear`/`DequantizeLinear` 已补充 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点的 C/CUDA numerical，并补充 `output_dtype` 属性导入和省略零点主路径 pytest 覆盖；新版 block quantization、`precision`、`saturate` 等属性仍需结合目标 opset 继续扩展。
 - `LpNormalization` 已补充零范数官方边界和非通道 axis 的 bfloat16 C/CUDA 门禁；更多空维度、不同 rank 和异常 axis 仍建议继续扩展。
 - `GridSample` 已将 numerical 从 linear/reflection 主路径扩展到 nearest/border 与 cubic/zeros 属性组合，并覆盖 float32、float16、bfloat16；后续仍建议继续补充 5D、更多坐标边界、极端越界坐标和更多 align_corners 组合。
 - `MaxRoiPool` 已补充 spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 低精度 C/CUDA numerical；`RoiAlign` 已补充 max 模式、output_half_pixel、自适应 sampling_ratio=0、spatial_scale=0.75 和 float16 低精度 C/CUDA numerical。后续仍建议继续扩展更多 ROI 数量、不同 pooled/output 尺寸、边界点采样和异常 batch index。

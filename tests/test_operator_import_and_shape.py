@@ -44,6 +44,29 @@ def test_quantize_linear_forward_shape_and_optional_zero_point_import(tmp_path, 
 
     assert [op.__class__.__name__ for op in ops] == ["QuantizeLinear", "DequantizeLinear"]
 
+    dtype_model_path = tmp_path / "optional_quant_output_dtype.onnx"
+    dtype_graph = helper.make_graph(
+        [
+            helper.make_node("QuantizeLinear", ["x", "scale"], ["qx"], axis=-1, output_dtype=TensorProto.INT8),
+            helper.make_node("DequantizeLinear", ["qx", "scale"], ["y"], axis=-1, output_dtype=TensorProto.FLOAT16),
+        ],
+        "optional_quant_output_dtype",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3]),
+            helper.make_tensor_value_info("scale", TensorProto.FLOAT, [3]),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT16, [2, 3])],
+    )
+    onnx.save(helper.make_model(dtype_graph, opset_imports=[helper.make_opsetid("", 25)], ir_version=8), dtype_model_path)
+    dtype_ops = ONNXImport(str(dtype_model_path), strict=True)
+    imported_quant, imported_dequant = dtype_ops
+    assert imported_quant.axis == -1
+    assert imported_quant.dtype == "int8"
+    assert imported_quant.output_dtype == "int8"
+    assert imported_dequant.axis == -1
+    assert imported_dequant.dtype == "float16"
+    assert imported_dequant.output_dtype == "float16"
+
     qx_data = np.array([[[[10, 11], [12, 13]], [[20, 21], [22, 23]], [[30, 31], [32, 33]]]], dtype=np.uint8)
     qx = Tensor(*qx_data.shape, dtype="uint8", data=qx_data)
     x_scale = Tensor(3, dtype="float32", data=np.array([0.5, 1.0, 2.0], dtype=np.float32))
