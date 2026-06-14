@@ -71,8 +71,10 @@ Tensor* create_tensor(int* shape, int ndim, DataType dtype) {
         case DTYPE_FLOAT8_E5M2:
         case DTYPE_FLOAT8_E4M3FNUZ:
         case DTYPE_FLOAT8_E5M2FNUZ:
+        case DTYPE_FLOAT4_E2M1:
+        case DTYPE_FLOAT8_E8M0:
         case DTYPE_BOOL:
-            elem_size = 1;  // 8位浮点数
+            elem_size = 1;  // 低精度浮点、布尔和字节容器
             break;
         case DTYPE_FLOAT16:
         case DTYPE_BFLOAT16:

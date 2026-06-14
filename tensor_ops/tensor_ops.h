@@ -42,6 +42,8 @@ typedef enum {
     DTYPE_UINT4,       // 4位无符号整数
     DTYPE_INT2,        // 2位整数
     DTYPE_UINT2,       // 2位无符号整数
+    DTYPE_FLOAT4_E2M1, // 4位 E2M1 浮点数
+    DTYPE_FLOAT8_E8M0, // 8位 E8M0 浮点数
 } DataType;
 
 /**

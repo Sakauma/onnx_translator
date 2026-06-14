@@ -31,6 +31,10 @@ def get_dtype_limits(dtype):
         return -57344.0, 57344.0, False
     if dtype == "float8_e5m2fnuz":
         return -57344.0, 57344.0, True
+    if dtype == "float4_e2m1":
+        return -6.0, 6.0, True
+    if dtype == "float8_e8m0":
+        return float(np.ldexp(np.float32(1.0), -127)), float(np.ldexp(np.float32(1.0), 127)), True
     if dtype == "int8":
         return -128, 127, True
     if dtype == "int4":
@@ -83,6 +87,10 @@ def from_float32(data, dtype):
         return vec_encode_e4m3fnuz(arr).astype(np.uint8)
     if dtype == "float8_e5m2fnuz":
         return vec_encode_e5m2fnuz(arr).astype(np.uint8)
+    if dtype == "float4_e2m1":
+        return vec_encode_float4_e2m1(arr).astype(np.uint8)
+    if dtype == "float8_e8m0":
+        return vec_encode_float8_e8m0(arr).astype(np.uint8)
     if dtype == "bfloat16":
         return float32_to_bfloat16_bits(arr)
     if dtype == "float16":
@@ -106,7 +114,7 @@ def quantize_to_dtype_float32(data, dtype):
     """
     将参考结果按目标 dtype 量化后再解码成 float32，匹配 C 后端写回后的可观测数值。
     """
-    if dtype in {"float8_e4m3", "float8_e5m2", "float8_e4m3fnuz", "float8_e5m2fnuz", "float16", "bfloat16", "int4", "uint4", "int2", "uint2"}:
+    if dtype in {"float8_e4m3", "float8_e5m2", "float8_e4m3fnuz", "float8_e5m2fnuz", "float4_e2m1", "float8_e8m0", "float16", "bfloat16", "int4", "uint4", "int2", "uint2"}:
         return to_float32(from_float32(data, dtype), dtype)
     return np.asarray(data)
 
@@ -163,6 +171,58 @@ def decode_float8_e5m2fnuz(val_uint8):
     if e == 0:
         return sign * (m / 4.0) * (2.0 ** -15) if m != 0 else np.float32(0.0)
     return sign * (1.0 + m / 4.0) * (2.0 ** (e - 16))
+
+_FLOAT4_E2M1_TABLE = np.asarray(
+    [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0],
+    dtype=np.float32,
+)
+
+def decode_float4_e2m1(val_uint8):
+    """
+    解码 ONNX FLOAT4E2M1 位模式；运行时使用 uint8 容器保存低 4 位。
+    """
+    return _FLOAT4_E2M1_TABLE[int(val_uint8) & 0x0F]
+
+def encode_float4_e2m1(value):
+    """
+    编码 ONNX FLOAT4E2M1，按最近偶数码值处理半点舍入。
+    """
+    value = np.asarray(value, dtype=np.float32).item()
+    if np.isnan(value):
+        return np.uint8(0x08)
+    if np.isposinf(value):
+        return np.uint8(0x07)
+    if np.isneginf(value):
+        return np.uint8(0x0F)
+    sign_group = 8 if np.signbit(value) else 0
+    best_code = sign_group
+    best_diff = np.inf
+    for offset in range(8):
+        code = sign_group + offset
+        diff = abs(float(value) - float(_FLOAT4_E2M1_TABLE[code]))
+        if diff < best_diff or (diff == best_diff and (code & 1) == 0):
+            best_diff = diff
+            best_code = code
+    return np.uint8(best_code)
+
+def decode_float8_e8m0(val_uint8):
+    """
+    解码 ONNX FLOAT8E8M0FNU 位模式；0xFF 表示 NaN，其余编码表示 2^(code - 127)。
+    """
+    val_uint8 = int(val_uint8)
+    if val_uint8 == 0xFF:
+        return np.nan
+    return np.ldexp(np.float32(1.0), val_uint8 - 127)
+
+def encode_float8_e8m0(value):
+    """
+    编码 ONNX FLOAT8E8M0FNU；非正数和 NaN/Inf 写入 0xFF。
+    """
+    value = np.asarray(value, dtype=np.float32).item()
+    if not np.isfinite(value) or value <= 0.0:
+        return np.uint8(0xFF)
+    exp_code = int(np.rint(np.log2(value))) + 127
+    return np.uint8(np.clip(exp_code, 0, 254))
 
 def encode_float8_e4m3(value):
     bits = np.asarray(value, dtype=np.float32).view(np.uint32).item()
@@ -277,10 +337,14 @@ vec_decode_e4m3 = np.vectorize(decode_float8_e4m3, otypes=[np.float32])
 vec_decode_e5m2 = np.vectorize(decode_float8_e5m2, otypes=[np.float32])
 vec_decode_e4m3fnuz = np.vectorize(decode_float8_e4m3fnuz, otypes=[np.float32])
 vec_decode_e5m2fnuz = np.vectorize(decode_float8_e5m2fnuz, otypes=[np.float32])
+vec_decode_float4_e2m1 = np.vectorize(decode_float4_e2m1, otypes=[np.float32])
+vec_decode_float8_e8m0 = np.vectorize(decode_float8_e8m0, otypes=[np.float32])
 vec_encode_e4m3 = np.vectorize(encode_float8_e4m3, otypes=[np.uint8])
 vec_encode_e5m2 = np.vectorize(encode_float8_e5m2, otypes=[np.uint8])
 vec_encode_e4m3fnuz = np.vectorize(encode_float8_e4m3fnuz, otypes=[np.uint8])
 vec_encode_e5m2fnuz = np.vectorize(encode_float8_e5m2fnuz, otypes=[np.uint8])
+vec_encode_float4_e2m1 = np.vectorize(encode_float4_e2m1, otypes=[np.uint8])
+vec_encode_float8_e8m0 = np.vectorize(encode_float8_e8m0, otypes=[np.uint8])
 
 def to_float32(data, dtype):
     """
@@ -293,6 +357,8 @@ def to_float32(data, dtype):
     # 2. Float8: data 是 uint8 位模式 -> 需要查表解码
     if dtype == "float8_e4m3fnuz": return vec_decode_e4m3fnuz(data).astype(np.float32)
     if dtype == "float8_e5m2fnuz": return vec_decode_e5m2fnuz(data).astype(np.float32)
+    if dtype == "float4_e2m1": return vec_decode_float4_e2m1(data).astype(np.float32)
+    if dtype == "float8_e8m0": return vec_decode_float8_e8m0(data).astype(np.float32)
     if dtype == "float8_e4m3": return vec_decode_e4m3(data).astype(np.float32)
     if dtype == "float8_e5m2": return vec_decode_e5m2(data).astype(np.float32)
     

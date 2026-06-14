@@ -242,8 +242,12 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 inputs_np[2] = np.zeros(shapes[2], dtype=zp_dtype)
             elif len(inputs_np) > 2 and inputs_np[2] is not None:
                 if init_args.get("zero_point_values") is not None:
-                    zp_dtype = nn.DTYPE_TO_NUMPY[dtypes[2]]
-                    inputs_np[2] = np.asarray(init_args["zero_point_values"], dtype=zp_dtype).reshape(shapes[2])
+                    if dtypes[2] in {"float4_e2m1", "float8_e8m0"}:
+                        zp_values = np.asarray(init_args["zero_point_values"], dtype=np.float32).reshape(shapes[2])
+                        inputs_np[2] = from_float32(zp_values, dtypes[2])
+                    else:
+                        zp_dtype = nn.DTYPE_TO_NUMPY[dtypes[2]]
+                        inputs_np[2] = np.asarray(init_args["zero_point_values"], dtype=zp_dtype).reshape(shapes[2])
                 else:
                     inputs_np[2] = np.round(inputs_np[2])
                     if op_name == "quantize_linear":
@@ -1530,6 +1534,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     "int4": 9,
                     "uint2": 10,
                     "int2": 11,
+                    "float4_e2m1": 12,
+                    "float8_e8m0": 13,
                 }.get(out_dtype, 0)
                 precision = int(init_args.get("precision", 0))
                 if precision == 11:  # ONNX TensorProto.DOUBLE
@@ -2644,7 +2650,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     continue
 
                 target_dtype = np.float64 if is_double_kernel else np.float32
-                val_f32 = to_float32(inp, d)
+                if op_name in {"quantize_linear", "dequantize_linear"} and init_args.get("omit_zero_point") and i == 2 and d == "float8_e8m0":
+                    val_f32 = np.zeros(np.asarray(inp).shape, dtype=np.float32)
+                else:
+                    val_f32 = to_float32(inp, d)
                 
                 # 广播逻辑
                 if (not is_complex_kernel) and (op_name not in no_broadcast_ops):

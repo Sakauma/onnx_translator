@@ -36,6 +36,8 @@ from nn.Operators import (
 
 _FLOAT8_E4M3FNUZ_PROTO = getattr(TensorProto, "FLOAT8E4M3FNUZ", None)
 _FLOAT8_E5M2FNUZ_PROTO = getattr(TensorProto, "FLOAT8E5M2FNUZ", None)
+_FLOAT4_E2M1_PROTO = getattr(TensorProto, "FLOAT4E2M1", None)
+_FLOAT8_E8M0_PROTO = getattr(TensorProto, "FLOAT8E8M0", None)
 _UINT4_PROTO = getattr(TensorProto, "UINT4", None)
 _INT4_PROTO = getattr(TensorProto, "INT4", None)
 _UINT2_PROTO = getattr(TensorProto, "UINT2", None)
@@ -685,6 +687,78 @@ def test_c_backend_quantize_and_dequantize_low_bit_integer_dtypes_match_onnx_ref
             _tensor(dq_scale_arr, "float32"),
         )["tensor"]
         np.testing.assert_allclose(actual_dequant.data, expected_dequant, rtol=1e-6, atol=1e-6)
+
+
+# 验证 FLOAT4E2M1 的 QuantizeLinear/DequantizeLinear 官方低精度浮点语义。
+def test_c_backend_quantize_and_dequantize_float4_e2m1_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+    if _FLOAT4_E2M1_PROTO is None:
+        pytest.skip("Current ONNX package does not expose FLOAT4E2M1")
+
+    ml_dtypes = pytest.importorskip("ml_dtypes")
+    x = np.asarray([-7.0, -5.25, -2.5, -1.75, -0.75, -0.25, 0.25, 0.75, 1.25, 5.25], dtype=np.float32)
+    scale = np.asarray([1.0], dtype=np.float32)
+    expected_quant = _onnx_reference(
+        "QuantizeLinear",
+        [x, scale],
+        [TensorProto.FLOAT, TensorProto.FLOAT],
+        {"output_dtype": _FLOAT4_E2M1_PROTO},
+        [x.shape],
+        [_FLOAT4_E2M1_PROTO],
+        opset=25,
+    )[0]
+    actual_quant = QuantizeLinear(["x", "scale"], ["y"], dtype="float4_e2m1").forward(
+        _tensor(x, "float32"),
+        _tensor(scale, "float32"),
+    )["tensor"]
+    expected_quant_bits = np.asarray(expected_quant).view(np.uint8).reshape(x.shape)
+    np.testing.assert_array_equal(actual_quant.data, expected_quant_bits)
+
+    raw_bits = np.asarray([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], dtype=np.uint8)
+    q_reference = raw_bits.view(ml_dtypes.float4_e2m1fn)
+    dq_scale = np.asarray([0.5], dtype=np.float32)
+    expected_dequant = _onnx_reference(
+        "DequantizeLinear",
+        [q_reference, dq_scale],
+        [_FLOAT4_E2M1_PROTO, TensorProto.FLOAT],
+        {},
+        [q_reference.shape],
+        [TensorProto.FLOAT],
+        opset=25,
+    )[0]
+    actual_dequant = DequantizeLinear(["x", "scale"], ["y"], dtype="float32").forward(
+        _tensor(raw_bits, "float4_e2m1"),
+        _tensor(dq_scale, "float32"),
+    )["tensor"]
+    np.testing.assert_allclose(actual_dequant.data, expected_dequant, rtol=1e-6, atol=1e-6)
+
+
+# 验证 FLOAT8E8M0 的 DequantizeLinear 解码和 zero_point 缺省语义。
+def test_c_backend_dequantize_float8_e8m0_matches_onnx_reference_without_zero_point():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+    if _FLOAT8_E8M0_PROTO is None:
+        pytest.skip("Current ONNX package does not expose FLOAT8E8M0")
+
+    ml_dtypes = pytest.importorskip("ml_dtypes")
+    raw_bits = np.asarray([0, 1, 126, 127], dtype=np.uint8)
+    q_reference = raw_bits.view(ml_dtypes.float8_e8m0fnu)
+    scale = np.asarray([np.ldexp(np.float32(1.0), 127)], dtype=np.float32)
+    expected = _onnx_reference(
+        "DequantizeLinear",
+        [q_reference, scale],
+        [_FLOAT8_E8M0_PROTO, TensorProto.FLOAT],
+        {},
+        [q_reference.shape],
+        [TensorProto.FLOAT],
+        opset=25,
+    )[0]
+    actual = DequantizeLinear(["x", "scale"], ["y"], dtype="float32").forward(
+        _tensor(raw_bits, "float8_e8m0"),
+        _tensor(scale, "float32"),
+    )["tensor"]
+    np.testing.assert_allclose(actual.data, expected, rtol=1e-6, atol=1e-6)
 
 
 # 验证 DequantizeLinear 的 int32 官方输入 dtype 约束。

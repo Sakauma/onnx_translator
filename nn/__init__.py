@@ -60,6 +60,8 @@ DTYPE_MAP = {
     "uint4": 20,
     "int2": 21,
     "uint2": 22,
+    "float4_e2m1": 23,
+    "float8_e8m0": 24,
 }
 
 # 数据类型映射到NumPy类型
@@ -76,6 +78,8 @@ DTYPE_TO_NUMPY = {
     "uint4": np.uint8,
     "int2": np.int8,
     "uint2": np.uint8,
+    "float4_e2m1": np.uint8,
+    "float8_e8m0": np.uint8,
     "int8": np.int8,
     "uint8": np.uint8,
     "uint16": np.uint16,
@@ -144,6 +148,8 @@ onnx_dtype_mapping = {
     20: "float8_e5m2fnuz",
     21: "uint4",
     22: "int4",
+    23: "float4_e2m1",
+    24: "float8_e8m0",
     25: "uint2",
     26: "int2",
 }

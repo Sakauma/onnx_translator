@@ -51,6 +51,8 @@ class QuantizeLinear(Ops):
 
     # 封装 `_default_zero_point` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _default_zero_point(self):
+        if self.dtype == "float8_e8m0":
+            return Tensor(1, dtype="float32", data=np.zeros((1,), dtype=np.float32))
         return Tensor(1, dtype=self.dtype, data=np.zeros((1,), dtype=nn.DTYPE_TO_NUMPY[self.dtype]))
 
     # 执行 `QuantizeLinear` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
@@ -105,7 +107,10 @@ class DequantizeLinear(Ops):
         scale_tensor = x_scale
         zp_tensor = x_zero_point
         if zp_tensor is None:
-            zp_tensor = Tensor(1, dtype=x.dtype, data=np.zeros((1,), dtype=nn.DTYPE_TO_NUMPY[x.dtype]))
+            if x.dtype == "float8_e8m0":
+                zp_tensor = Tensor(1, dtype="float32", data=np.zeros((1,), dtype=np.float32))
+            else:
+                zp_tensor = Tensor(1, dtype=x.dtype, data=np.zeros((1,), dtype=nn.DTYPE_TO_NUMPY[x.dtype]))
         if self.block_size > 0:
             scale_tensor = _expand_blocked_qdq_param(scale_tensor, list(x.data.shape), self.axis, self.block_size)
             zp_tensor = _expand_blocked_qdq_param(zp_tensor, list(x.data.shape), self.axis, self.block_size)
@@ -119,7 +124,11 @@ class DequantizeLinear(Ops):
             if zp_tensor.data.size == x_scale.data.size:
                 zp_tensor = Tensor(*new_shape, dtype=zp_tensor.dtype, data=zp_tensor.data.reshape(new_shape))
         if self.lib is None:
-            x_bc, scale_bc, zp_bc = np.broadcast_arrays(x.data, _tensor_data_as_numeric(scale_tensor), zp_tensor.data)
+            x_bc, scale_bc, zp_bc = np.broadcast_arrays(
+                _tensor_data_as_numeric(x),
+                _tensor_data_as_numeric(scale_tensor),
+                _tensor_data_as_numeric(zp_tensor),
+            )
             out_data = (x_bc.astype(np.float64) - zp_bc.astype(np.float64)) * scale_bc.astype(np.float64)
             out_data = _cast_numeric_to_dtype(out_data, self.dtype)
             out_tensor = Tensor(*out_data.shape, dtype=self.dtype, data=out_data)

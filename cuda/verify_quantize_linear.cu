@@ -120,6 +120,22 @@ __device__ double quantize_float8_e5m2fnuz_value(double val, int saturate) {
     return val;
 }
 
+// FLOAT4E2M1 的 reference 输出仍交给 runner 按 dtype 表量化，这里只处理有限范围。
+__device__ double quantize_float4_e2m1_value(double val) {
+    if (isnan(val)) return NAN;
+    if (val > 6.0) return 6.0;
+    if (val < -6.0) return -6.0;
+    return val;
+}
+
+// FLOAT8E8M0 无零和负数表示；runner 会把 NaN reference 编成 0xFF。
+__device__ double quantize_float8_e8m0_value(double val) {
+    if (!isfinite(val) || val <= 0.0) return NAN;
+    if (val < 5.877471754111438e-39) return 5.877471754111438e-39;
+    if (val > 1.7014118346046923e38) return 1.7014118346046923e38;
+    return val;
+}
+
 // 根据目标量化 dtype 选择官方整数范围或 float8 溢出规则，输出仍用 double 便于 runner 统一比较。
 __device__ double saturate_quantized(double val, int target_dtype_code, int saturate) {
     if (target_dtype_code == 1) return saturate_cast_int8(val);
@@ -133,7 +149,14 @@ __device__ double saturate_quantized(double val, int target_dtype_code, int satu
     if (target_dtype_code == 9) return saturate_cast_int4(val);
     if (target_dtype_code == 10) return saturate_cast_uint2(val);
     if (target_dtype_code == 11) return saturate_cast_int2(val);
+    if (target_dtype_code == 12) return quantize_float4_e2m1_value(val);
+    if (target_dtype_code == 13) return quantize_float8_e8m0_value(val);
     return saturate_cast_uint8(val);
+}
+
+// 判断目标 dtype 是否为浮点量化格式，避免错误套用整数 rint 公式。
+__device__ int target_dtype_is_float_quantized(int target_dtype_code) {
+    return target_dtype_code >= 4 && target_dtype_code <= 7 || target_dtype_code == 12 || target_dtype_code == 13;
 }
 
 // 根据输出线性下标映射 per-tensor、per-axis、blocked 或已广播参数下标。
@@ -212,13 +235,17 @@ __global__ void quantize_kernel(
         double s = scale[scale_idx];
         double z = zp[zp_idx];
         double res = z;
+        int output_is_float_dtype = target_dtype_is_float_quantized(target_dtype_code);
         if (use_float_math) {
             float sf = (float)s;
+            float zf = (float)z;
             if (sf != 0.0f) {
-                res = (double)rintf((float)x[idx] / sf) + z;
+                float scaled = (float)x[idx] / sf + zf;
+                res = output_is_float_dtype ? (double)scaled : (double)rintf((float)x[idx] / sf) + z;
             }
         } else if (s != 0.0) {
-            res = rint(x[idx] / s) + z;
+            double scaled = x[idx] / s + z;
+            res = output_is_float_dtype ? scaled : rint(x[idx] / s) + z;
         }
         
         out[idx] = saturate_quantized(res, target_dtype_code, saturate);

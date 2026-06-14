@@ -74,6 +74,8 @@ static inline size_t get_dtype_size(DataType dtype) {
         case DTYPE_FLOAT8_E5M2:
         case DTYPE_FLOAT8_E4M3FNUZ:
         case DTYPE_FLOAT8_E5M2FNUZ:
+        case DTYPE_FLOAT4_E2M1:
+        case DTYPE_FLOAT8_E8M0:
         case DTYPE_BOOL:
         case DTYPE_INT4:
         case DTYPE_UINT4:
@@ -661,6 +663,53 @@ static inline uint8_t float_to_fp8_e5m2fnuz(float f) {
     return float_to_fp8_e5m2fnuz_saturate(f, 1);
 }
 
+// 解码 ONNX FLOAT4E2M1 位模式；当前运行时使用 1 字节容器保存低 4 位。
+static inline float fp4_e2m1_to_float(uint8_t val) {
+    static const float table[16] = {
+        0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,
+        -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f,
+    };
+    return table[val & 0x0F];
+}
+
+// 编码 ONNX FLOAT4E2M1，按最近偶数码值选择 16 个可表示值之一。
+static inline uint8_t float_to_fp4_e2m1(float f) {
+    static const float table[16] = {
+        0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,
+        -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f,
+    };
+    uint32_t bits = float_to_bits(f);
+    if ((bits & 0x7F800000) == 0x7F800000 && (bits & 0x007FFFFF) != 0) return 0x08;
+    if ((bits & 0x7FFFFFFF) == 0) return (uint8_t)((bits & 0x80000000) ? 0x08 : 0x00);
+    int sign_group = (bits & 0x80000000) ? 8 : 0;
+    uint8_t best_code = (uint8_t)sign_group;
+    float best_diff = INFINITY;
+    for (uint8_t offset = 0; offset < 8; ++offset) {
+        uint8_t code = (uint8_t)(sign_group + offset);
+        float diff = fabsf(f - table[code]);
+        if (diff < best_diff || (diff == best_diff && ((code & 1) == 0))) {
+            best_diff = diff;
+            best_code = code;
+        }
+    }
+    return best_code;
+}
+
+// 解码 ONNX FLOAT8E8M0FNU；0xFF 表示 NaN，其余编码表示 2^(code - 127)。
+static inline float fp8_e8m0_to_float(uint8_t val) {
+    if (val == 0xFF) return bits_to_float(0x7FC00000);
+    return ldexpf(1.0f, (int)val - 127);
+}
+
+// 编码 ONNX FLOAT8E8M0FNU；非正数和 NaN/Inf 写入 NaN 编码，正有限数按 log2 最近整数编码。
+static inline uint8_t float_to_fp8_e8m0(float f) {
+    if (!isfinite(f) || f <= 0.0f) return 0xFF;
+    int exp_code = (int)nearbyintf(log2f(f)) + 127;
+    if (exp_code < 0) return 0x00;
+    if (exp_code > 254) return 0xFE;
+    return (uint8_t)exp_code;
+}
+
 /**
  * 创建张量
  * 
@@ -689,6 +738,8 @@ static inline float get_value_as_float(const Tensor* tensor, size_t index) {
         case DTYPE_FLOAT8_E5M2: return fp8_e5m2_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT8_E4M3FNUZ: return fp8_e4m3fnuz_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT8_E5M2FNUZ: return fp8_e5m2fnuz_to_float(((uint8_t*)tensor->data)[index]);
+        case DTYPE_FLOAT4_E2M1: return fp4_e2m1_to_float(((uint8_t*)tensor->data)[index]);
+        case DTYPE_FLOAT8_E8M0: return fp8_e8m0_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT16: return float16_to_float(((uint16_t*)tensor->data)[index]);
         case DTYPE_BFLOAT16: return bfloat16_to_float(((uint16_t*)tensor->data)[index]);
         case DTYPE_FLOAT32: return ((float*)tensor->data)[index];
@@ -731,6 +782,8 @@ static inline double get_value_as_double(const Tensor* tensor, size_t index) {
         case DTYPE_FLOAT8_E5M2: return (double)fp8_e5m2_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT8_E4M3FNUZ: return (double)fp8_e4m3fnuz_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT8_E5M2FNUZ: return (double)fp8_e5m2fnuz_to_float(((uint8_t*)tensor->data)[index]);
+        case DTYPE_FLOAT4_E2M1: return (double)fp4_e2m1_to_float(((uint8_t*)tensor->data)[index]);
+        case DTYPE_FLOAT8_E8M0: return (double)fp8_e8m0_to_float(((uint8_t*)tensor->data)[index]);
         case DTYPE_FLOAT32: return (double)((float*)tensor->data)[index];
         case DTYPE_FLOAT16: return (double)float16_to_float(((uint16_t*)tensor->data)[index]);
         case DTYPE_BFLOAT16: return (double)bfloat16_to_float(((uint16_t*)tensor->data)[index]);
@@ -776,6 +829,8 @@ static inline int64_t get_value_as_int64(const Tensor* tensor, size_t index) {
         case DTYPE_FLOAT8_E5M2: return (int64_t)rintf(fp8_e5m2_to_float(((uint8_t*)tensor->data)[index]));
         case DTYPE_FLOAT8_E4M3FNUZ: return (int64_t)rintf(fp8_e4m3fnuz_to_float(((uint8_t*)tensor->data)[index]));
         case DTYPE_FLOAT8_E5M2FNUZ: return (int64_t)rintf(fp8_e5m2fnuz_to_float(((uint8_t*)tensor->data)[index]));
+        case DTYPE_FLOAT4_E2M1: return (int64_t)rintf(fp4_e2m1_to_float(((uint8_t*)tensor->data)[index]));
+        case DTYPE_FLOAT8_E8M0: return (int64_t)rintf(fp8_e8m0_to_float(((uint8_t*)tensor->data)[index]));
         case DTYPE_INT4: {
             // INT4: 符号扩展到int8_t
             int8_t val = ((int8_t*)tensor->data)[index];
@@ -946,6 +1001,8 @@ static inline void set_tensor_value_from_int(Tensor* tensor, size_t index, int64
         case DTYPE_FLOAT8_E5M2: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2((float)value); break;
         case DTYPE_FLOAT8_E4M3FNUZ: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3fnuz((float)value); break;
         case DTYPE_FLOAT8_E5M2FNUZ: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2fnuz((float)value); break;
+        case DTYPE_FLOAT4_E2M1: ((uint8_t*)tensor->data)[index] = float_to_fp4_e2m1((float)value); break;
+        case DTYPE_FLOAT8_E8M0: ((uint8_t*)tensor->data)[index] = float_to_fp8_e8m0((float)value); break;
         case DTYPE_FLOAT16:     ((uint16_t*)tensor->data)[index] = float_to_float16((float)value); break;
         case DTYPE_BFLOAT16:    ((uint16_t*)tensor->data)[index] = float_to_bfloat16((float)value); break;
         case DTYPE_FLOAT32: ((float*)tensor->data)[index] = (float)value; break;
@@ -961,6 +1018,8 @@ static inline void set_tensor_value_from_float(Tensor* tensor, size_t index, dou
         case DTYPE_FLOAT8_E5M2: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2((float)value); break;
         case DTYPE_FLOAT8_E4M3FNUZ: ((uint8_t*)tensor->data)[index] = float_to_fp8_e4m3fnuz((float)value); break;
         case DTYPE_FLOAT8_E5M2FNUZ: ((uint8_t*)tensor->data)[index] = float_to_fp8_e5m2fnuz((float)value); break;
+        case DTYPE_FLOAT4_E2M1: ((uint8_t*)tensor->data)[index] = float_to_fp4_e2m1((float)value); break;
+        case DTYPE_FLOAT8_E8M0: ((uint8_t*)tensor->data)[index] = float_to_fp8_e8m0((float)value); break;
         case DTYPE_FLOAT16:  ((uint16_t*)tensor->data)[index] = float_to_float16((float)value); break;
         case DTYPE_BFLOAT16: ((uint16_t*)tensor->data)[index] = float_to_bfloat16((float)value); break;
         case DTYPE_FLOAT32: ((float*)tensor->data)[index] = (float)value; break;

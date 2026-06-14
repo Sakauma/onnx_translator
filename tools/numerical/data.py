@@ -13,7 +13,7 @@ import numpy as np
 
 import nn
 
-from .dtype import float32_to_bfloat16_bits
+from .dtype import float32_to_bfloat16_bits, from_float32
 
 
 def generate_random_data(shape, dtype):
@@ -30,6 +30,11 @@ def generate_random_data(shape, dtype):
         return np.random.randint(-limit, limit, shape).astype(nn.DTYPE_TO_NUMPY.get(dtype, np.int32))
 
     # --- 浮点位模式生成 (Float8) ---
+    if dtype == "float4_e2m1":
+        return from_float32(np.random.uniform(-6.0, 6.0, size=shape).astype(np.float32), dtype)
+    if dtype == "float8_e8m0":
+        exponents = np.random.randint(-8, 9, size=shape)
+        return from_float32(np.ldexp(np.ones(shape, dtype=np.float32), exponents), dtype)
     if "float8" in dtype:
         return np.random.randint(0, 256, size=shape).astype(np.uint8)
 

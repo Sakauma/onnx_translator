@@ -35,15 +35,76 @@ def _bfloat16_bits_to_float32(values):
     return bits.view(np.float32)
 
 
+_FLOAT4_E2M1_TABLE = np.asarray(
+    [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0],
+    dtype=np.float32,
+)
+
+
+def _float4_e2m1_bits_to_float32(values):
+    return _FLOAT4_E2M1_TABLE[np.asarray(values, dtype=np.uint8) & 0x0F].astype(np.float32)
+
+
+def _float32_to_float4_e2m1_bits(values):
+    data = np.asarray(values, dtype=np.float32)
+    flat = data.reshape(-1)
+    out = np.empty(flat.shape, dtype=np.uint8)
+    for idx, value in enumerate(flat):
+        if np.isnan(value):
+            out[idx] = 0x08
+            continue
+        if np.isposinf(value):
+            out[idx] = 0x07
+            continue
+        if np.isneginf(value):
+            out[idx] = 0x0F
+            continue
+        sign_group = 8 if np.signbit(value) else 0
+        best_code = sign_group
+        best_diff = np.inf
+        for offset in range(8):
+            code = sign_group + offset
+            diff = abs(float(value) - float(_FLOAT4_E2M1_TABLE[code]))
+            if diff < best_diff or (diff == best_diff and (code & 1) == 0):
+                best_diff = diff
+                best_code = code
+        out[idx] = best_code
+    return out.reshape(data.shape)
+
+
+def _float8_e8m0_bits_to_float32(values):
+    raw = np.asarray(values, dtype=np.uint8)
+    out = np.ldexp(np.ones(raw.shape, dtype=np.float32), raw.astype(np.int32) - 127)
+    return np.where(raw == 0xFF, np.float32(np.nan), out).astype(np.float32)
+
+
+def _float32_to_float8_e8m0_bits(values):
+    data = np.asarray(values, dtype=np.float32)
+    out = np.full(data.shape, 0xFF, dtype=np.uint8)
+    valid = np.isfinite(data) & (data > 0.0)
+    if np.any(valid):
+        exp_code = np.rint(np.log2(data[valid])).astype(np.int32) + 127
+        out[valid] = np.clip(exp_code, 0, 254).astype(np.uint8)
+    return out
+
+
 def _tensor_data_as_numeric(tensor):
     if getattr(tensor, "dtype", None) == "bfloat16":
         return _bfloat16_bits_to_float32(tensor.data)
+    if getattr(tensor, "dtype", None) == "float4_e2m1":
+        return _float4_e2m1_bits_to_float32(tensor.data)
+    if getattr(tensor, "dtype", None) == "float8_e8m0":
+        return _float8_e8m0_bits_to_float32(tensor.data)
     return np.asarray(tensor.data)
 
 
 def _cast_numeric_to_dtype(values, dtype):
     if dtype == "bfloat16":
         return _float32_to_bfloat16_bits(values)
+    if dtype == "float4_e2m1":
+        return _float32_to_float4_e2m1_bits(values)
+    if dtype == "float8_e8m0":
+        return _float32_to_float8_e8m0_bits(values)
     return np.asarray(values, dtype=nn.DTYPE_TO_NUMPY.get(dtype, np.asarray(values).dtype))
 
 

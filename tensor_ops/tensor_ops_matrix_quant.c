@@ -89,9 +89,24 @@ static void set_quantize_linear_value(Tensor* Y, size_t index, double value, int
         ((uint8_t*)Y->data)[index] = float_to_fp8_e4m3fnuz_saturate((float)value, saturate);
     } else if (Y->dtype == DTYPE_FLOAT8_E5M2FNUZ) {
         ((uint8_t*)Y->data)[index] = float_to_fp8_e5m2fnuz_saturate((float)value, saturate);
+    } else if (Y->dtype == DTYPE_FLOAT4_E2M1) {
+        ((uint8_t*)Y->data)[index] = float_to_fp4_e2m1((float)value);
+    } else if (Y->dtype == DTYPE_FLOAT8_E8M0) {
+        ((uint8_t*)Y->data)[index] = float_to_fp8_e8m0((float)value);
     } else {
         set_tensor_value_from_float(Y, index, value);
     }
+}
+
+
+// 判断 QuantizeLinear 输出是否为浮点量化格式；该类 dtype 直接舍入到目标浮点格式，不先执行整数 rint。
+static int quantize_linear_output_is_float_dtype(DataType dtype) {
+    return dtype == DTYPE_FLOAT8_E4M3 ||
+           dtype == DTYPE_FLOAT8_E5M2 ||
+           dtype == DTYPE_FLOAT8_E4M3FNUZ ||
+           dtype == DTYPE_FLOAT8_E5M2FNUZ ||
+           dtype == DTYPE_FLOAT4_E2M1 ||
+           dtype == DTYPE_FLOAT8_E8M0;
 }
 
 
@@ -101,6 +116,7 @@ static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, c
     
     size_t loop_size = Y->size;
     int use_double_precision = quantize_linear_use_double_precision(X, Scale, precision);
+    int output_is_float_dtype = quantize_linear_output_is_float_dtype(Y->dtype);
 
     #pragma omp parallel for
     for (size_t i = 0; i < loop_size; i++) {
@@ -111,13 +127,16 @@ static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, c
             double x_val = get_value_as_double(X, i);
             double s_val = get_value_as_double(Scale, i);
             if (s_val != 0.0) {
-                res = rint(x_val / s_val) + zp_val;
+                double scaled = x_val / s_val + zp_val;
+                res = output_is_float_dtype ? scaled : rint(x_val / s_val) + zp_val;
             }
         } else {
             float x_val = get_value_as_float(X, i);
             float s_val = get_value_as_float(Scale, i);
+            float zp_float = (float)zp_val;
             if (s_val != 0.0f) {
-                res = (double)rintf(x_val / s_val) + zp_val;
+                float scaled = x_val / s_val + zp_float;
+                res = output_is_float_dtype ? (double)scaled : (double)rintf(x_val / s_val) + zp_val;
             }
         }
         set_quantize_linear_value(Y, i, res, saturate);

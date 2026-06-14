@@ -620,6 +620,8 @@ def parse_numerical_plan_details() -> tuple[set[str], int, int]:
             "float8_e5m2",
             "float8_e4m3fnuz",
             "float8_e5m2fnuz",
+            "float4_e2m1",
+            "float8_e8m0",
             "int4",
             "uint4",
             "int2",
