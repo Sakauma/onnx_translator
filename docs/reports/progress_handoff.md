@@ -11,6 +11,7 @@
   * @details     2026.06.14  V1.0.4  补充 Attention mask 和 scale 数值覆盖记录
   * @details     2026.06.14  V1.0.5  补充 DeformConv 分组和可选输入数值覆盖记录
   * @details     2026.06.14  V1.0.6  补充 QuantizeLinear/DequantizeLinear per-axis 数值覆盖记录
+  * @details     2026.06.14  V1.0.7  补充 QuantizeLinear/DequantizeLinear 负轴和省略 zero_point 数值覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -33,8 +34,8 @@
 - 合理保留 Python 调度/元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`674` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`454` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`678` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`456` 条计划。
 
 ## 本轮已完成
 
@@ -94,7 +95,9 @@
 - 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `670` 条，混合精度计划提升到 `452` 条。
 - 继续扩展 QuantizeLinear/DequantizeLinear 默认 numerical plan：新增 `axis=1` per-axis scale/zero_point 的 uint8 量化和反量化计划，并同步补入 float16/bfloat16 低精度路径。
 - `cuda/verify_quantize_linear.cu` 与 `cuda/verify_dequantize_linear.cu` 现在可读取原始 1D scale/zero_point，并按输出坐标映射到对应 axis 参数下标，避免把 per-axis 参数误当成线性逐元素数组。
-- 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `674` 条，混合精度计划提升到 `454` 条。
+- 继续扩展 QuantizeLinear/DequantizeLinear 默认 numerical plan：新增 `axis=-1` signed int8 per-axis 且省略 `zero_point` 的量化和反量化计划，覆盖 ONNX 可选 `zero_point` 缺省时默认零点语义，并同步补入 float16/bfloat16 低精度路径。
+- `tools/numerical/runner.py` 在该内部测试参数下仍为 CUDA reference 生成显式零点张量，但调用 Python/C runtime 时只传入 `x` 和 `scale`，从而真实验证算子可选输入缺省路径。
+- 本轮后默认 numerical plan 保持 `178` 个唯一算子名称，默认计划提升到 `678` 条，混合精度计划提升到 `456` 条。
 
 ## 本轮已运行验证
 
@@ -153,9 +156,9 @@
 - `python tools/audit_ops.py --output docs/reports/operator_coverage.md`
   - 结果：覆盖报告已刷新。
 - `python tools/cli.py numerical --op quantize_linear --op dequantize_linear --iterations 3 --skip-plots`
-  - 结果：全部通过，QuantizeLinear/DequantizeLinear 共 10 组计划、30 个样本均与 CUDA reference 对齐，覆盖 scalar scale/zero_point、`axis=1` per-axis uint8、float16 和 bfloat16 低精度路径。
+  - 结果：全部通过，QuantizeLinear/DequantizeLinear 共 14 组计划、42 个样本均与 CUDA reference 对齐，覆盖 scalar scale/zero_point、`axis=1` per-axis uint8、`axis=-1` per-axis signed int8、省略 `zero_point` 默认零点、float16 和 bfloat16 低精度路径。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 结果：`674` 条默认计划完整 numerical 一轮全部通过，当前 DeformConv 计划包含分组、offset group、无 bias/无 mask 和 stride/pad/dilation 属性扩展；Attention 计划包含 mask/scale 属性扩展，recurrent 计划包含非默认 activation、activation alpha/beta、clip 和状态输出 sidecar 对比；QuantizeLinear/DequantizeLinear 覆盖 scalar 与 `axis=1` per-axis scale/zero_point 路径。
+  - 结果：`678` 条默认计划完整 numerical 一轮全部通过，当前 DeformConv 计划包含分组、offset group、无 bias/无 mask 和 stride/pad/dilation 属性扩展；Attention 计划包含 mask/scale 属性扩展，recurrent 计划包含非默认 activation、activation alpha/beta、clip 和状态输出 sidecar 对比；QuantizeLinear/DequantizeLinear 覆盖 scalar、`axis=1` per-axis scale/zero_point、`axis=-1` signed int8 per-axis 和省略 `zero_point` 默认零点路径。
 - `python -m pytest -q tests`
   - 结果：`298 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
@@ -186,7 +189,7 @@
 - 已进入 numerical 的 mixed precision 计划主要覆盖项目当前支持和官方 type constraint 中合理的低精度路径；非官方约束内的 float8 或字符串/序列路径不应强行纳入数值门禁。
 - `BatchNormalization` 已覆盖推理态和 training_mode 三输出主路径；更多 rank、极小方差、不同 momentum/epsilon、空维度和异常 shape 组合仍建议继续扩展。
 - `LayerNormalization` 已覆盖单输出和 `mean/inv_std` aux 多输出 C/CUDA 主路径；更多 rank、stash_type、极小方差、空维度和异常 axis 组合仍建议继续扩展。
-- `QuantizeLinear`/`DequantizeLinear` 已覆盖 scalar 与 `axis=1` per-axis scale/zero_point 的 C/CUDA numerical，CUDA reference 已能按原始 1D 参数和 axis 坐标独立验证；新版 block quantization、`output_dtype`、`precision`、`saturate` 等属性仍需结合目标 opset 继续扩展。
+- `QuantizeLinear`/`DequantizeLinear` 已覆盖 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis 和省略 `zero_point` 默认零点的 C/CUDA numerical，CUDA reference 已能按原始 1D 参数和 axis 坐标独立验证；新版 block quantization、`output_dtype`、`precision`、`saturate` 等属性仍需结合目标 opset 继续扩展。
 - `GridSample` 已覆盖 linear/reflection、nearest/border 与 cubic/zeros 的 C/CUDA numerical 路径；更多 5D 输入、极端越界坐标、边界点插值和 align_corners 组合仍建议继续扩展。
 - `MaxRoiPool` 已覆盖默认 ROI、spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 写回；`RoiAlign` 已覆盖 avg/half_pixel、max/output_half_pixel、自适应采样和 float16 写回。更多 ROI 数量、边界点采样、异常 batch index 和不同输出尺寸仍建议继续补充。
 - `DFT`/`STFT` 已补充 full spectrum、复数输入、inverse onesided、STFT 无 window 和低精度分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已补充 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`、非默认 activation、activation alpha/beta 和 clip，并补齐 RNN/GRU `Y_h` 与 LSTM `Y_h/Y_c` 的 C/CUDA sidecar 对比；后续仍建议继续扩展更多 activation 组合、sequence_lens/initial state 和极端状态边界。

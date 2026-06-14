@@ -237,7 +237,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                     inputs_np[1] = from_float32(scale_values, dtypes[1])
                 else:
                     inputs_np[1] = np.abs(inputs_np[1]) + 1e-4
-            if inputs_np[2] is not None:
+            if init_args.get("omit_zero_point") and len(inputs_np) > 2:
+                zp_dtype = nn.DTYPE_TO_NUMPY[dtypes[2]]
+                inputs_np[2] = np.zeros(shapes[2], dtype=zp_dtype)
+            elif len(inputs_np) > 2 and inputs_np[2] is not None:
                 if init_args.get("zero_point_values") is not None:
                     zp_dtype = nn.DTYPE_TO_NUMPY[dtypes[2]]
                     inputs_np[2] = np.asarray(init_args["zero_point_values"], dtype=zp_dtype).reshape(shapes[2])
@@ -1013,6 +1016,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("input_values", None)
             op_init_args.pop("scale_values", None)
             op_init_args.pop("zero_point_values", None)
+            omit_zero_point = int(op_init_args.pop("omit_zero_point", 0))
             op_init_args.pop("ratio_value", None)
             op_init_args.pop("training_mode_value", None)
             op_init_args.pop("prob_values", None)
@@ -1098,6 +1102,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             elif op_name == "dynamic_quantize_linear":
                 op = op_cls(inputs=[], outputs=["y", "y_scale", "y_zero_point"], **op_init_args)
                 nps_out = [tensor.data for tensor in op.forward(valid_tensors[0])["tensor"]]
+
+            elif op_name in {"quantize_linear", "dequantize_linear"} and omit_zero_point:
+                op = op_cls(inputs=[], outputs=[], dtype=out_dtype, **op_init_args)
+                nps_out = op.forward(inputs_tensor[0], inputs_tensor[1])["tensor"].data
 
             elif op_name == "split":
                 outputs = [f"y{idx}" for idx in range(num_outputs)]
