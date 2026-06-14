@@ -16,6 +16,7 @@
   * @details     2026.06.14  V1.0.9  补充 QuantizeLinear/DequantizeLinear block_size 属性覆盖记录
   * @details     2026.06.14  V1.0.10 补充 QuantizeLinear/DequantizeLinear 16 位整数量化 dtype 覆盖记录
   * @details     2026.06.14  V1.0.11 补充 QuantizeLinear precision 属性覆盖记录
+  * @details     2026.06.14  V1.0.12 补充 QuantizeLinear/DequantizeLinear 负轴尾块 blocked 数值覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -45,8 +46,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`687` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`460` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`691` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`462` 条计划。
 
 ## 最近已完成验证
 
@@ -118,10 +119,14 @@
   - 最近记录结果：`2 passed`；新增 QuantizeLinear `precision=DOUBLE` 导入属性保留，并用 `x=-12.75, scale=float32(0.1)` 验证 double division 会真实改变 ties-to-even 舍入结果。
 - `python tools/cli.py numerical --op quantize_linear --op dequantize_linear --iterations 3 --skip-plots`
   - 最近记录结果：QuantizeLinear/DequantizeLinear 共 `23` 组计划、`69` 个样本全部通过；新增 `precision=DOUBLE` 的 C/CUDA 独立数值对齐计划。
+- `python -m pytest -q tests/test_operator_core_numeric_semantics.py::test_c_backend_quantize_and_dequantize_negative_axis_block_tail_matches_onnx_reference`
+  - 最近记录结果：`1 passed`；新增 `axis=-1`、输入 `(2, 3, 5)`、scale/zero_point `(2, 3, 3)`、`block_size=2` 的尾块不满 blocked QuantizeLinear/DequantizeLinear ONNX reference 对齐测试。
+- `python tools/cli.py numerical --op quantize_linear --op dequantize_linear --iterations 3 --skip-plots`
+  - 最近记录结果：QuantizeLinear/DequantizeLinear 共 `27` 组计划、`81` 个样本全部通过；新增 float32、float16、bfloat16 分支中的负轴尾块不满 blocked scale/zero_point 映射 case。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 最近记录结果：`687` 条默认计划完整 numerical 一轮全部通过；当前 DeformConv、Attention、recurrent、ROI、谱算子和 QuantizeLinear/DequantizeLinear 的扩展 case 均已进入默认门禁，其中 Q/DQ 覆盖 scalar、per-axis、负轴、省略 zero_point、output_dtype、`block_size=2` blocked scale/zero_point、int16/uint16 dtype 和 `precision=DOUBLE` 路径。
+  - 最近记录结果：`691` 条默认计划完整 numerical 一轮全部通过；当前 DeformConv、Attention、recurrent、ROI、谱算子和 QuantizeLinear/DequantizeLinear 的扩展 case 均已进入默认门禁，其中 Q/DQ 覆盖 scalar、per-axis、负轴、省略 zero_point、output_dtype、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 dtype 和 `precision=DOUBLE` 路径。
 - `python -m pytest -q tests`
-  - 最近记录结果：`302 passed, 1 skipped`。
+  - 最近记录结果：`303 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
   - 最近记录结果：静态 Python 编译检查通过。
 
@@ -141,7 +146,7 @@
 
 ## 混合精度状态
 
-- 当前默认 numerical 中已经包含 `460` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
+- 当前默认 numerical 中已经包含 `462` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
 - 混合精度已经能作为当前工程的常规回归门禁使用，但还不能宣称对所有 ONNX 官方 type constraint、所有属性组合和所有边界输入完成穷尽证明。
 - 位运算、字符串、序列、控制流、随机采样等类别不应机械纳入浮点混合精度口径；这些算子需要按整数位模式、结构语义、随机分布或 ONNX reference 行为分别验证。
 
@@ -151,7 +156,7 @@
 - 默认 numerical 是固定 case 与随机样本组成的工程门禁，能够发现常见回归，但不是形式化证明。
 - `LayerNormalization` 已将单输出 C 后端从最后一维扩展到任意 axis 后缀归一化，并补充 `mean/inv_std` aux 多输出 C/CUDA 门禁；后续仍建议继续扩展更多 rank、stash_type、极小方差、空维度和异常 axis 组合。
 - `BatchNormalization` 已将推理态和 training_mode 三输出主路径都接入 C/CUDA numerical；后续仍建议继续补充更多 rank、极小方差、空维度和不同 momentum/epsilon 组合。
-- `QuantizeLinear`/`DequantizeLinear` 已补充 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点、`output_dtype`、`block_size=2` blocked scale/zero_point、int16/uint16 量化 dtype，以及 `precision=DOUBLE` 除法精度的 C/CUDA numerical 与 pytest 覆盖；`saturate`、更多 precision dtype、更多 block 形状/轴组合以及 float4/float8/2-bit/4-bit packed dtype 仍需继续扩展。
+- `QuantizeLinear`/`DequantizeLinear` 已补充 scalar、`axis=1` uint8 per-axis scale/zero_point、`axis=-1` signed int8 per-axis、省略 `zero_point` 默认零点、`output_dtype`、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 量化 dtype，以及 `precision=DOUBLE` 除法精度的 C/CUDA numerical 与 pytest 覆盖；`saturate`、更多 precision dtype、更多 block 形状/轴组合以及 float4/float8/2-bit/4-bit packed dtype 仍需继续扩展。
 - `LpNormalization` 已补充零范数官方边界和非通道 axis 的 bfloat16 C/CUDA 门禁；更多空维度、不同 rank 和异常 axis 仍建议继续扩展。
 - `GridSample` 已将 numerical 从 linear/reflection 主路径扩展到 nearest/border 与 cubic/zeros 属性组合，并覆盖 float32、float16、bfloat16；后续仍建议继续补充 5D、更多坐标边界、极端越界坐标和更多 align_corners 组合。
 - `MaxRoiPool` 已补充 spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 低精度 C/CUDA numerical；`RoiAlign` 已补充 max 模式、output_half_pixel、自适应 sampling_ratio=0、spatial_scale=0.75 和 float16 低精度 C/CUDA numerical。后续仍建议继续扩展更多 ROI 数量、不同 pooled/output 尺寸、边界点采样和异常 batch index。

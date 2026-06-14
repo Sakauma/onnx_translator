@@ -589,6 +589,60 @@ def test_c_backend_quantize_and_dequantize_block_size_match_onnx_reference():
     _assert_tensor_matches(dequant_actual, dequant_expected, rtol=1e-6, atol=1e-6)
 
 
+# 验证 blocked quantization 在负轴和尾块不满时的坐标映射语义。
+def test_c_backend_quantize_and_dequantize_negative_axis_block_tail_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.linspace(-4.25, 5.5, num=2 * 3 * 5, dtype=np.float32).reshape(2, 3, 5)
+    scale = np.array(
+        [
+            [[0.10, 0.20, 0.40], [0.15, 0.30, 0.60], [0.25, 0.50, 0.75]],
+            [[0.12, 0.24, 0.48], [0.18, 0.36, 0.72], [0.20, 0.45, 0.90]],
+        ],
+        dtype=np.float32,
+    )
+    zero_point = np.array(
+        [
+            [[-5, -3, -1], [0, 2, 4], [-8, -4, 0]],
+            [[1, 3, 5], [-7, -5, -3], [2, 6, 10]],
+        ],
+        dtype=np.int8,
+    )
+    attrs = {"axis": -1, "block_size": 2}
+    quant_expected = _onnx_reference(
+        "QuantizeLinear",
+        [x, scale, zero_point],
+        [TensorProto.FLOAT, TensorProto.FLOAT, TensorProto.INT8],
+        attrs,
+        [x.shape],
+        [TensorProto.INT8],
+        opset=25,
+    )[0]
+    quant_actual = QuantizeLinear(["x", "scale", "zp"], ["y"], axis=-1, block_size=2, dtype="int8").forward(
+        _tensor(x, "float32"),
+        _tensor(scale, "float32"),
+        _tensor(zero_point, "int8"),
+    )["tensor"]
+    _assert_tensor_matches(quant_actual, quant_expected)
+
+    dequant_expected = _onnx_reference(
+        "DequantizeLinear",
+        [quant_expected, scale, zero_point],
+        [TensorProto.INT8, TensorProto.FLOAT, TensorProto.INT8],
+        attrs,
+        [x.shape],
+        [TensorProto.FLOAT],
+        opset=25,
+    )[0]
+    dequant_actual = DequantizeLinear(["x", "scale", "zp"], ["y"], axis=-1, block_size=2, dtype="float32").forward(
+        _tensor(quant_expected, "int8"),
+        _tensor(scale, "float32"),
+        _tensor(zero_point, "int8"),
+    )["tensor"]
+    _assert_tensor_matches(dequant_actual, dequant_expected, rtol=1e-6, atol=1e-6)
+
+
 # 验证整数矩阵乘法和量化矩阵乘法的零点、scale 广播语义。
 def test_c_backend_integer_matmul_ops_match_onnx_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
