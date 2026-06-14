@@ -1490,7 +1490,12 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 raise ValueError(f"{op_name} axis {init_args.get('axis', 1)} is out of bounds for rank {rank}")
             scale_size = int(np.prod(inputs_np[1].shape, dtype=np.int64))
             zp_size = int(np.prod(inputs_np[2].shape, dtype=np.int64)) if inputs_np[2] is not None else 1
-            shape_params = [rank, axis, scale_size, zp_size, *input_shape]
+            scale_shape = list(inputs_np[1].shape)
+            scale_rank = len(scale_shape)
+            block_size = int(init_args.get("block_size", 0))
+            shape_params = [rank, axis, scale_size, zp_size, block_size, scale_rank, *input_shape]
+            if scale_rank == rank:
+                shape_params.extend(scale_shape)
             if op_name == "dequantize_linear":
                 params_bin = np.array(shape_params, dtype=np.int32).tobytes()
             else:

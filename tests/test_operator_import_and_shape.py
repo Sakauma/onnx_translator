@@ -67,6 +67,23 @@ def test_quantize_linear_forward_shape_and_optional_zero_point_import(tmp_path, 
     assert imported_dequant.dtype == "float16"
     assert imported_dequant.output_dtype == "float16"
 
+    block_model_path = tmp_path / "blocked_quant.onnx"
+    block_graph = helper.make_graph(
+        [helper.make_node("QuantizeLinear", ["x", "scale", "zp"], ["qx"], axis=1, block_size=2)],
+        "blocked_quant",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3, 4]),
+            helper.make_tensor_value_info("scale", TensorProto.FLOAT, [2, 2, 4]),
+            helper.make_tensor_value_info("zp", TensorProto.INT8, [2, 2, 4]),
+        ],
+        [helper.make_tensor_value_info("qx", TensorProto.INT8, [2, 3, 4])],
+    )
+    onnx.save(helper.make_model(block_graph, opset_imports=[helper.make_opsetid("", 25)], ir_version=8), block_model_path)
+    blocked_quant = ONNXImport(str(block_model_path), strict=True)[0]
+    assert blocked_quant.axis == 1
+    assert blocked_quant.block_size == 2
+    assert blocked_quant.dtype == "int8"
+
     qx_data = np.array([[[[10, 11], [12, 13]], [[20, 21], [22, 23]], [[30, 31], [32, 33]]]], dtype=np.uint8)
     qx = Tensor(*qx_data.shape, dtype="uint8", data=qx_data)
     x_scale = Tensor(3, dtype="float32", data=np.array([0.5, 1.0, 2.0], dtype=np.float32))

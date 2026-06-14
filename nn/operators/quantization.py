@@ -11,13 +11,40 @@
 
 from .common import *
 
+
+# 将 blocked quantization 的 scale/zero_point 参数展开到输入张量形状，实际数值计算仍交给 C 后端执行。
+def _expand_blocked_qdq_param(param, input_shape, axis, block_size):
+    if param is None or block_size <= 0:
+        return param
+    arr = np.asarray(param.data)
+    rank = len(input_shape)
+    if arr.ndim != rank:
+        return param
+    safe_axis = axis if axis >= 0 else axis + rank
+    if safe_axis < 0 or safe_axis >= rank:
+        raise ValueError(f"QDQ axis {axis} is out of bounds for rank {rank}")
+    expected_shape = list(input_shape)
+    expected_shape[safe_axis] = (input_shape[safe_axis] + block_size - 1) // block_size
+    if list(arr.shape) == list(input_shape):
+        return param
+    if list(arr.shape) != expected_shape:
+        raise ValueError(
+            f"Blocked QDQ parameter shape {arr.shape} does not match expected {tuple(expected_shape)}"
+        )
+    expanded = np.repeat(arr, block_size, axis=safe_axis)
+    slices = tuple(slice(0, dim) for dim in input_shape)
+    expanded = np.ascontiguousarray(expanded[slices].astype(nn.DTYPE_TO_NUMPY[param.dtype], copy=False))
+    return Tensor(*expanded.shape, dtype=param.dtype, data=expanded)
+
+
 class QuantizeLinear(Ops):
     # 初始化 `QuantizeLinear` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, axis=1, dtype=None, output_dtype=None, version="17"):
+    def __init__(self, inputs, outputs, axis=1, dtype=None, output_dtype=None, block_size=0, version="17"):
         super(QuantizeLinear, self).__init__(inputs, outputs)
         self.output_dtype = output_dtype
         self.dtype = dtype or output_dtype or "uint8"
         self.axis = axis # 保存 axis
+        self.block_size = int(block_size or 0)
         self.version = version
 
     # 封装 `_default_zero_point` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
@@ -28,6 +55,10 @@ class QuantizeLinear(Ops):
     def forward(self, x, y_scale, y_zero_point=None) -> Tensor:
         scale_tensor = y_scale
         zp_tensor = y_zero_point if y_zero_point is not None else self._default_zero_point()
+
+        if self.block_size > 0:
+            scale_tensor = _expand_blocked_qdq_param(scale_tensor, list(x.data.shape), self.axis, self.block_size)
+            zp_tensor = _expand_blocked_qdq_param(zp_tensor, list(x.data.shape), self.axis, self.block_size)
 
         # 检查是否需要广播处理 (Scale 是 1D 但 Input 是 ND)
         if y_scale.data.ndim == 1 and x.data.ndim > 1:
@@ -51,11 +82,12 @@ class QuantizeLinear(Ops):
 
 class DequantizeLinear(Ops):
     # 初始化 `DequantizeLinear` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, dtype=None, axis=1, output_dtype=None, version="17"):
+    def __init__(self, inputs, outputs, dtype=None, axis=1, output_dtype=None, block_size=0, version="17"):
         super(DequantizeLinear, self).__init__(inputs, outputs)
         self.output_dtype = output_dtype
         self.dtype = dtype or output_dtype or "float32" # 通常为 float32
         self.axis = axis
+        self.block_size = int(block_size or 0)
         self.version = version
 
     # 执行 `DequantizeLinear` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
@@ -64,6 +96,9 @@ class DequantizeLinear(Ops):
         zp_tensor = x_zero_point
         if zp_tensor is None:
             zp_tensor = Tensor(1, dtype=x.dtype, data=np.zeros((1,), dtype=nn.DTYPE_TO_NUMPY[x.dtype]))
+        if self.block_size > 0:
+            scale_tensor = _expand_blocked_qdq_param(scale_tensor, list(x.data.shape), self.axis, self.block_size)
+            zp_tensor = _expand_blocked_qdq_param(zp_tensor, list(x.data.shape), self.axis, self.block_size)
         if x_scale.data.ndim == 1 and x.data.ndim > 1:
             new_shape = [1] * x.data.ndim
             safe_axis = self.axis if self.axis >= 0 else self.axis + x.data.ndim
