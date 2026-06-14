@@ -1499,9 +1499,14 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             if op_name == "dequantize_linear":
                 params_bin = np.array(shape_params, dtype=np.int32).tobytes()
             else:
-                is_signed = 1 if "int8" in out_dtype and "uint8" not in out_dtype else 0
+                target_dtype_code = {
+                    "uint8": 0,
+                    "int8": 1,
+                    "uint16": 2,
+                    "int16": 3,
+                }.get(out_dtype, 0)
                 use_float_math = 0 if "float64" in {dtypes[0], dtypes[1]} else 1
-                params_bin = np.array([is_signed, use_float_math, *shape_params], dtype=np.int32).tobytes()
+                params_bin = np.array([target_dtype_code, use_float_math, *shape_params], dtype=np.int32).tobytes()
         elif op_name == "matmul":
             M, K = shapes[0]
             K2, N = shapes[1]

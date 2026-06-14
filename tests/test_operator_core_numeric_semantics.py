@@ -443,6 +443,82 @@ def test_c_backend_quantize_dequantize_output_dtype_without_zero_point_matches_o
     _assert_tensor_matches(dequant_actual, dequant_expected, rtol=1e-3, atol=1e-3)
 
 
+# 验证 QuantizeLinear/DequantizeLinear 的 int16 与 uint16 官方 dtype 约束。
+def test_c_backend_quantize_and_dequantize_16bit_integer_dtypes_match_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x_i16 = np.array([-40000.0, -123.4, -0.5, 0.0, 0.5, 123.4, 32767.4, 40000.0], dtype=np.float32)
+    scale_i16 = np.array([1.0], dtype=np.float32)
+    zp_i16 = np.array([0], dtype=np.int16)
+    quant_i16_expected = _onnx_reference(
+        "QuantizeLinear",
+        [x_i16, scale_i16, zp_i16],
+        [TensorProto.FLOAT, TensorProto.FLOAT, TensorProto.INT16],
+        {},
+        [x_i16.shape],
+        [TensorProto.INT16],
+        opset=25,
+    )[0]
+    quant_i16_actual = QuantizeLinear(["x", "scale", "zp"], ["y"], dtype="int16").forward(
+        _tensor(x_i16, "float32"),
+        _tensor(scale_i16, "float32"),
+        _tensor(zp_i16, "int16"),
+    )["tensor"]
+    _assert_tensor_matches(quant_i16_actual, quant_i16_expected)
+
+    x_u16 = np.array([-10.0, -0.5, 0.0, 0.5, 123.4, 40000.0, 70000.0, 100000.0], dtype=np.float32)
+    scale_u16 = np.array([1.0], dtype=np.float32)
+    zp_u16 = np.array([5], dtype=np.uint16)
+    quant_u16_expected = _onnx_reference(
+        "QuantizeLinear",
+        [x_u16, scale_u16, zp_u16],
+        [TensorProto.FLOAT, TensorProto.FLOAT, TensorProto.UINT16],
+        {},
+        [x_u16.shape],
+        [TensorProto.UINT16],
+        opset=25,
+    )[0]
+    quant_u16_actual = QuantizeLinear(["x", "scale", "zp"], ["y"], dtype="uint16").forward(
+        _tensor(x_u16, "float32"),
+        _tensor(scale_u16, "float32"),
+        _tensor(zp_u16, "uint16"),
+    )["tensor"]
+    _assert_tensor_matches(quant_u16_actual, quant_u16_expected)
+
+    dequant_i16_expected = _onnx_reference(
+        "DequantizeLinear",
+        [quant_i16_expected, np.array([0.5], dtype=np.float32), np.array([-3], dtype=np.int16)],
+        [TensorProto.INT16, TensorProto.FLOAT, TensorProto.INT16],
+        {},
+        [x_i16.shape],
+        [TensorProto.FLOAT],
+        opset=25,
+    )[0]
+    dequant_i16_actual = DequantizeLinear(["x", "scale", "zp"], ["y"], dtype="float32").forward(
+        _tensor(quant_i16_expected, "int16"),
+        _tensor(np.array([0.5], dtype=np.float32), "float32"),
+        _tensor(np.array([-3], dtype=np.int16), "int16"),
+    )["tensor"]
+    _assert_tensor_matches(dequant_i16_actual, dequant_i16_expected, rtol=1e-6, atol=1e-6)
+
+    dequant_u16_expected = _onnx_reference(
+        "DequantizeLinear",
+        [quant_u16_expected, np.array([0.25], dtype=np.float32), np.array([5], dtype=np.uint16)],
+        [TensorProto.UINT16, TensorProto.FLOAT, TensorProto.UINT16],
+        {},
+        [x_u16.shape],
+        [TensorProto.FLOAT],
+        opset=25,
+    )[0]
+    dequant_u16_actual = DequantizeLinear(["x", "scale", "zp"], ["y"], dtype="float32").forward(
+        _tensor(quant_u16_expected, "uint16"),
+        _tensor(np.array([0.25], dtype=np.float32), "float32"),
+        _tensor(np.array([5], dtype=np.uint16), "uint16"),
+    )["tensor"]
+    _assert_tensor_matches(dequant_u16_actual, dequant_u16_expected, rtol=1e-6, atol=1e-6)
+
+
 # 验证 blocked quantization 的 scale/zero_point 块映射语义。
 def test_c_backend_quantize_and_dequantize_block_size_match_onnx_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):

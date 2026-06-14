@@ -29,6 +29,28 @@ __device__ double saturate_cast_uint8(double val) {
     return val;
 }
 
+// 实现 `saturate_cast_int16` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
+__device__ double saturate_cast_int16(double val) {
+    if (val > 32767.0) return 32767.0;
+    if (val < -32768.0) return -32768.0;
+    return val;
+}
+
+// 实现 `saturate_cast_uint16` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
+__device__ double saturate_cast_uint16(double val) {
+    if (val > 65535.0) return 65535.0;
+    if (val < 0.0) return 0.0;
+    return val;
+}
+
+// 根据目标量化 dtype 选择官方整数范围，输出仍用 double 便于 runner 统一比较。
+__device__ double saturate_quantized(double val, int target_dtype_code) {
+    if (target_dtype_code == 1) return saturate_cast_int8(val);
+    if (target_dtype_code == 2) return saturate_cast_uint16(val);
+    if (target_dtype_code == 3) return saturate_cast_int16(val);
+    return saturate_cast_uint8(val);
+}
+
 // 根据输出线性下标映射 per-tensor、per-axis、blocked 或已广播参数下标。
 __device__ size_t qdq_param_index(
     size_t idx,
@@ -94,7 +116,7 @@ __global__ void quantize_kernel(
     int axis,
     int block_size,
     int scale_rank,
-    int is_signed,
+    int target_dtype_code,
     int use_float_math
 ) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -113,11 +135,7 @@ __global__ void quantize_kernel(
             res = rint(x[idx] / s) + z;
         }
         
-        if (is_signed) {
-            out[idx] = saturate_cast_int8(res);
-        } else {
-            out[idx] = saturate_cast_uint8(res);
-        }
+        out[idx] = saturate_quantized(res, target_dtype_code);
     }
 }
 
@@ -127,7 +145,7 @@ int main(int argc, char** argv) {
     size_t n = atol(argv[1]);
     size_t x_bytes = n * sizeof(double);
     
-    int is_signed = 1;
+    int target_dtype_code = 1;
     int use_float_math = 1;
     int rank = 1;
     int axis = 0;
@@ -149,7 +167,7 @@ int main(int argc, char** argv) {
         if (params && param_count > 0) {
             fread(params, sizeof(int), param_count, fp);
             if (param_count >= 2) {
-                is_signed = params[0];
+                target_dtype_code = params[0];
                 use_float_math = params[1];
             }
             if (param_count >= 8) {
@@ -232,7 +250,7 @@ int main(int argc, char** argv) {
     cudaMemcpy(d_s, h_s, scale_bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_z, h_z, zp_bytes, cudaMemcpyHostToDevice);
 
-    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, scale_count, zp_count, axis_dim, axis_stride, d_input_shape, d_scale_shape, rank, axis, block_size, scale_rank, is_signed, use_float_math);
+    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, scale_count, zp_count, axis_dim, axis_stride, d_input_shape, d_scale_shape, rank, axis, block_size, scale_rank, target_dtype_code, use_float_math);
     
     cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost);
     FILE *fout = fopen(argv[6], "wb"); fwrite(h_out, 1, x_bytes, fout); fclose(fout);
