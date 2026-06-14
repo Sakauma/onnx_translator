@@ -535,6 +535,31 @@ def test_c_backend_quantize_and_dequantize_16bit_integer_dtypes_match_onnx_refer
     _assert_tensor_matches(dequant_u16_actual, dequant_u16_expected, rtol=1e-6, atol=1e-6)
 
 
+# 验证 DequantizeLinear 的 int32 官方输入 dtype 约束。
+def test_c_backend_dequantize_int32_dtype_matches_onnx_reference():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.array([-2147483648, -65536, -1024, 0, 1024, 65536, 123456789, 2147483647], dtype=np.int32)
+    scale = np.array([0.25], dtype=np.float32)
+    zero_point = np.array([-17], dtype=np.int32)
+    expected = _onnx_reference(
+        "DequantizeLinear",
+        [x, scale, zero_point],
+        [TensorProto.INT32, TensorProto.FLOAT, TensorProto.INT32],
+        {},
+        [x.shape],
+        [TensorProto.FLOAT],
+        opset=25,
+    )[0]
+    actual = DequantizeLinear(["x", "scale", "zp"], ["y"], dtype="float32").forward(
+        _tensor(x, "int32"),
+        _tensor(scale, "float32"),
+        _tensor(zero_point, "int32"),
+    )["tensor"]
+    _assert_tensor_matches(actual, expected, rtol=1e-6, atol=1e-6)
+
+
 # 验证 blocked quantization 的 scale/zero_point 块映射语义。
 def test_c_backend_quantize_and_dequantize_block_size_match_onnx_reference():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):

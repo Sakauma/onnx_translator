@@ -226,10 +226,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
           
         if op_name in ["quantize_linear", "dequantize_linear"]:
             if init_args.get("input_values") is not None:
-                input_values = np.asarray(init_args["input_values"], dtype=np.float32).reshape(shapes[0])
                 if dtypes[0] in {"bool", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"}:
-                    inputs_np[0] = input_values.astype(nn.DTYPE_TO_NUMPY[dtypes[0]])
+                    inputs_np[0] = np.asarray(init_args["input_values"], dtype=nn.DTYPE_TO_NUMPY[dtypes[0]]).reshape(shapes[0])
                 else:
+                    input_values = np.asarray(init_args["input_values"], dtype=np.float32).reshape(shapes[0])
                     inputs_np[0] = from_float32(input_values, dtypes[0])
             if inputs_np[1] is not None:
                 if init_args.get("scale_values") is not None:

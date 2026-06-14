@@ -587,6 +587,7 @@ def build_default_plans():
     (DequantizeLinear, "dequantize_linear", [(2, 3, 4), (2, 2, 4), (2, 2, 4)], ["int8", "float32", "int8"], "float32", {"axis": 1, "block_size": 2, "input_values": [-12, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, -11, -7, -3, 1, 3, 5, 7, 9, -9, -5, -1, 11], "scale_values": [0.1, 0.2, 0.25, 0.5, 0.3, 0.4, 0.6, 0.8, 0.15, 0.35, 0.45, 0.55, 0.25, 0.5, 0.75, 1.0], "zero_point_values": [-5, -4, -3, -2, 1, 2, 3, 4, -8, -6, -4, -2, 2, 4, 6, 8]}),
     (DequantizeLinear, "dequantize_linear", [(2, 3, 5), (2, 3, 3), (2, 3, 3)], ["int8", "float32", "int8"], "float32", {"axis": -1, "block_size": 2, "input_values": [-12, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, -11, -7, -3, 1, 3, 5, 7, 9, -9, -5, -1, 11, 13, -13, 15, -15, 31, -31], "scale_values": [0.1, 0.2, 0.4, 0.15, 0.3, 0.6, 0.25, 0.5, 0.75, 0.12, 0.24, 0.48, 0.18, 0.36, 0.72, 0.2, 0.45, 0.9], "zero_point_values": [-5, -3, -1, 0, 2, 4, -8, -4, 0, 1, 3, 5, -7, -5, -3, 2, 6, 10]}),
     (DequantizeLinear, "dequantize_linear", [(8,), (1,), (1,)], ["int16", "float32", "int16"], "float32", {"axis": 0, "input_values": [-32768, -123, -1, 0, 1, 123, 32760, 32767], "scale_values": [0.5], "zero_point_values": [-3]}),
+    (DequantizeLinear, "dequantize_linear", [(8,), (1,), (1,)], ["int32", "float32", "int32"], "float32", {"axis": 0, "input_values": [-2147483648, -65536, -1024, 0, 1024, 65536, 123456789, 2147483647], "scale_values": [0.25], "zero_point_values": [-17]}),
 
     (SQRT, "sqrt", [(64, 64)], ["float32"], "float32"),
 
