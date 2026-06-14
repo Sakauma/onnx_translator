@@ -466,8 +466,10 @@ def build_mixed_precision_plans():
         (Unique, "unique", [(8,)], ["float16"], "float16", {"sorted": 1, "input_values": [2.0, -1.0, 2.0, 0.5, -1.0, 3.0, 0.5, 4.0]}),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["float16", "float16", "int8"], "int8"),
         (QuantizeLinear, "quantize_linear", [(32, 32), (1,), (1,)], ["bfloat16", "bfloat16", "int8"], "int8"),
+        (QuantizeLinear, "quantize_linear", [(1, 3, 4), (3,), (3,)], ["float16", "float16", "uint8"], "uint8", {"axis": 1, "input_values": [-20.0, -0.05, 0.0, 0.05, -1.0, 0.0, 1.25, 25.0, -10.0, -0.5, 2.5, 100.0], "scale_values": [0.1, 0.25, 0.5], "zero_point_values": [0, 128, 250]}),
         (DequantizeLinear, "dequantize_linear", [(32, 32), (1,), (1,)], ["int8", "float16", "int8"], "float16"),
         (DequantizeLinear, "dequantize_linear", [(32, 32), (1,), (1,)], ["int8", "bfloat16", "int8"], "bfloat16"),
+        (DequantizeLinear, "dequantize_linear", [(1, 3, 4), (3,), (3,)], ["uint8", "bfloat16", "uint8"], "bfloat16", {"axis": 1, "input_values": [0, 1, 128, 255, 0, 128, 129, 255, 0, 250, 251, 255], "scale_values": [0.1, 0.25, 0.5], "zero_point_values": [0, 128, 250]}),
         (QLinearMatMul, "qlinear_matmul", [(4, 6), (4,), (4,), (6, 5), (5,), (5,), (1,), (1,)], ["uint8", "bfloat16", "uint8", "uint8", "bfloat16", "uint8", "bfloat16", "uint8"], "uint8"),
         (QLinearConv, "qlinear_conv", [(1, 2, 5, 5), (1,), (1,), (2, 2, 3, 3), (2,), (2,), (1,), (1,)], ["uint8", "bfloat16", "uint8", "uint8", "bfloat16", "uint8", "bfloat16", "uint8"], "uint8", {"pads": [1, 1, 1, 1], "strides": [2, 2], "dilations": [1, 1], "group": 1}),
         (Range, "range", [(1,), (1,), (1,)], ["float16", "float16", "float16"], "float16", {"start_value": -2.0, "limit_value": 3.0, "delta_value": 0.75}),
@@ -565,7 +567,9 @@ def build_default_plans():
     (Clip, "clip",[(64,64), (1,), (1,)],["float32", "float32", "float32"],"float32"),
 
     (QuantizeLinear, "quantize_linear", [(64,64), (1,), (1,)], ["float32", "float32", "int8"], "int8"),
+    (QuantizeLinear, "quantize_linear", [(1, 3, 4), (3,), (3,)], ["float32", "float32", "uint8"], "uint8", {"axis": 1, "input_values": [-20.0, -0.05, 0.0, 0.05, -1.0, 0.0, 1.25, 25.0, -10.0, -0.5, 2.5, 100.0], "scale_values": [0.1, 0.25, 0.5], "zero_point_values": [0, 128, 250]}),
     (DequantizeLinear, "dequantize_linear", [(64,64), (1,), (1,)], ["int8", "float32", "int8"], "float32"),
+    (DequantizeLinear, "dequantize_linear", [(1, 3, 4), (3,), (3,)], ["uint8", "float32", "uint8"], "float32", {"axis": 1, "input_values": [0, 1, 128, 255, 0, 128, 129, 255, 0, 250, 251, 255], "scale_values": [0.1, 0.25, 0.5], "zero_point_values": [0, 128, 250]}),
 
     (SQRT, "sqrt", [(64, 64)], ["float32"], "float32"),
 

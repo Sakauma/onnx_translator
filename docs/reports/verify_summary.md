@@ -45,6 +45,7 @@
   * @details     2026.06.13  V1.0.38  补充 LayerNormalization aux 多输出 C/CUDA 数值门禁记录
   * @details     2026.06.13  V1.0.39  补充 GridSample 多属性组合 C/CUDA 数值门禁记录
   * @details     2026.06.13  V1.0.40  补充 ROI 算子边界属性 C/CUDA 数值门禁记录
+  * @details     2026.06.14  V1.0.41  补充 QuantizeLinear/DequantizeLinear per-axis C/CUDA 数值门禁记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -335,11 +336,13 @@
 
 继续扩大 ROI 算子的默认 C/CUDA 数值边界集合：`MaxRoiPool` 在原有默认 ROI 之外新增 float32 和 bfloat16 的 `spatial_scale=0.5`、越界裁剪、空 ROI 输出计划；`RoiAlign` 在原有 avg/half_pixel/sampling_ratio=2 之外新增 float32 和 float16 的 `mode=max`、`coordinate_transformation_mode=output_half_pixel`、`sampling_ratio=0` 自适应采样、`spatial_scale=0.75` 计划。runner 使用内部 `roi_variant` 参数选择固定 ROI 坐标和 batch indices，构造算子前移除该参数，不改变公共算子接口。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`、`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op max_roi_pool --op roi_align --iterations 3 --skip-plots` 和 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests/test_operator_roi_semantics.py` 均已通过；定向 numerical 中 MaxRoiPool 与 RoiAlign 各 15 个样本对齐 CUDA reference。随后完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests` 结果为 `298 passed, 1 skipped`，完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots` 的 636 条默认计划全部通过。本轮后默认 active numerical plan 保持 178 个唯一算子、提升到 636 条默认计划和 435 条混合精度计划。
 
+继续扩大 `QuantizeLinear`/`DequantizeLinear` 的默认 C/CUDA 数值边界集合：新增 `axis=1` per-axis scale/zero_point 的 uint8 量化和反量化计划，并同步补入 float16 与 bfloat16 低精度路径。首次定向 numerical 暴露 CUDA reference 将 1D scale/zero_point 按线性下标读取，不能独立验证官方 per-axis 语义；本轮已修正 `cuda/verify_quantize_linear.cu` 与 `cuda/verify_dequantize_linear.cu`，通过参数块传入 rank、axis、输入形状和原始参数元素数，由 CUDA kernel 根据输出坐标映射到对应 scale/zero_point 下标。验证命令：`/home/sakauma/data/miniconda3/envs/egor/bin/python -m py_compile tools/numerical/cli.py tools/numerical/runner.py`、`git diff --check`、`/usr/local/cuda-12.8/bin/nvcc cuda/verify_quantize_linear.cu -o cache/verify_quantize_linear`、`/usr/local/cuda-12.8/bin/nvcc cuda/verify_dequantize_linear.cu -o cache/verify_dequantize_linear`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op quantize_linear --op dequantize_linear --iterations 3 --skip-plots`、`make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python -m pytest -q tests`、完整 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --iterations 1 --skip-plots`、`/home/sakauma/data/miniconda3/envs/egor/bin/python tools/audit_ops.py --output docs/reports/operator_coverage.md` 和 `/home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py compile-cuda` 均已通过；完整 pytest 结果为 `298 passed, 1 skipped`，完整 numerical 一轮 674 条默认计划全部通过，全量 CUDA 编译结果为 178 个 verifier 全部成功。本轮后默认 active numerical plan 保持 178 个唯一算子、提升到 674 条默认计划和 454 条混合精度计划。
+
 ### 剩余风险
 
 - 当前 numerical 是随机样本与固定 case 的默认门禁，不等价于 ONNX 每个 opset schema 的穷尽证明。
 - 当前安装 ONNX 最新默认 domain schema 名称级缺口为 0，ONNXImport 已覆盖当前环境可见的 200 个最新默认 domain 官方算子。
-- QuantizeLinear/DequantizeLinear 的新版属性，例如 block quantization、output_dtype、precision、saturate 等，仍需结合目标 opset 再决定是否扩展。
+- QuantizeLinear/DequantizeLinear 当前 C/CUDA numerical 已覆盖 scalar 与 `axis=1` per-axis scale/zero_point；新版属性，例如 block quantization、output_dtype、precision、saturate 等，仍需结合目标 opset 再决定是否扩展。
 - `BatchNormalization` 当前 C/CUDA numerical 覆盖推理模式和 training_mode 三输出主路径；更多 rank、极小方差、不同 momentum/epsilon、空维度和异常 shape 组合仍建议继续补充 case matrix。
 - `LayerNormalization` 当前 C/CUDA numerical 覆盖单输出 `Y` 的 `axis=-1`、axis=1 后缀归一化主路径，以及 `mean/inv_std` aux 多输出主路径；更多 rank、stash_type、极小方差、空维度和异常 axis 组合仍建议继续补充 case matrix。
 - `LpNormalization` 当前 mixed precision numerical 覆盖 p=2 以及 axis=2/p=1 的 bfloat16，float32 同时覆盖 p=1/p=2 和全零范数；更多 rank、空维度和异常 axis 组合仍建议继续扩展。

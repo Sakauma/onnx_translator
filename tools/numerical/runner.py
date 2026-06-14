@@ -225,10 +225,29 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[1] = np.random.randint(0, M, size=idx_shape).astype(np.int64)
           
         if op_name in ["quantize_linear", "dequantize_linear"]:
-            if inputs_np[1] is not None: inputs_np[1] = np.abs(inputs_np[1]) + 1e-4
+            if init_args.get("input_values") is not None:
+                input_values = np.asarray(init_args["input_values"], dtype=np.float32).reshape(shapes[0])
+                if dtypes[0] in {"bool", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"}:
+                    inputs_np[0] = input_values.astype(nn.DTYPE_TO_NUMPY[dtypes[0]])
+                else:
+                    inputs_np[0] = from_float32(input_values, dtypes[0])
+            if inputs_np[1] is not None:
+                if init_args.get("scale_values") is not None:
+                    scale_values = np.asarray(init_args["scale_values"], dtype=np.float32).reshape(shapes[1])
+                    inputs_np[1] = from_float32(scale_values, dtypes[1])
+                else:
+                    inputs_np[1] = np.abs(inputs_np[1]) + 1e-4
             if inputs_np[2] is not None:
-                inputs_np[2] = np.round(inputs_np[2])
-                if op_name == "quantize_linear": inputs_np[2] = np.clip(inputs_np[2], -128, 127)
+                if init_args.get("zero_point_values") is not None:
+                    zp_dtype = nn.DTYPE_TO_NUMPY[dtypes[2]]
+                    inputs_np[2] = np.asarray(init_args["zero_point_values"], dtype=zp_dtype).reshape(shapes[2])
+                else:
+                    inputs_np[2] = np.round(inputs_np[2])
+                    if op_name == "quantize_linear":
+                        if dtypes[2] == "uint8":
+                            inputs_np[2] = np.clip(inputs_np[2], 0, 255)
+                        else:
+                            inputs_np[2] = np.clip(inputs_np[2], -128, 127)
         if op_name == "scatternd":
             M, N = shapes[0]       # data: (M,N)
             I, K = shapes[1]       # indices: (I,2)
@@ -992,6 +1011,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             op_init_args.pop("lower_edge_hertz_value", None)
             op_init_args.pop("upper_edge_hertz_value", None)
             op_init_args.pop("input_values", None)
+            op_init_args.pop("scale_values", None)
+            op_init_args.pop("zero_point_values", None)
             op_init_args.pop("ratio_value", None)
             op_init_args.pop("training_mode_value", None)
             op_init_args.pop("prob_values", None)
@@ -1451,10 +1472,23 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inner, outer = x.shape[axis], int(np.prod(x.shape[:axis]))
             rem = int(np.prod(x.shape[axis+1:]))
             params_bin = np.array([outer, inner, rem], dtype=np.int32).tobytes()
-        elif op_name == "quantize_linear":
-            is_signed = 1 if "int8" in out_dtype and "uint8" not in out_dtype else 0
-            use_float_math = 0 if "float64" in {dtypes[0], dtypes[1]} else 1
-            params_bin = np.array([is_signed, use_float_math], dtype=np.int32).tobytes()
+        elif op_name in {"quantize_linear", "dequantize_linear"}:
+            input_shape = list(inputs_np[0].shape)
+            rank = len(input_shape)
+            axis = int(init_args.get("axis", 1))
+            if axis < 0:
+                axis += rank
+            if axis < 0 or axis >= rank:
+                raise ValueError(f"{op_name} axis {init_args.get('axis', 1)} is out of bounds for rank {rank}")
+            scale_size = int(np.prod(inputs_np[1].shape, dtype=np.int64))
+            zp_size = int(np.prod(inputs_np[2].shape, dtype=np.int64)) if inputs_np[2] is not None else 1
+            shape_params = [rank, axis, scale_size, zp_size, *input_shape]
+            if op_name == "dequantize_linear":
+                params_bin = np.array(shape_params, dtype=np.int32).tobytes()
+            else:
+                is_signed = 1 if "int8" in out_dtype and "uint8" not in out_dtype else 0
+                use_float_math = 0 if "float64" in {dtypes[0], dtypes[1]} else 1
+                params_bin = np.array([is_signed, use_float_math, *shape_params], dtype=np.int32).tobytes()
         elif op_name == "matmul":
             M, K = shapes[0]
             K2, N = shapes[1]
@@ -2538,6 +2572,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             "hann_window", "hamming_window", "blackman_window",
             "range", "one_hot", "reverse_sequence", "det", "mel_weight_matrix",
             "negative_log_likelihood_loss", "softmax_cross_entropy_loss", "non_max_suppression",
+            "quantize_linear", "dequantize_linear",
         }
         
         cuda_inputs = []

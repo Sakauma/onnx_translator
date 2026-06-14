@@ -29,12 +29,36 @@ __device__ double saturate_cast_uint8(double val) {
     return val;
 }
 
+// 根据输出线性下标映射 per-tensor、per-axis 或已广播参数下标。
+__device__ size_t qdq_param_index(size_t idx, size_t param_count, size_t output_count, int axis_dim, size_t axis_stride) {
+    if (param_count <= 1) return 0;
+    if (param_count == output_count) return idx;
+    if (axis_dim > 0 && param_count == (size_t)axis_dim && axis_stride > 0) {
+        return (idx / axis_stride) % (size_t)axis_dim;
+    }
+    return idx % param_count;
+}
+
 // 实现 `quantize_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
-__global__ void quantize_kernel(const double* x, const double* scale, const double* zp, double* out, size_t n, int is_signed, int use_float_math) {
+__global__ void quantize_kernel(
+    const double* x,
+    const double* scale,
+    const double* zp,
+    double* out,
+    size_t n,
+    size_t scale_count,
+    size_t zp_count,
+    int axis_dim,
+    size_t axis_stride,
+    int is_signed,
+    int use_float_math
+) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        double s = scale[idx];
-        double z = zp[idx];
+        size_t scale_idx = qdq_param_index(idx, scale_count, n, axis_dim, axis_stride);
+        size_t zp_idx = qdq_param_index(idx, zp_count, n, axis_dim, axis_stride);
+        double s = scale[scale_idx];
+        double z = zp[zp_idx];
         double res = z;
         if (use_float_math) {
             float sf = (float)s;
@@ -57,37 +81,71 @@ __global__ void quantize_kernel(const double* x, const double* scale, const doub
 int main(int argc, char** argv) {
     if (argc < 7) return 1; 
     size_t n = atol(argv[1]);
-    size_t bytes = n * sizeof(double);
+    size_t x_bytes = n * sizeof(double);
     
     int is_signed = 1;
     int use_float_math = 1;
+    int rank = 1;
+    int axis = 0;
+    size_t scale_count = n;
+    size_t zp_count = n;
+    int axis_dim = 0;
+    size_t axis_stride = 1;
     FILE *fp = fopen(argv[5], "rb");
     if (fp) {
-        fread(&is_signed, sizeof(int), 1, fp);
-        fread(&use_float_math, sizeof(int), 1, fp);
+        fseek(fp, 0, SEEK_END);
+        long param_bytes = ftell(fp);
+        rewind(fp);
+        size_t param_count = (size_t)param_bytes / sizeof(int);
+        int* params = (int*)malloc(param_count * sizeof(int));
+        if (params && param_count > 0) {
+            fread(params, sizeof(int), param_count, fp);
+            if (param_count >= 2) {
+                is_signed = params[0];
+                use_float_math = params[1];
+            }
+            if (param_count >= 6) {
+                rank = params[2];
+                axis = params[3];
+                scale_count = (size_t)params[4];
+                zp_count = (size_t)params[5];
+                if (rank > 0 && axis >= 0 && axis < rank && param_count >= (size_t)(6 + rank)) {
+                    axis_dim = params[6 + axis];
+                    axis_stride = 1;
+                    for (int i = axis + 1; i < rank; ++i) {
+                        axis_stride *= (size_t)params[6 + i];
+                    }
+                }
+            }
+            free(params);
+        }
         fclose(fp);
     }
+    if (scale_count == 0) scale_count = 1;
+    if (zp_count == 0) zp_count = 1;
 
-    double *h_x = (double*)malloc(bytes);
-    double *h_s = (double*)malloc(bytes);
-    double *h_z = (double*)malloc(bytes);
-    double *h_out = (double*)malloc(bytes);
+    size_t scale_bytes = scale_count * sizeof(double);
+    size_t zp_bytes = zp_count * sizeof(double);
+    double *h_x = (double*)malloc(x_bytes);
+    double *h_s = (double*)calloc(scale_count, sizeof(double));
+    double *h_z = (double*)calloc(zp_count, sizeof(double));
+    double *h_out = (double*)malloc(x_bytes);
     
-    FILE *fx = fopen(argv[2], "rb"); fread(h_x, 1, bytes, fx); fclose(fx);
-    FILE *fs = fopen(argv[3], "rb"); fread(h_s, 1, bytes, fs); fclose(fs);
-    FILE *fz = fopen(argv[4], "rb"); fread(h_z, 1, bytes, fz); fclose(fz);
+    FILE *fx = fopen(argv[2], "rb"); fread(h_x, 1, x_bytes, fx); fclose(fx);
+    FILE *fs = fopen(argv[3], "rb"); fread(h_s, 1, scale_bytes, fs); fclose(fs);
+    FILE *fz = fopen(argv[4], "rb"); fread(h_z, 1, zp_bytes, fz); fclose(fz);
     
     double *d_x, *d_s, *d_z, *d_out;
-    cudaMalloc(&d_x, bytes); cudaMalloc(&d_s, bytes); cudaMalloc(&d_z, bytes); cudaMalloc(&d_out, bytes);
+    cudaMalloc(&d_x, x_bytes); cudaMalloc(&d_s, scale_bytes); cudaMalloc(&d_z, zp_bytes); cudaMalloc(&d_out, x_bytes);
     
-    cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_s, h_s, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_z, h_z, bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_x, h_x, x_bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_s, h_s, scale_bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_z, h_z, zp_bytes, cudaMemcpyHostToDevice);
 
-    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, is_signed, use_float_math);
+    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, scale_count, zp_count, axis_dim, axis_stride, is_signed, use_float_math);
     
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
-    FILE *fout = fopen(argv[6], "wb"); fwrite(h_out, 1, bytes, fout); fclose(fout);
+    cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost);
+    FILE *fout = fopen(argv[6], "wb"); fwrite(h_out, 1, x_bytes, fout); fclose(fout);
     
     free(h_x); free(h_s); free(h_z); free(h_out);
     cudaFree(d_x); cudaFree(d_s); cudaFree(d_z); cudaFree(d_out);
