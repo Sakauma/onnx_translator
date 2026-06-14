@@ -530,17 +530,19 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             inputs_np[2] = np.asarray(init_args.get("block_shape_value", [2, 2]), dtype=np.int64)
 
         if op_name == "deform_conv":
-            # DeformConv 使用小幅 offset 和有限 mask，覆盖双线性采样、bias 和低精度写回路径。
+            # DeformConv 使用小幅 offset 和有限 mask，覆盖双线性采样、可选 bias/mask、分组和低精度写回路径。
             x_values = np.linspace(-1.2, 1.2, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
             w_values = np.linspace(-0.7, 0.8, int(np.prod(shapes[1])), dtype=np.float32).reshape(shapes[1])
             offset_values = np.linspace(-0.25, 0.25, int(np.prod(shapes[2])), dtype=np.float32).reshape(shapes[2])
-            bias_values = np.linspace(-0.1, 0.2, int(np.prod(shapes[3])), dtype=np.float32).reshape(shapes[3])
-            mask_values = np.linspace(0.55, 1.0, int(np.prod(shapes[4])), dtype=np.float32).reshape(shapes[4])
             inputs_np[0] = from_float32(x_values, dtypes[0])
             inputs_np[1] = from_float32(w_values, dtypes[1])
             inputs_np[2] = from_float32(offset_values, dtypes[2])
-            inputs_np[3] = from_float32(bias_values, dtypes[3])
-            inputs_np[4] = from_float32(mask_values, dtypes[4])
+            if len(inputs_np) > 3 and inputs_np[3] is not None:
+                bias_values = np.linspace(-0.1, 0.2, int(np.prod(shapes[3])), dtype=np.float32).reshape(shapes[3])
+                inputs_np[3] = from_float32(bias_values, dtypes[3])
+            if len(inputs_np) > 4 and inputs_np[4] is not None:
+                mask_values = np.linspace(0.55, 1.0, int(np.prod(shapes[4])), dtype=np.float32).reshape(shapes[4])
+                inputs_np[4] = from_float32(mask_values, dtypes[4])
 
         if op_name == "attention":
             # Attention 使用有限 4D GQA 样本，覆盖 Q/K/V matmul、mask、causal、softcap 和低精度写回。
@@ -1183,8 +1185,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             d = list(map(int, init_args.get("dilations", [1, 1])))
             g = int(init_args.get("group", 1))
             offset_group = int(init_args.get("offset_group", 1))
-            has_bias = 1 if inputs_np[3] is not None else 0
-            has_mask = 1 if inputs_np[4] is not None else 0
+            has_bias = 1 if len(inputs_np) > 3 and inputs_np[3] is not None else 0
+            has_mask = 1 if len(inputs_np) > 4 and inputs_np[4] is not None else 0
             p_list = [
                 x.shape[0],
                 x.shape[1],
