@@ -18,6 +18,7 @@
   * @details     2026.06.14  V1.0.11 补充 QuantizeLinear precision 属性覆盖记录
   * @details     2026.06.14  V1.0.12 补充 QuantizeLinear/DequantizeLinear 负轴尾块 blocked 数值覆盖记录
   * @details     2026.06.14  V1.0.13 补充 DequantizeLinear int32 输入 dtype 覆盖记录
+  * @details     2026.06.14  V1.0.14 补充 RNN/GRU/LSTM 零长度 sequence_lens 边界覆盖记录
   ******************************************************************************
   * @attention
   ******************************************************************************
@@ -47,8 +48,8 @@
 - 合理保留 Python 调度、控制流、序列、可选值、字符串、图像 IO 或元数据运行时：`23` 个算子类。
 - 普通数值/张量算子 Python-only 运行时：`0` 个。
 - CUDA verifier：`178` 个。
-- 默认 active numerical plan：`178` 个唯一算子名称，`692` 条默认计划。
-- 默认 active numerical plan 混合精度覆盖：`462` 条计划。
+- 默认 active numerical plan：`178` 个唯一算子名称，`698` 条默认计划。
+- 默认 active numerical plan 混合精度覆盖：`465` 条计划。
 
 ## 最近已完成验证
 
@@ -61,9 +62,9 @@
 - `python -m pytest -q tests/test_operator_spectral_semantics.py`
   - 最近记录结果：`2 passed`。
 - `python tools/cli.py numerical --op rnn --op gru --op lstm --iterations 3 --skip-plots`
-  - 最近记录结果：RNN/GRU/LSTM 新增 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`、非默认 activation、activation alpha/beta 和 clip 分支均通过；当前 targeted numerical 已同时比较 RNN/GRU 的 `Y/Y_h` 和 LSTM 的 `Y/Y_h/Y_c`。
+  - 最近记录结果：RNN/GRU/LSTM 各 `10` 组 active plan、各 `30` 个样本均通过；新增 `sequence_lens=[0, 2]` 的零长度 batch 边界，覆盖保持 `initial_h/initial_c` 的 C/CUDA 对齐，且继续覆盖 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`、非默认 activation、activation alpha/beta、clip、RNN/GRU `Y/Y_h` 和 LSTM `Y/Y_h/Y_c` sidecar 输出。
 - `python -m pytest -q tests/test_operator_recurrent_semantics.py`
-  - 最近记录结果：`2 passed`。
+  - 最近记录结果：`3 passed`，包含独立公式验证 `sequence_lens=0` 时 RNN/GRU/LSTM 保持初始状态。
 - `python tools/cli.py numerical --op bitwise_and --op bitwise_or --op bitwise_xor --op bitwise_not --op bit_shift --iterations 3 --skip-plots`
   - 最近记录结果：位运算 targeted numerical 通过。
 - `python tools/cli.py numerical --op tril --op triu --op trilu --op hann_window --op hamming_window --op blackman_window --iterations 3 --skip-plots`
@@ -127,9 +128,9 @@
 - `python tools/cli.py numerical --op quantize_linear --op dequantize_linear --iterations 3 --skip-plots`
   - 最近记录结果：QuantizeLinear/DequantizeLinear 共 `28` 组计划、`84` 个样本全部通过；新增 DequantizeLinear int32 输入 dtype 路径，并保留负轴尾块不满 blocked scale/zero_point 映射和对应低精度写回路径。
 - `python tools/cli.py numerical --iterations 1 --skip-plots`
-  - 最近记录结果：`692` 条默认计划完整 numerical 一轮全部通过；当前 DeformConv、Attention、recurrent、ROI、谱算子和 QuantizeLinear/DequantizeLinear 的扩展 case 均已进入默认门禁，其中 Q/DQ 覆盖 scalar、per-axis、负轴、省略 zero_point、output_dtype、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 dtype、DequantizeLinear int32 输入 dtype 和 `precision=DOUBLE` 路径。
+  - 最近记录结果：`698` 条默认计划完整 numerical 一轮全部通过；当前 DeformConv、Attention、recurrent、ROI、谱算子和 QuantizeLinear/DequantizeLinear 的扩展 case 均已进入默认门禁，其中 recurrent 覆盖 `sequence_lens=0` 保持初始状态边界，Q/DQ 覆盖 scalar、per-axis、负轴、省略 zero_point、output_dtype、`block_size=2` 正轴和负轴尾块不满 blocked scale/zero_point、int16/uint16 dtype、DequantizeLinear int32 输入 dtype 和 `precision=DOUBLE` 路径。
 - `python -m pytest -q tests`
-  - 最近记录结果：`304 passed, 1 skipped`。
+  - 最近记录结果：`305 passed, 1 skipped`。
 - `make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python check`
   - 最近记录结果：静态 Python 编译检查通过。
 
@@ -149,7 +150,7 @@
 
 ## 混合精度状态
 
-- 当前默认 numerical 中已经包含 `462` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
+- 当前默认 numerical 中已经包含 `465` 条混合精度计划，覆盖 float16、bfloat16、部分 float8 以及相关低精度存储路径。
 - 混合精度已经能作为当前工程的常规回归门禁使用，但还不能宣称对所有 ONNX 官方 type constraint、所有属性组合和所有边界输入完成穷尽证明。
 - 位运算、字符串、序列、控制流、随机采样等类别不应机械纳入浮点混合精度口径；这些算子需要按整数位模式、结构语义、随机分布或 ONNX reference 行为分别验证。
 
@@ -163,7 +164,7 @@
 - `LpNormalization` 已补充零范数官方边界和非通道 axis 的 bfloat16 C/CUDA 门禁；更多空维度、不同 rank 和异常 axis 仍建议继续扩展。
 - `GridSample` 已将 numerical 从 linear/reflection 主路径扩展到 nearest/border 与 cubic/zeros 属性组合，并覆盖 float32、float16、bfloat16；后续仍建议继续补充 5D、更多坐标边界、极端越界坐标和更多 align_corners 组合。
 - `MaxRoiPool` 已补充 spatial_scale=0.5、越界裁剪、空 ROI 输出和 bfloat16 低精度 C/CUDA numerical；`RoiAlign` 已补充 max 模式、output_half_pixel、自适应 sampling_ratio=0、spatial_scale=0.75 和 float16 低精度 C/CUDA numerical。后续仍建议继续扩展更多 ROI 数量、不同 pooled/output 尺寸、边界点采样和异常 batch index。
-- `DFT`/`STFT` 已从基础 onesided 实数样本扩展到 full spectrum、复数输入、inverse onesided、STFT 无 window 和 float16/bfloat16 分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已从基础 forward/layout=0 样本扩展到 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`、非默认 activation、activation alpha/beta 和 clip，并补齐 RNN/GRU `Y_h` 与 LSTM `Y_h/Y_c` 的 C/CUDA sidecar 对比；后续仍建议继续扩展更多 activation 组合、sequence_lens/initial state 和极端状态边界。
+- `DFT`/`STFT` 已从基础 onesided 实数样本扩展到 full spectrum、复数输入、inverse onesided、STFT 无 window 和 float16/bfloat16 分支；后续仍建议继续扩展更多 axis、高 rank、不同长度和异常输入。`RNN`、`GRU`、`LSTM` 已从基础 forward/layout=0 样本扩展到 reverse、bidirectional、layout=1、GRU `linear_before_reset=0/1`、LSTM `input_forget=0/1`、非默认 activation、activation alpha/beta、clip、`sequence_lens=0` 保持初始状态边界，并补齐 RNN/GRU `Y_h` 与 LSTM `Y_h/Y_c` 的 C/CUDA sidecar 对比；后续仍建议继续扩展更多 activation 组合、不同 sequence_lens 分布、更多 initial state 极端值和极端状态边界。
 - `Attention` 已从基础 4D GQA causal/softcap 主路径扩展到 float mask、bool broadcast mask、显式 scale、非 causal、无 softcap 和 float16/bfloat16 低精度 C/CUDA numerical；cache、nonpad、3D 输入和 qk 中间输出仍主要依赖 ONNX reference pytest。`DeformConv` 已补充分组、offset group、无 bias/无 mask、非默认 stride/pad/dilation 和低精度 C/CUDA numerical；更高维、更多 dilation/pad 边界和特殊 fallback 仍主要依赖 ONNX reference pytest。
 - 随机、损失、NMS、量化和集合类算子继续扩展 CUDA reference case 时，需要特别注意确定性种子、阈值、排序稳定性和低精度舍入规则。
 

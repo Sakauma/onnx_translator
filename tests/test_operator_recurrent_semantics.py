@@ -4,6 +4,7 @@
 #   * @author      Egor Izmaylov
 #   * @brief       使用独立公式验证 RNN、GRU、LSTM 的 ONNX17 循环语义。
 #   * @details     2026.06.04  V1.0.0  创建
+#   * @details     2026.06.14  V1.0.1  补充 sequence_lens 为 0 时保持初始状态的边界验证
 #   ******************************************************************************
 #   * @attention
 #   ******************************************************************************
@@ -289,6 +290,121 @@ def test_c_backend_recurrent_ops_match_independent_onnx_formulas():
     np.testing.assert_allclose(actual_y.data, expected_y.astype(np.float16), rtol=1e-3, atol=1e-3)
     np.testing.assert_allclose(actual_h.data, expected_h.astype(np.float16), rtol=1e-3, atol=1e-3)
     np.testing.assert_allclose(actual_c.data, expected_c.astype(np.float16), rtol=1e-3, atol=1e-3)
+
+
+# 验证 sequence_lens 为 0 的 batch 不执行任何时间步，并保持 initial_h/initial_c 状态。
+def test_c_backend_recurrent_zero_sequence_lens_preserve_initial_state():
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.array(
+        [
+            [[0.5, -0.2], [0.1, 0.4]],
+            [[1.0, 0.3], [-0.3, 0.2]],
+            [[0.2, 0.7], [0.8, -0.5]],
+        ],
+        dtype=np.float32,
+    )
+    sequence_lens = np.array([0, 2], dtype=np.int32)
+
+    rnn_w = np.array([[[0.1, 0.2], [-0.2, 0.3]]], dtype=np.float32)
+    rnn_r = np.array([[[0.5, 0.1], [0.2, 0.4]]], dtype=np.float32)
+    rnn_b = np.array([[0.1, -0.1, 0.05, 0.02]], dtype=np.float32)
+    rnn_initial = np.array([[[0.25, -0.5], [0.0, 0.2]]], dtype=np.float32)
+    expected_y, expected_h = _rnn_reference(x, rnn_w, rnn_r, rnn_b, sequence_lens, rnn_initial)
+    actual_y, actual_h = RNN(
+        ["x", "w", "r", "b", "seq", "init"], ["y", "yh"], hidden_size=2, dtype="float32"
+    ).forward(
+        _tensor(x, "float32"),
+        _tensor(rnn_w, "float32"),
+        _tensor(rnn_r, "float32"),
+        _tensor(rnn_b, "float32"),
+        _tensor(sequence_lens, "int32"),
+        _tensor(rnn_initial, "float32"),
+    )["tensor"]
+    np.testing.assert_allclose(actual_y.data, expected_y.astype(np.float32), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(actual_h.data, expected_h.astype(np.float32), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(
+        actual_y.data[:, 0, 0, :],
+        np.broadcast_to(rnn_initial[0, 0], actual_y.data[:, 0, 0, :].shape),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(actual_h.data[0, 0], rnn_initial[0, 0], rtol=1e-6, atol=1e-6)
+
+    gru_w = np.linspace(-0.4, 0.5, 12, dtype=np.float32).reshape(1, 6, 2)
+    gru_r = np.linspace(0.3, -0.2, 12, dtype=np.float32).reshape(1, 6, 2)
+    gru_b = np.linspace(-0.2, 0.2, 12, dtype=np.float32).reshape(1, 12)
+    gru_initial = np.array([[[0.25, -0.125], [0.1, -0.2]]], dtype=np.float32)
+    expected_y, expected_h = _gru_reference(x, gru_w, gru_r, gru_b, sequence_lens, gru_initial, linear_before_reset=1)
+    actual_y, actual_h = GRU(
+        ["x", "w", "r", "b", "seq", "init"],
+        ["y", "yh"],
+        hidden_size=2,
+        linear_before_reset=1,
+        dtype="float32",
+    ).forward(
+        _tensor(x, "float32"),
+        _tensor(gru_w, "float32"),
+        _tensor(gru_r, "float32"),
+        _tensor(gru_b, "float32"),
+        _tensor(sequence_lens, "int32"),
+        _tensor(gru_initial, "float32"),
+    )["tensor"]
+    np.testing.assert_allclose(actual_y.data, expected_y.astype(np.float32), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(actual_h.data, expected_h.astype(np.float32), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(
+        actual_y.data[:, 0, 0, :],
+        np.broadcast_to(gru_initial[0, 0], actual_y.data[:, 0, 0, :].shape),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(actual_h.data[0, 0], gru_initial[0, 0], rtol=1e-6, atol=1e-6)
+
+    lstm_w = np.linspace(-0.3, 0.4, 16, dtype=np.float32).reshape(1, 8, 2)
+    lstm_r = np.linspace(0.2, -0.2, 16, dtype=np.float32).reshape(1, 8, 2)
+    lstm_b = np.linspace(-0.1, 0.1, 16, dtype=np.float32).reshape(1, 16)
+    lstm_initial_h = np.array([[[0.25, -0.125], [0.1, -0.2]]], dtype=np.float32)
+    lstm_initial_c = np.array([[[-0.4, 0.3], [0.05, -0.1]]], dtype=np.float32)
+    peepholes = np.linspace(-0.05, 0.05, 6, dtype=np.float32).reshape(1, 6)
+    expected_y, expected_h, expected_c = _lstm_reference(
+        x,
+        lstm_w,
+        lstm_r,
+        lstm_b,
+        sequence_lens,
+        lstm_initial_h,
+        lstm_initial_c,
+        peepholes,
+        input_forget=1,
+    )
+    actual_y, actual_h, actual_c = LSTM(
+        ["x", "w", "r", "b", "seq", "h", "c", "p"],
+        ["y", "yh", "yc"],
+        hidden_size=2,
+        input_forget=1,
+        dtype="float32",
+    ).forward(
+        _tensor(x, "float32"),
+        _tensor(lstm_w, "float32"),
+        _tensor(lstm_r, "float32"),
+        _tensor(lstm_b, "float32"),
+        _tensor(sequence_lens, "int32"),
+        _tensor(lstm_initial_h, "float32"),
+        _tensor(lstm_initial_c, "float32"),
+        _tensor(peepholes, "float32"),
+    )["tensor"]
+    np.testing.assert_allclose(actual_y.data, expected_y.astype(np.float32), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(actual_h.data, expected_h.astype(np.float32), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(actual_c.data, expected_c.astype(np.float32), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(
+        actual_y.data[:, 0, 0, :],
+        np.broadcast_to(lstm_initial_h[0, 0], actual_y.data[:, 0, 0, :].shape),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(actual_h.data[0, 0], lstm_initial_h[0, 0], rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(actual_c.data[0, 0], lstm_initial_c[0, 0], rtol=1e-6, atol=1e-6)
 
 
 # 验证循环算子的 Python fallback 会解码 bfloat16 输入，并把 Y/Y_h/Y_c 按位编码回 bfloat16。
