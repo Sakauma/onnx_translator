@@ -226,6 +226,10 @@ onnx_model/
 results/
 bin/
 .VSCodeCounter/
+
+# Local collaboration instructions
+AGENTS.md
+
 # verification artifacts
 result/
 onnx_model/
