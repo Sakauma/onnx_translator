@@ -18,13 +18,14 @@
 ## 工程说明
 
 - [工程架构说明](architecture.md)：说明 ONNX 导入、算子层、C 后端、CUDA verifier 和测试框架的关系。
+- [工程接手指南](onboarding.md)：说明环境检查、一键门禁、当前关键覆盖数字和常见失败排查。
 - [新增算子流程](add_operator.md)：说明新增算子的 Python、ONNX factory、C ABI、CUDA verifier、数值计划和 pytest 覆盖步骤。
 - [开发流程清单](development.md)：保留较细的算子开发检查清单。
 
 ## 报告
 
 - [验证总结](reports/verify_summary.md)：记录当前数值验证和图结构验证覆盖范围。
-- [算子覆盖报告](reports/operator_coverage.md)：由 `make audit` 或 `tools/audit_ops.py` 生成，记录算子覆盖状态。
+- [算子覆盖报告](reports/operator_coverage.md)：由 `make audit` 或 `tools/audit_ops.py --strict` 生成，记录算子覆盖状态。
 
 ## 根目录保留项
 

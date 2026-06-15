@@ -51,39 +51,40 @@ def build_steps(args: argparse.Namespace, root: Path) -> list[Step]:
         steps.append(Step("compile CUDA verifiers", [_python(), "tools/cli.py", "compile-cuda"]))
 
     make_env = {"PYTHON": _python()}
-    steps.extend(
-        [
-            Step("clean C backend", ["make", "clean"], env=make_env),
-            Step("build and static-check C/Python", ["make", "check"], env=make_env),
-            Step("run unit tests", [_python(), "-m", "pytest", "-q"]),
-            Step("generate graph-ops ONNX model", [_python(), "tools/cli.py", "create-graph-model"]),
-            Step(
-                "verify graph-ops model",
-                [
-                    _python(),
-                    "tools/cli.py",
-                    "verify-graph",
-                    "--model",
-                    "./onnx_model/model.onnx",
-                    "--task-name",
-                    "nps_graph_ops",
-                ],
-            ),
-            Step("generate PyTorch export ONNX model", [_python(), "tools/cli.py", "create-model"]),
-            Step(
-                "verify PyTorch export model",
-                [
-                    _python(),
-                    "tools/cli.py",
-                    "verify-graph",
-                    "--model",
-                    "./onnx_model/model.onnx",
-                    "--task-name",
-                    "nps_verification",
-                ],
-            ),
-        ]
-    )
+    core_steps = [
+        Step("clean C backend", ["make", "clean"], env=make_env),
+        Step("build and static-check C/Python", ["make", "check"], env=make_env),
+        Step("run unit tests", [_python(), "-m", "pytest", "-q"]),
+        Step("generate graph-ops ONNX model", [_python(), "tools/cli.py", "create-graph-model"]),
+        Step(
+            "verify graph-ops model",
+            [
+                _python(),
+                "tools/cli.py",
+                "verify-graph",
+                "--model",
+                "./onnx_model/model.onnx",
+                "--task-name",
+                "nps_graph_ops",
+            ],
+        ),
+        Step("generate PyTorch export ONNX model", [_python(), "tools/cli.py", "create-model"]),
+        Step(
+            "verify PyTorch export model",
+            [
+                _python(),
+                "tools/cli.py",
+                "verify-graph",
+                "--model",
+                "./onnx_model/model.onnx",
+                "--task-name",
+                "nps_verification",
+            ],
+        ),
+    ]
+    if not getattr(args, "skip_audit", False):
+        core_steps.insert(3, Step("audit strict operator coverage", [_python(), "tools/audit_ops.py", "--strict"]))
+    steps.extend(core_steps)
 
     if not args.skip_cuda and not args.skip_numerical:
         numerical_command = [
@@ -156,6 +157,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--iterations", type=int, default=20, help="Iterations per numerical test plan.")
     parser.add_argument("--op", action="append", help="Limit numerical checks to a named op. Can be repeated.")
+    parser.add_argument("--skip-audit", action="store_true", help="Skip strict operator coverage audit.")
     parser.add_argument("--keep-artifacts", action="store_true", help="Keep generated build and verification artifacts.")
     parser.add_argument("--no-clean-before", action="store_true", help="Do not remove generated artifacts before running.")
     return parser.parse_args(argv)

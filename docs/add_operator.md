@@ -63,5 +63,5 @@ make PYTHON=$PYTHON check
 $PYTHON -m pytest -q tests
 $PYTHON tools/cli.py compile-cuda
 $PYTHON tools/cli.py numerical --op <op> --iterations 5 --skip-plots
-$PYTHON tools/audit_ops.py --output /tmp/onnx_translator_audit.md
+$PYTHON tools/audit_ops.py --strict --output /tmp/onnx_translator_audit.md
 ```

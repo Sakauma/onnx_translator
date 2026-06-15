@@ -13,8 +13,8 @@
 
 # 算子实现情况评估
 
-> 自动生成时间：2026-06-15 01:01:30
-> 生成命令：`python tools/audit_ops.py --output docs/reports/operator_coverage.md`
+> 自动生成时间：2026-06-15 11:02:48
+> 生成命令：`python tools/audit_ops.py --strict --output docs/reports/operator_coverage.md`
 
 ## 评估口径
 
@@ -34,7 +34,7 @@
 
 - Python 算子类：201 个。
 - ONNXImport 显式支持：202 个 ONNX op 名称；`Upsample` 作为 `Resize` 别名处理，未单独计入算子类。
-- C 后端声明：173 个 `<op>_forward`；C 实现可检出：181 个。
+- C 后端声明：173 个 `<op>_forward`；C 实现可检出：173 个。
 - forward 实际接入 C 后端：178 个算子类。
 - 合理保留 Python 调度/元数据运行时：23 个算子类。
 - 普通数值/张量算子 Python-only 运行时：0 个算子类；其中当前暂缓后端化：0 个，除暂缓项外待后端化：0 个。

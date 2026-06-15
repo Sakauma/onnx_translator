@@ -20,6 +20,7 @@ def _args(**overrides):
     values = {
         "skip_cuda": False,
         "skip_numerical": False,
+        "skip_audit": False,
         "iterations": 20,
         "op": None,
     }
@@ -34,6 +35,7 @@ def test_skip_cuda_plan_omits_cuda_and_numerical_steps():
 
     assert "compile CUDA verifiers" not in names
     assert "run numerical correctness checks" not in names
+    assert "audit strict operator coverage" in names
     assert "--require-cuda" not in steps[0].command
 
 
@@ -41,7 +43,9 @@ def test_skip_cuda_plan_omits_cuda_and_numerical_steps():
 def test_full_plan_includes_numerical_filters():
     steps = build_steps(_args(iterations=3, op=["add", "mul"]), Path("/repo"))
     numerical_step = next(step for step in steps if step.name == "run numerical correctness checks")
+    audit_step = next(step for step in steps if step.name == "audit strict operator coverage")
 
+    assert audit_step.command[-1] == "--strict"
     assert numerical_step.command[-7:] == [
         "--iterations",
         "3",
@@ -51,6 +55,14 @@ def test_full_plan_includes_numerical_filters():
         "--op",
         "mul",
     ]
+
+
+# 验证 `test_skip_audit_plan_omits_strict_audit_step` 覆盖的回归场景，防止排障开关影响默认门禁。
+def test_skip_audit_plan_omits_strict_audit_step():
+    steps = build_steps(_args(skip_audit=True), Path("/repo"))
+    names = [step.name for step in steps]
+
+    assert "audit strict operator coverage" not in names
 
 
 # 验证 `test_cleanup_artifacts_removes_known_generated_paths` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。

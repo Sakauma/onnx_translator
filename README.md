@@ -18,6 +18,7 @@
 ## 文档入口
 
 - [工程架构说明](docs/architecture.md)：说明 ONNXImport、算子层、C 后端、CUDA verifier 和测试框架的关系。
+- [工程接手指南](docs/onboarding.md)：说明环境检查、一键门禁、当前关键覆盖数字和常见失败排查。
 - [新增算子流程](docs/add_operator.md)：说明新增算子的 Python、ONNX factory、C ABI、CUDA verifier、数值计划和 pytest 覆盖步骤。
 - [开发流程清单](docs/development.md)：记录算子开发时需要同步修改和验证的位置。
 - [验证总结](docs/reports/verify_summary.md)：记录当前数值验证和图结构验证覆盖范围。
@@ -68,29 +69,29 @@ $PYTHON -m pytest -q tests
 $PYTHON tools/cli.py compile-cuda
 $PYTHON tools/cli.py numerical --iterations 20 --skip-plots
 $PYTHON tools/verify_all.py --skip-cuda
-$PYTHON tools/audit_ops.py --output /tmp/onnx_translator_audit.md
+$PYTHON tools/audit_ops.py --strict --output /tmp/onnx_translator_audit.md
 ```
 
 如果只改 Python 导入或 shape 逻辑，优先运行 `make PYTHON=$PYTHON check` 和 `$PYTHON -m pytest -q tests`。如果改 C 后端或 CUDA verifier，应补充 `$PYTHON tools/cli.py compile-cuda` 和对应 `$PYTHON tools/cli.py numerical --op <op>`。
 
 ## 推荐开发流程
 
-1. 修改前运行 `tools/audit_ops.py` 或目标测试，确认当前覆盖基线。
+1. 修改前运行 `tools/audit_ops.py --strict` 或目标测试，确认当前覆盖基线。
 2. Python 算子改动放在 `nn/operators/`，旧入口 `nn/Operators.py` 只做兼容 re-export。
 3. ONNX 属性解析放在 `nn/importer/node_factories_*.py`，通过注册表接入。
 4. 普通数值算子的核心计算放在 `tensor_ops/tensor_ops_*.c`，共享辅助逻辑放在 `tensor_ops/tensor_ops_internal.h`。
 5. 数值验证计划放在 `tools/numerical/cli.py`，测试按领域放进 `tests/test_operator_*.py`。
-6. 提交前至少运行 `make PYTHON=$PYTHON check`、`$PYTHON -m pytest -q tests` 和 `tools/audit_ops.py`。
+6. 提交前至少运行 `make PYTHON=$PYTHON check`、`$PYTHON -m pytest -q tests` 和 `tools/audit_ops.py --strict`。
 
 ## 一键验证门禁
 
-完整本地门禁会清理旧产物、检查环境、编译 CUDA verifier、构建 C 后端、运行单元测试、生成/验证两个 ONNX 模型，并执行 CUDA 数值正确性验证：
+完整本地门禁会清理旧产物、检查环境、编译 CUDA verifier、构建 C 后端、运行单元测试、执行 strict 算子覆盖审计、生成/验证两个 ONNX 模型，并执行 CUDA 数值正确性验证：
 
 ```bash
 $PYTHON tools/verify_all.py
 ```
 
-无 CUDA 的环境可以跑 CPU 门禁：
+无 CUDA 的环境可以跑 CPU 门禁；该命令仍会执行 strict 算子覆盖审计，用于证明普通数值/张量算子没有 Python-only 主路径、已实现算子没有遗漏默认 numerical 计划、公共 C ABI 声明/实现一致、当前 ONNX 最新默认域名称级导入无缺口：
 
 ```bash
 $PYTHON tools/verify_all.py --skip-cuda
@@ -117,7 +118,7 @@ $PYTHON tools/verify_all.py --keep-artifacts
 make PYTHON=$PYTHON audit
 ```
 
-报告写入 `docs/reports/operator_coverage.md`，会区分实际 C runtime path、合理 Python 调度/元数据算子、当前暂缓后端化算子、当前暂缓深度语义/数值验证算子，以及 CUDA/数值验证覆盖。
+报告写入 `docs/reports/operator_coverage.md`，会区分实际 C runtime path、合理 Python 调度/元数据算子、当前暂缓后端化算子、当前暂缓深度语义/数值验证算子，以及 CUDA/数值验证覆盖。提交或交接前建议使用 `tools/audit_ops.py --strict`，让覆盖回退直接变成非零退出码。
 
 ## 生成 ONNX 模型
 

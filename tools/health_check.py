@@ -13,9 +13,11 @@ import argparse
 import glob
 import importlib
 import os
+import platform
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 
 PYTHON_MODULES = [
@@ -25,11 +27,32 @@ PYTHON_MODULES = [
     "torch",
     "matplotlib",
     "graphviz",
+    "ml_dtypes",
     "pytest",
 ]
 
 REQUIRED_TOOLS = ["gcc", "make", "dot"]
 CUDA_TOOLS = ["nvcc"]
+
+
+# 实现 `repo_root` 步骤，规范化输入并返回下游期望的数据或元信息。
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+# 输出当前验证环境的关键信息，方便交接时快速定位路径、工具链和二进制产物状态。
+def print_environment_summary():
+    root = repo_root()
+    tensor_ops_path = root / "tensor_ops.so"
+    nvcc_env = os.environ.get("NVCC", "<unset>")
+    detected_nvcc = resolve_tool("nvcc") or "<missing>"
+    print(f"Repository root: {root}")
+    print(f"Platform: {platform.platform()}")
+    print(f"Python executable: {sys.executable}")
+    print(f"Python version: {sys.version.split()[0]}")
+    print(f"tensor_ops.so: {'present' if tensor_ops_path.exists() else 'missing'}")
+    print(f"NVCC env: {nvcc_env}")
+    print(f"Detected nvcc: {detected_nvcc}")
 
 
 # 实现 `tool_version` 步骤，规范化输入并返回下游期望的数据或元信息。
@@ -104,7 +127,7 @@ def main():
     parser.add_argument("--require-cuda", action="store_true", help="Fail when nvcc is unavailable.")
     args = parser.parse_args()
 
-    print(f"Python: {sys.executable}")
+    print_environment_summary()
     missing_modules = check_modules()
     missing_tools = check_tools(REQUIRED_TOOLS)
     missing_cuda = check_tools(CUDA_TOOLS)

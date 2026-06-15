@@ -566,7 +566,10 @@ def parse_c_functions() -> tuple[set[str], set[str]]:
     header = (ROOT / "tensor_ops" / "tensor_ops.h").read_text(encoding="utf-8")
     source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((ROOT / "tensor_ops").glob("*.c")))
     declared = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*_forward)\s*\(", header))
-    implemented = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*_forward)\b", source))
+    implemented = set(re.findall(r"(?m)^\s*(?:void|int)\s+([A-Za-z_][A-Za-z0-9_]*_forward)\s*\(", source))
+    implemented.update(
+        re.findall(r"(?m)^\s*[A-Z][A-Z0-9_]*_IMPL\(\s*([A-Za-z_][A-Za-z0-9_]*_forward)\b", source)
+    )
     return declared, implemented
 
 
@@ -862,9 +865,13 @@ def yes_no(value: bool) -> str:
 
 
 # 实现 `render_markdown` 步骤，规范化输入并返回下游期望的数据或元信息。
-def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> str:
+def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object], strict: bool = False) -> str:
     status_counts = Counter(info.status for info in infos)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    command = "python tools/audit_ops.py"
+    if strict:
+        command += " --strict"
+    command += " --output docs/reports/operator_coverage.md"
 
     lines = [
         "<!--",
@@ -883,7 +890,7 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
         "# 算子实现情况评估",
         "",
         f"> 自动生成时间：{generated_at}",
-        "> 生成命令：`python tools/audit_ops.py --output docs/reports/operator_coverage.md`",
+        f"> 生成命令：`{command}`",
         "",
         "## 评估口径",
         "",
@@ -1105,6 +1112,31 @@ def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object]) -> s
     return "\n".join(lines)
 
 
+# 根据当前审计结果生成严格门禁失败原因；用于一键验证时阻止覆盖回退。
+def strict_failures(infos: list[OperatorInfo], metadata: dict[str, object]) -> list[str]:
+    failures = []
+    if metadata["active_python_only_runtime_count"]:
+        active_python_only = [info.class_name for info in infos if info.status == "Python-only 待后端化"]
+        failures.append(
+            "普通数值/张量算子仍存在 Python-only 主路径："
+            + ", ".join(active_python_only)
+        )
+    unverified = [
+        info.class_name
+        for info in infos
+        if info.status in {"已实现未数值验证", "待接入数值计划"}
+    ]
+    if unverified:
+        failures.append("已实现算子未进入默认 CUDA/numerical 门禁：" + ", ".join(unverified))
+    if metadata["c_declared_missing_impl"]:
+        failures.append("tensor_ops.h 中声明但缺少 C 实现：" + ", ".join(metadata["c_declared_missing_impl"]))
+    if metadata["c_impl_missing_decl"]:
+        failures.append("存在 C 实现但缺少 tensor_ops.h 声明：" + ", ".join(metadata["c_impl_missing_decl"]))
+    if metadata["official_onnx_latest_missing"]:
+        failures.append("当前 ONNX 最新默认域名称级导入缺口：" + ", ".join(metadata["official_onnx_latest_missing"]))
+    return failures
+
+
 # 作为 `tools/audit_ops.py` 的命令行入口，解析参数、调度检查流程并返回进程退出码。
 def main() -> int:
     parser = argparse.ArgumentParser(description="Audit operator implementation and verification coverage.")
@@ -1113,14 +1145,26 @@ def main() -> int:
         default="docs/reports/operator_coverage.md",
         help="Markdown report path, relative to the repository root unless absolute.",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail if ordinary tensor/numeric operators lose C runtime, CUDA verifier, numerical plan, or ONNXImport coverage.",
+    )
     args = parser.parse_args()
 
     infos, metadata = audit()
     output = Path(args.output)
     if not output.is_absolute():
         output = ROOT / output
-    output.write_text(render_markdown(infos, metadata), encoding="utf-8")
+    output.write_text(render_markdown(infos, metadata, strict=args.strict), encoding="utf-8")
     print(f"Wrote {output}")
+    if args.strict:
+        failures = strict_failures(infos, metadata)
+        if failures:
+            for failure in failures:
+                print(f"ERROR: {failure}")
+            return 1
+        print("Strict operator coverage gate passed.")
     return 0
 
 
