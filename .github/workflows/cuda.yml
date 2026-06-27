@@ -12,11 +12,6 @@
 name: CUDA
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - master
   workflow_dispatch:
   schedule:
     - cron: "0 20 * * 1"

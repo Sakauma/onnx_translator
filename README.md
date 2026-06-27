@@ -214,7 +214,7 @@ make PYTHON=$PYTHON sanitize
 
 该门禁在 ASan/UBSan 下运行 C 后端回归子集，并额外跑代表性模型 smoke，让真实模型组合路径也进入内存安全检查。
 
-CUDA CI 使用 `.github/workflows/cuda.yml`，面向带 `cuda` 标签的 self-hosted Linux runner。PR/push 运行 `make verify-cuda-smoke`，定时和手工触发运行完整 CUDA verifier 编译和 numerical 正确性验证。
+CUDA CI 使用 `.github/workflows/cuda.yml`，面向带 `cuda` 标签的 self-hosted Linux runner。该 workflow 通过定时任务和手工触发运行，避免 PR 在没有可用 self-hosted runner 时长期排队；需要 CUDA 证据时先运行 `make verify-cuda-smoke`，再按需触发完整 CUDA verifier 编译和 numerical 正确性验证。
 
 ## 生成 ONNX 模型
 

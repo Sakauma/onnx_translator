@@ -198,7 +198,7 @@ make PYTHON=$PYTHON sanitize
 
 ## CUDA CI
 
-`.github/workflows/cuda.yml` 面向带 CUDA 的 self-hosted Linux runner，默认标签为 `self-hosted`, `linux`, `x64`, `cuda`。PR 和主分支 push 默认运行 CUDA smoke gate：
+`.github/workflows/cuda.yml` 面向带 CUDA 的 self-hosted Linux runner，默认标签为 `self-hosted`, `linux`, `x64`, `cuda`。该 workflow 通过定时任务和手工触发运行，避免 PR 在没有可用 self-hosted runner 时长期排队。需要 CUDA smoke 证据时运行：
 
 ```bash
 make PYTHON=python verify-cuda-smoke
