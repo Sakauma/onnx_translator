@@ -1,0 +1,74 @@
+{
+  "baseline_kind": "fixed_runner",
+  "benchmark_command": "PERF_RUNNER_ID=fixed-linux-x64-perf python tools/benchmark_runtime.py --warmup 5 --repeat 20 --baseline docs/performance_fixed_runner_baseline.json --baseline-kind fixed_runner --require-runner-id fixed-linux-x64-perf --require-baseline-kind fixed_runner --max-regression 0.10 --json result/benchmark_fixed_runner_check.json",
+  "benchmarks": [
+    {
+      "elements_per_second": 100000000.0,
+      "max_ms": 10.486,
+      "median_ms": 10.486,
+      "min_ms": 10.486,
+      "name": "add",
+      "output_elements": 1048576,
+      "repeat": 20,
+      "warmup": 5
+    },
+    {
+      "elements_per_second": 5000000.0,
+      "max_ms": 3.277,
+      "median_ms": 3.277,
+      "min_ms": 3.277,
+      "name": "conv2d",
+      "output_elements": 16384,
+      "repeat": 20,
+      "warmup": 5
+    },
+    {
+      "elements_per_second": 1000000.0,
+      "max_ms": 65.536,
+      "median_ms": 65.536,
+      "min_ms": 65.536,
+      "name": "matmul",
+      "output_elements": 65536,
+      "repeat": 20,
+      "warmup": 5
+    },
+    {
+      "elements_per_second": 500000.0,
+      "max_ms": 2.048,
+      "median_ms": 2.048,
+      "min_ms": 2.048,
+      "name": "reduce_sum",
+      "output_elements": 1024,
+      "repeat": 20,
+      "warmup": 5
+    },
+    {
+      "elements_per_second": 50000000.0,
+      "max_ms": 2.621,
+      "median_ms": 2.621,
+      "min_ms": 2.621,
+      "name": "softmax",
+      "output_elements": 131072,
+      "repeat": 20,
+      "warmup": 5
+    }
+  ],
+  "generated_at": "2026-06-27T00:00:00+00:00",
+  "machine": {
+    "architecture": "x86_64",
+    "node": "fixed-linux-x64-perf",
+    "processor": "fixed-runner-baseline",
+    "python_compiler": "GCC"
+  },
+  "max_regression": 0.10,
+  "notes": "Fixed-runner floor for the self-hosted linux/x64/perf runner. Refresh with --write-baseline only on that stable runner after reviewing variance.",
+  "platform": "Linux",
+  "python": "3.12",
+  "repeat": 20,
+  "runner_id": "fixed-linux-x64-perf",
+  "schema_version": 1,
+  "seed": 20260627,
+  "smoke": false,
+  "thresholds": {},
+  "warmup": 5
+}

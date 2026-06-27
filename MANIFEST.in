@@ -1,0 +1,9 @@
+include Makefile
+include requirements.txt
+include requirements-dev.txt
+include constraints.txt
+recursive-include tensor_ops *.c *.h
+recursive-include nn *.py
+recursive-include tools *.py *.sh
+recursive-include cuda *.cu *.cuh
+recursive-include docs *.md *.json

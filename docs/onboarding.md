@@ -18,8 +18,9 @@
 本工程当前验收目标聚焦在三个方面：
 
 1. 普通数值/张量算子的主路径必须由 C 后端承载，Python 只负责 ONNX 属性解析、shape 推导、ctypes 调度和必要的复杂语义 fallback。
-2. 工程门禁必须能自动证明主路径覆盖没有回退，包括 C ABI 声明/实现一致、无 Python-only 普通数值主路径、已实现算子进入默认数值计划、当前 ONNX 最新默认域名称级导入无缺口。
-3. 新同事接手后应能通过统一 CLI 完成环境检查、构建、pytest、图验证、CUDA verifier 编译和 numerical 正确性验证。
+2. 工程门禁必须能自动证明主路径覆盖没有回退，包括 C ABI 声明/实现一致、无 Python-only 普通数值主路径、已实现算子进入默认数值计划、当前 ONNX 最新默认域名称级导入无缺口，以及官方 ONNX 语义矩阵没有 weak row。
+3. 发布级门禁必须覆盖包元数据、性能基线、内存安全 sanitizer 和 CUDA CI 自动化。
+4. 新同事接手后应能通过统一 CLI 完成环境检查、构建、pytest、图验证、CUDA verifier 编译和 numerical 正确性验证。
 
 不属于当前强制验收的内容包括：所有官方属性组合穷尽证明、所有官方 dtype constraint 组合穷尽证明、低 bit/float4 官方 packed TensorProto 存储闭环，以及受当前 ONNX ReferenceEvaluator 限制的 FLOAT8E8M0 `QuantizeLinear output_dtype=24` 官方对照。
 
@@ -30,6 +31,12 @@
 ```bash
 export PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python
 $PYTHON tools/health_check.py
+```
+
+安装可复现参考环境时可使用：
+
+```bash
+$PYTHON -m pip install -r requirements.txt -c constraints.txt
 ```
 
 如需运行完整 CUDA numerical 门禁，环境中还需要 `nvcc`。如果 `nvcc` 不在 `PATH`，可以通过 `NVCC=/path/to/nvcc` 指定。
@@ -67,10 +74,11 @@ $PYTHON tools/audit_ops.py --strict
 当前覆盖报告应保持以下核心数字：
 
 - 当前安装 ONNX 最新默认域名称级覆盖：`200/200`。
+- 官方 ONNX 语义矩阵 verified：`200/200`，deprecated alias 由 canonical class 显式承载。
 - 普通数值/张量算子 Python-only 主路径：`0`。
 - 默认 active numerical plan：`178` 个唯一算子名称，`723` 条默认计划。
 - 默认 active numerical plan 混合精度覆盖：`488` 条计划。
-- 最近完整 pytest 记录：`318 passed, 1 skipped`。
+- 最近完整 pytest 记录：`322 passed, 1 skipped`；实际提交前以当前 `python -m pytest -q tests` 输出为准。
 - 最近完整 CUDA verifier 编译记录：`178` 个 verifier 成功。
 - 最近完整 numerical 记录：`723/723` 默认计划通过。
 
@@ -79,6 +87,36 @@ $PYTHON tools/audit_ops.py --strict
 ```bash
 $PYTHON tools/audit_ops.py --strict --output docs/reports/operator_coverage.md
 ```
+
+发布级补充门禁：
+
+```bash
+make PYTHON=$PYTHON release-check
+make PYTHON=$PYTHON onnx-semantic-matrix
+make PYTHON=$PYTHON release-preflight
+make PYTHON=$PYTHON release-artifacts
+make PYTHON=$PYTHON package-smoke
+make PYTHON=$PYTHON manylinux-wheels
+make PYTHON=$PYTHON manylinux-wheelhouse-check
+make PYTHON=$PYTHON manylinux-wheels-full
+make PYTHON=$PYTHON manylinux-wheelhouse-check-full
+make PYTHON=$PYTHON abi-check
+make PYTHON=$PYTHON model-smoke
+make PYTHON=$PYTHON benchmark-smoke
+make PYTHON=$PYTHON benchmark-smoke-report
+make PYTHON=$PYTHON benchmark-baseline-check
+make PYTHON=$PYTHON benchmark-fixed-runner-check
+make PYTHON=$PYTHON benchmark
+make PYTHON=$PYTHON sanitize
+```
+
+带 CUDA 的 self-hosted runner 或本地 CUDA 环境可先跑 smoke gate：
+
+```bash
+make PYTHON=$PYTHON verify-cuda-smoke
+```
+
+`manylinux-wheels` 需要 Docker，默认构建 `cp312-manylinux_x86_64` 快速 wheel；完整发布矩阵用 `manylinux-wheels-full` 和 `manylinux-wheelhouse-check-full`，会强制检查 `cp310/cp311/cp312` 三个 Python tag。wheelhouse 检查还会验证 `nn/tensor_ops.so`、manylinux 平台 tag、`Root-Is-Purelib: false`，并拒绝 `.data/purelib` 中的共享库。
 
 ## 常见开发位置
 

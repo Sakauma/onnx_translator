@@ -1,0 +1,5574 @@
+{
+  "deprecated_alias_count": 2,
+  "deprecated_count": 2,
+  "generated_at": "2026-06-27T10:00:46.948357+00:00",
+  "missing_or_weak_count": 0,
+  "official_onnx_latest_count": 200,
+  "official_onnx_latest_error": null,
+  "operator_class_count": 201,
+  "rows": [
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ABS"
+      ],
+      "import_supported": true,
+      "normalized_name": "ABS",
+      "op_type": "Abs",
+      "operator_classes": [
+        "ABS"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Acos"
+      ],
+      "import_supported": true,
+      "normalized_name": "ACOS",
+      "op_type": "Acos",
+      "operator_classes": [
+        "Acos"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Acosh"
+      ],
+      "import_supported": true,
+      "normalized_name": "ACOSH",
+      "op_type": "Acosh",
+      "operator_classes": [
+        "Acosh"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ADD"
+      ],
+      "import_supported": true,
+      "normalized_name": "ADD",
+      "op_type": "Add",
+      "operator_classes": [
+        "ADD"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 14,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "AffineGrid"
+      ],
+      "import_supported": true,
+      "normalized_name": "AFFINEGRID",
+      "op_type": "AffineGrid",
+      "operator_classes": [
+        "AffineGrid"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "And"
+      ],
+      "import_supported": true,
+      "normalized_name": "AND",
+      "op_type": "And",
+      "operator_classes": [
+        "And"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 7,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ArgMax"
+      ],
+      "import_supported": true,
+      "normalized_name": "ARGMAX",
+      "op_type": "ArgMax",
+      "operator_classes": [
+        "ArgMax"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ArgMin"
+      ],
+      "import_supported": true,
+      "normalized_name": "ARGMIN",
+      "op_type": "ArgMin",
+      "operator_classes": [
+        "ArgMin"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Asin"
+      ],
+      "import_supported": true,
+      "normalized_name": "ASIN",
+      "op_type": "Asin",
+      "operator_classes": [
+        "Asin"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Asinh"
+      ],
+      "import_supported": true,
+      "normalized_name": "ASINH",
+      "op_type": "Asinh",
+      "operator_classes": [
+        "Asinh"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Atan"
+      ],
+      "import_supported": true,
+      "normalized_name": "ATAN",
+      "op_type": "Atan",
+      "operator_classes": [
+        "Atan"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Atanh"
+      ],
+      "import_supported": true,
+      "normalized_name": "ATANH",
+      "op_type": "Atanh",
+      "operator_classes": [
+        "Atanh"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Attention"
+      ],
+      "import_supported": true,
+      "normalized_name": "ATTENTION",
+      "op_type": "Attention",
+      "operator_classes": [
+        "Attention"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 24,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "AveragePool"
+      ],
+      "import_supported": true,
+      "normalized_name": "AVERAGEPOOL",
+      "op_type": "AveragePool",
+      "operator_classes": [
+        "AveragePool"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "BatchNormalization"
+      ],
+      "import_supported": true,
+      "normalized_name": "BATCHNORMALIZATION",
+      "op_type": "BatchNormalization",
+      "operator_classes": [
+        "BatchNormalization"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 15,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Bernoulli"
+      ],
+      "import_supported": true,
+      "normalized_name": "BERNOULLI",
+      "op_type": "Bernoulli",
+      "operator_classes": [
+        "Bernoulli"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "BitCast"
+      ],
+      "import_supported": true,
+      "normalized_name": "BITCAST",
+      "op_type": "BitCast",
+      "operator_classes": [
+        "BitCast"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 26,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "BitShift"
+      ],
+      "import_supported": true,
+      "normalized_name": "BITSHIFT",
+      "op_type": "BitShift",
+      "operator_classes": [
+        "BitShift"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "BitwiseAnd"
+      ],
+      "import_supported": true,
+      "normalized_name": "BITWISEAND",
+      "op_type": "BitwiseAnd",
+      "operator_classes": [
+        "BitwiseAnd"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "BitwiseNot"
+      ],
+      "import_supported": true,
+      "normalized_name": "BITWISENOT",
+      "op_type": "BitwiseNot",
+      "operator_classes": [
+        "BitwiseNot"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "BitwiseOr"
+      ],
+      "import_supported": true,
+      "normalized_name": "BITWISEOR",
+      "op_type": "BitwiseOr",
+      "operator_classes": [
+        "BitwiseOr"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "BitwiseXor"
+      ],
+      "import_supported": true,
+      "normalized_name": "BITWISEXOR",
+      "op_type": "BitwiseXor",
+      "operator_classes": [
+        "BitwiseXor"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "BlackmanWindow"
+      ],
+      "import_supported": true,
+      "normalized_name": "BLACKMANWINDOW",
+      "op_type": "BlackmanWindow",
+      "operator_classes": [
+        "BlackmanWindow"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 17,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Cast"
+      ],
+      "import_supported": true,
+      "normalized_name": "CAST",
+      "op_type": "Cast",
+      "operator_classes": [
+        "Cast"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "CastLike"
+      ],
+      "import_supported": true,
+      "normalized_name": "CASTLIKE",
+      "op_type": "CastLike",
+      "operator_classes": [
+        "CastLike"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Ceil"
+      ],
+      "import_supported": true,
+      "normalized_name": "CEIL",
+      "op_type": "Ceil",
+      "operator_classes": [
+        "Ceil"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Celu"
+      ],
+      "import_supported": true,
+      "normalized_name": "CELU",
+      "op_type": "Celu",
+      "operator_classes": [
+        "Celu"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 12,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "CenterCropPad"
+      ],
+      "import_supported": true,
+      "normalized_name": "CENTERCROPPAD",
+      "op_type": "CenterCropPad",
+      "operator_classes": [
+        "CenterCropPad"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Clip"
+      ],
+      "import_supported": true,
+      "normalized_name": "CLIP",
+      "op_type": "Clip",
+      "operator_classes": [
+        "Clip"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Col2Im"
+      ],
+      "import_supported": true,
+      "normalized_name": "COL2IM",
+      "op_type": "Col2Im",
+      "operator_classes": [
+        "Col2Im"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Compress"
+      ],
+      "import_supported": true,
+      "normalized_name": "COMPRESS",
+      "op_type": "Compress",
+      "operator_classes": [
+        "Compress"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Concat"
+      ],
+      "import_supported": true,
+      "normalized_name": "CONCAT",
+      "op_type": "Concat",
+      "operator_classes": [
+        "Concat"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ConcatFromSequence"
+      ],
+      "import_supported": true,
+      "normalized_name": "CONCATFROMSEQUENCE",
+      "op_type": "ConcatFromSequence",
+      "operator_classes": [
+        "ConcatFromSequence"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Constant"
+      ],
+      "import_supported": true,
+      "normalized_name": "CONSTANT",
+      "op_type": "Constant",
+      "operator_classes": [
+        "Constant"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "onnx_reference_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ConstantOfShape"
+      ],
+      "import_supported": true,
+      "normalized_name": "CONSTANTOFSHAPE",
+      "op_type": "ConstantOfShape",
+      "operator_classes": [
+        "ConstantOfShape"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Conv"
+      ],
+      "import_supported": true,
+      "normalized_name": "CONV",
+      "op_type": "Conv",
+      "operator_classes": [
+        "Conv"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ConvInteger"
+      ],
+      "import_supported": true,
+      "normalized_name": "CONVINTEGER",
+      "op_type": "ConvInteger",
+      "operator_classes": [
+        "ConvInteger"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 10,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ConvTranspose"
+      ],
+      "import_supported": true,
+      "normalized_name": "CONVTRANSPOSE",
+      "op_type": "ConvTranspose",
+      "operator_classes": [
+        "ConvTranspose"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "COS"
+      ],
+      "import_supported": true,
+      "normalized_name": "COS",
+      "op_type": "Cos",
+      "operator_classes": [
+        "COS"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Cosh"
+      ],
+      "import_supported": true,
+      "normalized_name": "COSH",
+      "op_type": "Cosh",
+      "operator_classes": [
+        "Cosh"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "CumProd"
+      ],
+      "import_supported": true,
+      "normalized_name": "CUMPROD",
+      "op_type": "CumProd",
+      "operator_classes": [
+        "CumProd"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 26,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "CumSum"
+      ],
+      "import_supported": true,
+      "normalized_name": "CUMSUM",
+      "op_type": "CumSum",
+      "operator_classes": [
+        "CumSum"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 14,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "DFT"
+      ],
+      "import_supported": true,
+      "normalized_name": "DFT",
+      "op_type": "DFT",
+      "operator_classes": [
+        "DFT"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "DeformConv"
+      ],
+      "import_supported": true,
+      "normalized_name": "DEFORMCONV",
+      "op_type": "DeformConv",
+      "operator_classes": [
+        "DeformConv"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "DepthToSpace"
+      ],
+      "import_supported": true,
+      "normalized_name": "DEPTHTOSPACE",
+      "op_type": "DepthToSpace",
+      "operator_classes": [
+        "DepthToSpace"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "DequantizeLinear"
+      ],
+      "import_supported": true,
+      "normalized_name": "DEQUANTIZELINEAR",
+      "op_type": "DequantizeLinear",
+      "operator_classes": [
+        "DequantizeLinear"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Det"
+      ],
+      "import_supported": true,
+      "normalized_name": "DET",
+      "op_type": "Det",
+      "operator_classes": [
+        "Det"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "DIV"
+      ],
+      "import_supported": true,
+      "normalized_name": "DIV",
+      "op_type": "Div",
+      "operator_classes": [
+        "DIV"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 14,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Dropout"
+      ],
+      "import_supported": true,
+      "normalized_name": "DROPOUT",
+      "op_type": "Dropout",
+      "operator_classes": [
+        "Dropout"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "DynamicQuantizeLinear"
+      ],
+      "import_supported": true,
+      "normalized_name": "DYNAMICQUANTIZELINEAR",
+      "op_type": "DynamicQuantizeLinear",
+      "operator_classes": [
+        "DynamicQuantizeLinear"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Einsum"
+      ],
+      "import_supported": true,
+      "normalized_name": "EINSUM",
+      "op_type": "Einsum",
+      "operator_classes": [
+        "Einsum"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 12,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Elu"
+      ],
+      "import_supported": true,
+      "normalized_name": "ELU",
+      "op_type": "Elu",
+      "operator_classes": [
+        "Elu"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Equal"
+      ],
+      "import_supported": true,
+      "normalized_name": "EQUAL",
+      "op_type": "Equal",
+      "operator_classes": [
+        "Equal"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 19,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Erf"
+      ],
+      "import_supported": true,
+      "normalized_name": "ERF",
+      "op_type": "Erf",
+      "operator_classes": [
+        "Erf"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "EXP"
+      ],
+      "import_supported": true,
+      "normalized_name": "EXP",
+      "op_type": "Exp",
+      "operator_classes": [
+        "EXP"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Expand"
+      ],
+      "import_supported": true,
+      "normalized_name": "EXPAND",
+      "op_type": "Expand",
+      "operator_classes": [
+        "Expand"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "EyeLike"
+      ],
+      "import_supported": true,
+      "normalized_name": "EYELIKE",
+      "op_type": "EyeLike",
+      "operator_classes": [
+        "EyeLike"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Flatten"
+      ],
+      "import_supported": true,
+      "normalized_name": "FLATTEN",
+      "op_type": "Flatten",
+      "operator_classes": [
+        "Flatten"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Floor"
+      ],
+      "import_supported": true,
+      "normalized_name": "FLOOR",
+      "op_type": "Floor",
+      "operator_classes": [
+        "Floor"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "GRU"
+      ],
+      "import_supported": true,
+      "normalized_name": "GRU",
+      "op_type": "GRU",
+      "operator_classes": [
+        "GRU"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Gather"
+      ],
+      "import_supported": true,
+      "normalized_name": "GATHER",
+      "op_type": "Gather",
+      "operator_classes": [
+        "Gather"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "GatherElements"
+      ],
+      "import_supported": true,
+      "normalized_name": "GATHERELEMENTS",
+      "op_type": "GatherElements",
+      "operator_classes": [
+        "GatherElements"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "GatherND"
+      ],
+      "import_supported": true,
+      "normalized_name": "GATHERND",
+      "op_type": "GatherND",
+      "operator_classes": [
+        "GatherND"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Gelu"
+      ],
+      "import_supported": true,
+      "normalized_name": "GELU",
+      "op_type": "Gelu",
+      "operator_classes": [
+        "Gelu"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Gemm"
+      ],
+      "import_supported": true,
+      "normalized_name": "GEMM",
+      "op_type": "Gemm",
+      "operator_classes": [
+        "Gemm"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "GlobalAveragePool"
+      ],
+      "import_supported": true,
+      "normalized_name": "GLOBALAVERAGEPOOL",
+      "op_type": "GlobalAveragePool",
+      "operator_classes": [
+        "GlobalAveragePool"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "GlobalLpPool"
+      ],
+      "import_supported": true,
+      "normalized_name": "GLOBALLPPOOL",
+      "op_type": "GlobalLpPool",
+      "operator_classes": [
+        "GlobalLpPool"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "GlobalMaxPool"
+      ],
+      "import_supported": true,
+      "normalized_name": "GLOBALMAXPOOL",
+      "op_type": "GlobalMaxPool",
+      "operator_classes": [
+        "GlobalMaxPool"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Greater"
+      ],
+      "import_supported": true,
+      "normalized_name": "GREATER",
+      "op_type": "Greater",
+      "operator_classes": [
+        "Greater"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "GreaterOrEqual"
+      ],
+      "import_supported": true,
+      "normalized_name": "GREATEROREQUAL",
+      "op_type": "GreaterOrEqual",
+      "operator_classes": [
+        "GreaterOrEqual"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 16,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "GridSample"
+      ],
+      "import_supported": true,
+      "normalized_name": "GRIDSAMPLE",
+      "op_type": "GridSample",
+      "operator_classes": [
+        "GridSample"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "GroupNormalization"
+      ],
+      "import_supported": true,
+      "normalized_name": "GROUPNORMALIZATION",
+      "op_type": "GroupNormalization",
+      "operator_classes": [
+        "GroupNormalization"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 21,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "HammingWindow"
+      ],
+      "import_supported": true,
+      "normalized_name": "HAMMINGWINDOW",
+      "op_type": "HammingWindow",
+      "operator_classes": [
+        "HammingWindow"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 17,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "HannWindow"
+      ],
+      "import_supported": true,
+      "normalized_name": "HANNWINDOW",
+      "op_type": "HannWindow",
+      "operator_classes": [
+        "HannWindow"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 17,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "HardSigmoid"
+      ],
+      "import_supported": true,
+      "normalized_name": "HARDSIGMOID",
+      "op_type": "HardSigmoid",
+      "operator_classes": [
+        "HardSigmoid"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "HardSwish"
+      ],
+      "import_supported": true,
+      "normalized_name": "HARDSWISH",
+      "op_type": "HardSwish",
+      "operator_classes": [
+        "HardSwish"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Hardmax"
+      ],
+      "import_supported": true,
+      "normalized_name": "HARDMAX",
+      "op_type": "Hardmax",
+      "operator_classes": [
+        "Hardmax"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Identity"
+      ],
+      "import_supported": true,
+      "normalized_name": "IDENTITY",
+      "op_type": "Identity",
+      "operator_classes": [
+        "Identity"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "If"
+      ],
+      "import_supported": true,
+      "normalized_name": "IF",
+      "op_type": "If",
+      "operator_classes": [
+        "If"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ImageDecoder"
+      ],
+      "import_supported": true,
+      "normalized_name": "IMAGEDECODER",
+      "op_type": "ImageDecoder",
+      "operator_classes": [
+        "ImageDecoder"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "onnx_reference_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "InstanceNormalization"
+      ],
+      "import_supported": true,
+      "normalized_name": "INSTANCENORMALIZATION",
+      "op_type": "InstanceNormalization",
+      "operator_classes": [
+        "InstanceNormalization"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "IsInf"
+      ],
+      "import_supported": true,
+      "normalized_name": "ISINF",
+      "op_type": "IsInf",
+      "operator_classes": [
+        "IsInf"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "IsNaN"
+      ],
+      "import_supported": true,
+      "normalized_name": "ISNAN",
+      "op_type": "IsNaN",
+      "operator_classes": [
+        "IsNaN"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "LRN"
+      ],
+      "import_supported": true,
+      "normalized_name": "LRN",
+      "op_type": "LRN",
+      "operator_classes": [
+        "LRN"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "LSTM"
+      ],
+      "import_supported": true,
+      "normalized_name": "LSTM",
+      "op_type": "LSTM",
+      "operator_classes": [
+        "LSTM"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "LayerNormalization"
+      ],
+      "import_supported": true,
+      "normalized_name": "LAYERNORMALIZATION",
+      "op_type": "LayerNormalization",
+      "operator_classes": [
+        "LayerNormalization"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 17,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "LeakyRelu"
+      ],
+      "import_supported": true,
+      "normalized_name": "LEAKYRELU",
+      "op_type": "LeakyRelu",
+      "operator_classes": [
+        "LeakyRelu"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 16,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Less"
+      ],
+      "import_supported": true,
+      "normalized_name": "LESS",
+      "op_type": "Less",
+      "operator_classes": [
+        "Less"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "LessOrEqual"
+      ],
+      "import_supported": true,
+      "normalized_name": "LESSOREQUAL",
+      "op_type": "LessOrEqual",
+      "operator_classes": [
+        "LessOrEqual"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 16,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "LOG"
+      ],
+      "import_supported": true,
+      "normalized_name": "LOG",
+      "op_type": "Log",
+      "operator_classes": [
+        "LOG"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "LogSoftmax"
+      ],
+      "import_supported": true,
+      "normalized_name": "LOGSOFTMAX",
+      "op_type": "LogSoftmax",
+      "operator_classes": [
+        "LogSoftmax"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Loop"
+      ],
+      "import_supported": true,
+      "normalized_name": "LOOP",
+      "op_type": "Loop",
+      "operator_classes": [
+        "Loop"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "LpNormalization"
+      ],
+      "import_supported": true,
+      "normalized_name": "LPNORMALIZATION",
+      "op_type": "LpNormalization",
+      "operator_classes": [
+        "LpNormalization"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "LpPool"
+      ],
+      "import_supported": true,
+      "normalized_name": "LPPOOL",
+      "op_type": "LpPool",
+      "operator_classes": [
+        "LpPool"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "MatMul"
+      ],
+      "import_supported": true,
+      "normalized_name": "MATMUL",
+      "op_type": "MatMul",
+      "operator_classes": [
+        "MatMul"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "MatMulInteger"
+      ],
+      "import_supported": true,
+      "normalized_name": "MATMULINTEGER",
+      "op_type": "MatMulInteger",
+      "operator_classes": [
+        "MatMulInteger"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 10,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Max"
+      ],
+      "import_supported": true,
+      "normalized_name": "MAX",
+      "op_type": "Max",
+      "operator_classes": [
+        "Max"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "MaxPool"
+      ],
+      "import_supported": true,
+      "normalized_name": "MAXPOOL",
+      "op_type": "MaxPool",
+      "operator_classes": [
+        "MaxPool"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "MaxRoiPool"
+      ],
+      "import_supported": true,
+      "normalized_name": "MAXROIPOOL",
+      "op_type": "MaxRoiPool",
+      "operator_classes": [
+        "MaxRoiPool"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "MaxUnpool"
+      ],
+      "import_supported": true,
+      "normalized_name": "MAXUNPOOL",
+      "op_type": "MaxUnpool",
+      "operator_classes": [
+        "MaxUnpool"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Mean"
+      ],
+      "import_supported": true,
+      "normalized_name": "MEAN",
+      "op_type": "Mean",
+      "operator_classes": [
+        "Mean"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "MeanVarianceNormalization"
+      ],
+      "import_supported": true,
+      "normalized_name": "MEANVARIANCENORMALIZATION",
+      "op_type": "MeanVarianceNormalization",
+      "operator_classes": [
+        "MeanVarianceNormalization"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "MelWeightMatrix"
+      ],
+      "import_supported": true,
+      "normalized_name": "MELWEIGHTMATRIX",
+      "op_type": "MelWeightMatrix",
+      "operator_classes": [
+        "MelWeightMatrix"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 17,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Min"
+      ],
+      "import_supported": true,
+      "normalized_name": "MIN",
+      "op_type": "Min",
+      "operator_classes": [
+        "Min"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Mish"
+      ],
+      "import_supported": true,
+      "normalized_name": "MISH",
+      "op_type": "Mish",
+      "operator_classes": [
+        "Mish"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Mod"
+      ],
+      "import_supported": true,
+      "normalized_name": "MOD",
+      "op_type": "Mod",
+      "operator_classes": [
+        "Mod"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "MUL"
+      ],
+      "import_supported": true,
+      "normalized_name": "MUL",
+      "op_type": "Mul",
+      "operator_classes": [
+        "MUL"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 14,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Multinomial"
+      ],
+      "import_supported": true,
+      "normalized_name": "MULTINOMIAL",
+      "op_type": "Multinomial",
+      "operator_classes": [
+        "Multinomial"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Neg"
+      ],
+      "import_supported": true,
+      "normalized_name": "NEG",
+      "op_type": "Neg",
+      "operator_classes": [
+        "Neg"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "NegativeLogLikelihoodLoss"
+      ],
+      "import_supported": true,
+      "normalized_name": "NEGATIVELOGLIKELIHOODLOSS",
+      "op_type": "NegativeLogLikelihoodLoss",
+      "operator_classes": [
+        "NegativeLogLikelihoodLoss"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "NonMaxSuppression"
+      ],
+      "import_supported": true,
+      "normalized_name": "NONMAXSUPPRESSION",
+      "op_type": "NonMaxSuppression",
+      "operator_classes": [
+        "NonMaxSuppression"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "NonZero"
+      ],
+      "import_supported": true,
+      "normalized_name": "NONZERO",
+      "op_type": "NonZero",
+      "operator_classes": [
+        "NonZero"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Not"
+      ],
+      "import_supported": true,
+      "normalized_name": "NOT",
+      "op_type": "Not",
+      "operator_classes": [
+        "Not"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 1,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "OneHot"
+      ],
+      "import_supported": true,
+      "normalized_name": "ONEHOT",
+      "op_type": "OneHot",
+      "operator_classes": [
+        "OneHot"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Optional"
+      ],
+      "import_supported": true,
+      "normalized_name": "OPTIONAL",
+      "op_type": "Optional",
+      "operator_classes": [
+        "Optional"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 15,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "OptionalGetElement"
+      ],
+      "import_supported": true,
+      "normalized_name": "OPTIONALGETELEMENT",
+      "op_type": "OptionalGetElement",
+      "operator_classes": [
+        "OptionalGetElement"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "OptionalHasElement"
+      ],
+      "import_supported": true,
+      "normalized_name": "OPTIONALHASELEMENT",
+      "op_type": "OptionalHasElement",
+      "operator_classes": [
+        "OptionalHasElement"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Or"
+      ],
+      "import_supported": true,
+      "normalized_name": "OR",
+      "op_type": "Or",
+      "operator_classes": [
+        "Or"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 7,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "PRelu"
+      ],
+      "import_supported": true,
+      "normalized_name": "PRELU",
+      "op_type": "PRelu",
+      "operator_classes": [
+        "PRelu"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 16,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Pad"
+      ],
+      "import_supported": true,
+      "normalized_name": "PAD",
+      "op_type": "Pad",
+      "operator_classes": [
+        "Pad"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Pow"
+      ],
+      "import_supported": true,
+      "normalized_name": "POW",
+      "op_type": "Pow",
+      "operator_classes": [
+        "Pow"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 15,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "QLinearConv"
+      ],
+      "import_supported": true,
+      "normalized_name": "QLINEARCONV",
+      "op_type": "QLinearConv",
+      "operator_classes": [
+        "QLinearConv"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 10,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "QLinearMatMul"
+      ],
+      "import_supported": true,
+      "normalized_name": "QLINEARMATMUL",
+      "op_type": "QLinearMatMul",
+      "operator_classes": [
+        "QLinearMatMul"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 21,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "QuantizeLinear"
+      ],
+      "import_supported": true,
+      "normalized_name": "QUANTIZELINEAR",
+      "op_type": "QuantizeLinear",
+      "operator_classes": [
+        "QuantizeLinear"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RMSNormalization"
+      ],
+      "import_supported": true,
+      "normalized_name": "RMSNORMALIZATION",
+      "op_type": "RMSNormalization",
+      "operator_classes": [
+        "RMSNormalization"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 23,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RNN"
+      ],
+      "import_supported": true,
+      "normalized_name": "RNN",
+      "op_type": "RNN",
+      "operator_classes": [
+        "RNN"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RandomNormal"
+      ],
+      "import_supported": true,
+      "normalized_name": "RANDOMNORMAL",
+      "op_type": "RandomNormal",
+      "operator_classes": [
+        "RandomNormal"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RandomNormalLike"
+      ],
+      "import_supported": true,
+      "normalized_name": "RANDOMNORMALLIKE",
+      "op_type": "RandomNormalLike",
+      "operator_classes": [
+        "RandomNormalLike"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RandomUniform"
+      ],
+      "import_supported": true,
+      "normalized_name": "RANDOMUNIFORM",
+      "op_type": "RandomUniform",
+      "operator_classes": [
+        "RandomUniform"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RandomUniformLike"
+      ],
+      "import_supported": true,
+      "normalized_name": "RANDOMUNIFORMLIKE",
+      "op_type": "RandomUniformLike",
+      "operator_classes": [
+        "RandomUniformLike"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Range"
+      ],
+      "import_supported": true,
+      "normalized_name": "RANGE",
+      "op_type": "Range",
+      "operator_classes": [
+        "Range"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Reciprocal"
+      ],
+      "import_supported": true,
+      "normalized_name": "RECIPROCAL",
+      "op_type": "Reciprocal",
+      "operator_classes": [
+        "Reciprocal"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceL1"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCEL1",
+      "op_type": "ReduceL1",
+      "operator_classes": [
+        "ReduceL1"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceL2"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCEL2",
+      "op_type": "ReduceL2",
+      "operator_classes": [
+        "ReduceL2"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceLogSum"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCELOGSUM",
+      "op_type": "ReduceLogSum",
+      "operator_classes": [
+        "ReduceLogSum"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceLogSumExp"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCELOGSUMEXP",
+      "op_type": "ReduceLogSumExp",
+      "operator_classes": [
+        "ReduceLogSumExp"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceMax"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCEMAX",
+      "op_type": "ReduceMax",
+      "operator_classes": [
+        "ReduceMax"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceMean"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCEMEAN",
+      "op_type": "ReduceMean",
+      "operator_classes": [
+        "ReduceMean"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceMin"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCEMIN",
+      "op_type": "ReduceMin",
+      "operator_classes": [
+        "ReduceMin"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceProd"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCEPROD",
+      "op_type": "ReduceProd",
+      "operator_classes": [
+        "ReduceProd"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceSum"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCESUM",
+      "op_type": "ReduceSum",
+      "operator_classes": [
+        "ReduceSum"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReduceSumSquare"
+      ],
+      "import_supported": true,
+      "normalized_name": "REDUCESUMSQUARE",
+      "op_type": "ReduceSumSquare",
+      "operator_classes": [
+        "ReduceSumSquare"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RegexFullMatch"
+      ],
+      "import_supported": true,
+      "normalized_name": "REGEXFULLMATCH",
+      "op_type": "RegexFullMatch",
+      "operator_classes": [
+        "RegexFullMatch"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "onnx_reference_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RELU"
+      ],
+      "import_supported": true,
+      "normalized_name": "RELU",
+      "op_type": "Relu",
+      "operator_classes": [
+        "RELU"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 14,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Reshape"
+      ],
+      "import_supported": true,
+      "normalized_name": "RESHAPE",
+      "op_type": "Reshape",
+      "operator_classes": [
+        "Reshape"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Resize"
+      ],
+      "import_supported": true,
+      "normalized_name": "RESIZE",
+      "op_type": "Resize",
+      "operator_classes": [
+        "Resize"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 19,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ReverseSequence"
+      ],
+      "import_supported": true,
+      "normalized_name": "REVERSESEQUENCE",
+      "op_type": "ReverseSequence",
+      "operator_classes": [
+        "ReverseSequence"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 10,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RoiAlign"
+      ],
+      "import_supported": true,
+      "normalized_name": "ROIALIGN",
+      "op_type": "RoiAlign",
+      "operator_classes": [
+        "RoiAlign"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "RotaryEmbedding"
+      ],
+      "import_supported": true,
+      "normalized_name": "ROTARYEMBEDDING",
+      "op_type": "RotaryEmbedding",
+      "operator_classes": [
+        "RotaryEmbedding"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 23,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Round"
+      ],
+      "import_supported": true,
+      "normalized_name": "ROUND",
+      "op_type": "Round",
+      "operator_classes": [
+        "Round"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "STFT"
+      ],
+      "import_supported": true,
+      "normalized_name": "STFT",
+      "op_type": "STFT",
+      "operator_classes": [
+        "STFT"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 17,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Scan"
+      ],
+      "import_supported": true,
+      "normalized_name": "SCAN",
+      "op_type": "Scan",
+      "operator_classes": [
+        "Scan"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": true,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [],
+      "import_supported": true,
+      "normalized_name": "SCATTER",
+      "op_type": "Scatter",
+      "operator_classes": [
+        "ScatterElements"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": {
+        "canonical_operator_classes": [
+          "ScatterElements"
+        ],
+        "kind": "deprecated_alias"
+      },
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ScatterElements"
+      ],
+      "import_supported": true,
+      "normalized_name": "SCATTERELEMENTS",
+      "op_type": "ScatterElements",
+      "operator_classes": [
+        "ScatterElements"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ScatterND"
+      ],
+      "import_supported": true,
+      "normalized_name": "SCATTERND",
+      "op_type": "ScatterND",
+      "operator_classes": [
+        "ScatterND"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Selu"
+      ],
+      "import_supported": true,
+      "normalized_name": "SELU",
+      "op_type": "Selu",
+      "operator_classes": [
+        "Selu"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SequenceAt"
+      ],
+      "import_supported": true,
+      "normalized_name": "SEQUENCEAT",
+      "op_type": "SequenceAt",
+      "operator_classes": [
+        "SequenceAt"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SequenceConstruct"
+      ],
+      "import_supported": true,
+      "normalized_name": "SEQUENCECONSTRUCT",
+      "op_type": "SequenceConstruct",
+      "operator_classes": [
+        "SequenceConstruct"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SequenceEmpty"
+      ],
+      "import_supported": true,
+      "normalized_name": "SEQUENCEEMPTY",
+      "op_type": "SequenceEmpty",
+      "operator_classes": [
+        "SequenceEmpty"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SequenceErase"
+      ],
+      "import_supported": true,
+      "normalized_name": "SEQUENCEERASE",
+      "op_type": "SequenceErase",
+      "operator_classes": [
+        "SequenceErase"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SequenceInsert"
+      ],
+      "import_supported": true,
+      "normalized_name": "SEQUENCEINSERT",
+      "op_type": "SequenceInsert",
+      "operator_classes": [
+        "SequenceInsert"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SequenceLength"
+      ],
+      "import_supported": true,
+      "normalized_name": "SEQUENCELENGTH",
+      "op_type": "SequenceLength",
+      "operator_classes": [
+        "SequenceLength"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SequenceMap"
+      ],
+      "import_supported": true,
+      "normalized_name": "SEQUENCEMAP",
+      "op_type": "SequenceMap",
+      "operator_classes": [
+        "SequenceMap"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 17,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Shape"
+      ],
+      "import_supported": true,
+      "normalized_name": "SHAPE",
+      "op_type": "Shape",
+      "operator_classes": [
+        "Shape"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "onnx_reference_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Shrink"
+      ],
+      "import_supported": true,
+      "normalized_name": "SHRINK",
+      "op_type": "Shrink",
+      "operator_classes": [
+        "Shrink"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 9,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SIGMOID"
+      ],
+      "import_supported": true,
+      "normalized_name": "SIGMOID",
+      "op_type": "Sigmoid",
+      "operator_classes": [
+        "SIGMOID"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Sign"
+      ],
+      "import_supported": true,
+      "normalized_name": "SIGN",
+      "op_type": "Sign",
+      "operator_classes": [
+        "Sign"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Sin"
+      ],
+      "import_supported": true,
+      "normalized_name": "SIN",
+      "op_type": "Sin",
+      "operator_classes": [
+        "Sin"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Sinh"
+      ],
+      "import_supported": true,
+      "normalized_name": "SINH",
+      "op_type": "Sinh",
+      "operator_classes": [
+        "Sinh"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Size"
+      ],
+      "import_supported": true,
+      "normalized_name": "SIZE",
+      "op_type": "Size",
+      "operator_classes": [
+        "Size"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Slice"
+      ],
+      "import_supported": true,
+      "normalized_name": "SLICE",
+      "op_type": "Slice",
+      "operator_classes": [
+        "Slice"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Softmax"
+      ],
+      "import_supported": true,
+      "normalized_name": "SOFTMAX",
+      "op_type": "Softmax",
+      "operator_classes": [
+        "Softmax"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SoftmaxCrossEntropyLoss"
+      ],
+      "import_supported": true,
+      "normalized_name": "SOFTMAXCROSSENTROPYLOSS",
+      "op_type": "SoftmaxCrossEntropyLoss",
+      "operator_classes": [
+        "SoftmaxCrossEntropyLoss"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Softplus"
+      ],
+      "import_supported": true,
+      "normalized_name": "SOFTPLUS",
+      "op_type": "Softplus",
+      "operator_classes": [
+        "Softplus"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Softsign"
+      ],
+      "import_supported": true,
+      "normalized_name": "SOFTSIGN",
+      "op_type": "Softsign",
+      "operator_classes": [
+        "Softsign"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SpaceToDepth"
+      ],
+      "import_supported": true,
+      "normalized_name": "SPACETODEPTH",
+      "op_type": "SpaceToDepth",
+      "operator_classes": [
+        "SpaceToDepth"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Split"
+      ],
+      "import_supported": true,
+      "normalized_name": "SPLIT",
+      "op_type": "Split",
+      "operator_classes": [
+        "Split"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 18,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SplitToSequence"
+      ],
+      "import_supported": true,
+      "normalized_name": "SPLITTOSEQUENCE",
+      "op_type": "SplitToSequence",
+      "operator_classes": [
+        "SplitToSequence"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 24,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SQRT"
+      ],
+      "import_supported": true,
+      "normalized_name": "SQRT",
+      "op_type": "Sqrt",
+      "operator_classes": [
+        "SQRT"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Squeeze"
+      ],
+      "import_supported": true,
+      "normalized_name": "SQUEEZE",
+      "op_type": "Squeeze",
+      "operator_classes": [
+        "Squeeze"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "StringConcat"
+      ],
+      "import_supported": true,
+      "normalized_name": "STRINGCONCAT",
+      "op_type": "StringConcat",
+      "operator_classes": [
+        "StringConcat"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "onnx_reference_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "StringNormalizer"
+      ],
+      "import_supported": true,
+      "normalized_name": "STRINGNORMALIZER",
+      "op_type": "StringNormalizer",
+      "operator_classes": [
+        "StringNormalizer"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 10,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "StringSplit"
+      ],
+      "import_supported": true,
+      "normalized_name": "STRINGSPLIT",
+      "op_type": "StringSplit",
+      "operator_classes": [
+        "StringSplit"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "onnx_reference_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 20,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "SUB"
+      ],
+      "import_supported": true,
+      "normalized_name": "SUB",
+      "op_type": "Sub",
+      "operator_classes": [
+        "SUB"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 14,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Sum"
+      ],
+      "import_supported": true,
+      "normalized_name": "SUM",
+      "op_type": "Sum",
+      "operator_classes": [
+        "Sum"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Swish"
+      ],
+      "import_supported": true,
+      "normalized_name": "SWISH",
+      "op_type": "Swish",
+      "operator_classes": [
+        "Swish"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 24,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Tan"
+      ],
+      "import_supported": true,
+      "normalized_name": "TAN",
+      "op_type": "Tan",
+      "operator_classes": [
+        "Tan"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "TANH"
+      ],
+      "import_supported": true,
+      "normalized_name": "TANH",
+      "op_type": "Tanh",
+      "operator_classes": [
+        "TANH"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "TensorScatter"
+      ],
+      "import_supported": true,
+      "normalized_name": "TENSORSCATTER",
+      "op_type": "TensorScatter",
+      "operator_classes": [
+        "TensorScatter"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 24,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "TfIdfVectorizer"
+      ],
+      "import_supported": true,
+      "normalized_name": "TFIDFVECTORIZER",
+      "op_type": "TfIdfVectorizer",
+      "operator_classes": [
+        "TfIdfVectorizer"
+      ],
+      "runtime_kinds": [
+        "Python orchestration"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "deep_semantic_pytest",
+        "python_orchestration"
+      ],
+      "since_version": 9,
+      "status": "verified",
+      "statuses": [
+        "\u5df2 pytest \u8bed\u4e49\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "ThresholdedRelu"
+      ],
+      "import_supported": true,
+      "normalized_name": "THRESHOLDEDRELU",
+      "op_type": "ThresholdedRelu",
+      "operator_classes": [
+        "ThresholdedRelu"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 22,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Tile"
+      ],
+      "import_supported": true,
+      "normalized_name": "TILE",
+      "op_type": "Tile",
+      "operator_classes": [
+        "Tile"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 13,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "TopK"
+      ],
+      "import_supported": true,
+      "normalized_name": "TOPK",
+      "op_type": "TopK",
+      "operator_classes": [
+        "TopK"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 24,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Transpose"
+      ],
+      "import_supported": true,
+      "normalized_name": "TRANSPOSE",
+      "op_type": "Transpose",
+      "operator_classes": [
+        "Transpose"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Trilu"
+      ],
+      "import_supported": true,
+      "normalized_name": "TRILU",
+      "op_type": "Trilu",
+      "operator_classes": [
+        "Trilu"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 14,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Unique"
+      ],
+      "import_supported": true,
+      "normalized_name": "UNIQUE",
+      "op_type": "Unique",
+      "operator_classes": [
+        "Unique"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "deep_semantic_pytest",
+        "numerical_plan"
+      ],
+      "since_version": 11,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Unsqueeze"
+      ],
+      "import_supported": true,
+      "normalized_name": "UNSQUEEZE",
+      "op_type": "Unsqueeze",
+      "operator_classes": [
+        "Unsqueeze"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 25,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": true,
+      "direct_import_class_supported": false,
+      "direct_operator_classes": [],
+      "import_supported": true,
+      "normalized_name": "UPSAMPLE",
+      "op_type": "Upsample",
+      "operator_classes": [
+        "Resize"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": {
+        "canonical_operator_classes": [
+          "Resize"
+        ],
+        "kind": "deprecated_alias"
+      },
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 10,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Where"
+      ],
+      "import_supported": true,
+      "normalized_name": "WHERE",
+      "op_type": "Where",
+      "operator_classes": [
+        "Where"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 16,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    },
+    {
+      "deprecated": false,
+      "direct_import_class_supported": true,
+      "direct_operator_classes": [
+        "Xor"
+      ],
+      "import_supported": true,
+      "normalized_name": "XOR",
+      "op_type": "Xor",
+      "operator_classes": [
+        "Xor"
+      ],
+      "runtime_kinds": [
+        "C-backed"
+      ],
+      "semantic_alias": null,
+      "semantic_evidence": [
+        "c_runtime",
+        "cuda_verifier",
+        "numerical_plan",
+        "onnx_reference_pytest"
+      ],
+      "since_version": 7,
+      "status": "verified",
+      "statuses": [
+        "\u5df2\u6570\u503c\u9a8c\u8bc1"
+      ]
+    }
+  ],
+  "runtime_only_count": 0,
+  "schema_version": 1,
+  "verified_count": 200
+}

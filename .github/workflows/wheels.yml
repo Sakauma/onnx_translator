@@ -1,0 +1,101 @@
+# /**
+#   ******************************************************************************
+#   * @file        wheels.yml
+#   * @author      Egor Izmaylov
+#   * @brief       Builds manylinux runtime wheels with cibuildwheel.
+#   * @details     2026.06.27  V1.0.0  Created
+#   ******************************************************************************
+#   * @attention
+#   ******************************************************************************
+# */
+
+name: Wheels
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+  schedule:
+    - cron: "0 21 * * 1"
+
+jobs:
+  manylinux-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Build cp312 manylinux runtime wheel
+        env:
+          CIBW_BUILD: cp312-manylinux_x86_64
+          CIBW_ARCHS_LINUX: x86_64
+        run: |
+          make PYTHON=python manylinux-wheels
+          python tools/wheelhouse_smoke.py wheelhouse --require-python-tag cp312 --require-platform manylinux
+
+      - name: Upload manylinux smoke wheel
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: manylinux-smoke-${{ github.run_id }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  manylinux-full:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        cibw-build:
+          - cp310-manylinux_x86_64
+          - cp311-manylinux_x86_64
+          - cp312-manylinux_x86_64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Build manylinux runtime wheel
+        env:
+          CIBW_BUILD: ${{ matrix.cibw-build }}
+          CIBW_ARCHS_LINUX: x86_64
+        run: |
+          make PYTHON=python manylinux-wheels
+          python tools/wheelhouse_smoke.py wheelhouse --require-python-tag "${CIBW_BUILD%%-*}" --require-platform manylinux
+
+      - name: Upload manylinux wheel
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: manylinux-${{ matrix.cibw-build }}-${{ github.run_id }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error

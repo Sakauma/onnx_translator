@@ -1,0 +1,5 @@
+-r requirements.txt
+
+build>=1.2
+cibuildwheel>=2.20
+twine>=5.0

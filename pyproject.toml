@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onnx-translator"
+version = "0.1.0"
+description = "ONNX importer, graph builder, C runtime backend, and CUDA-backed numerical verifier."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "LicenseRef-Proprietary"
+authors = [
+    { name = "Egor Izmaylov" },
+]
+dependencies = [
+    "numpy>=1.26",
+    "onnx>=1.16",
+    "onnxscript>=0.5",
+    "matplotlib>=3.7",
+    "graphviz>=0.20",
+    "pytest>=8.0",
+    "torch>=2.3",
+    "ml_dtypes>=0.5",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2",
+    "cibuildwheel>=2.20",
+    "twine>=5.0",
+]
+
+[project.scripts]
+onnx-translator = "tools.cli:main"
+onnx-translator-abi-manifest = "tools.abi_manifest:main"
+onnx-translator-audit = "tools.audit_ops:main"
+onnx-translator-verify = "tools.verify_all:main"
+onnx-translator-benchmark = "tools.benchmark_runtime:main"
+onnx-translator-model-smoke = "tools.model_suite:main"
+onnx-translator-release-check = "tools.release_check:main"
+onnx-translator-package-smoke = "tools.package_smoke:main"
+onnx-translator-release-artifacts = "tools.release_artifacts:main"
+onnx-translator-release-preflight = "tools.release_preflight:main"
+onnx-translator-wheelhouse-smoke = "tools.wheelhouse_smoke:main"
+onnx-translator-onnx-semantic-matrix = "tools.onnx_semantic_matrix:main"
+
+[tool.setuptools]
+packages = [
+    "nn",
+    "nn.importer",
+    "nn.operators",
+    "tools",
+    "tools.commands",
+    "tools.numerical",
+]
+
+[tool.setuptools.package-data]
+nn = ["tensor_ops.so"]
+
+[tool.cibuildwheel]
+build = "cp310-manylinux_x86_64 cp311-manylinux_x86_64 cp312-manylinux_x86_64"
+skip = "*musllinux*"
+before-build = "rm -rf build dist onnx_translator.egg-info result onnx_model cache wheelhouse tensor_ops.so tensor_ops_asan.so nn/tensor_ops.so"
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+manylinux-x86_64-image = "manylinux2014"

@@ -21,6 +21,7 @@
 - [工程接手指南](docs/onboarding.md)：说明环境检查、一键门禁、当前关键覆盖数字和常见失败排查。
 - [新增算子流程](docs/add_operator.md)：说明新增算子的 Python、ONNX factory、C ABI、CUDA verifier、数值计划和 pytest 覆盖步骤。
 - [开发流程清单](docs/development.md)：记录算子开发时需要同步修改和验证的位置。
+- [发布级工程化门禁](docs/release.md)：说明发布检查、性能基线、sanitizer 和 CUDA CI。
 - [验证总结](docs/reports/verify_summary.md)：记录当前数值验证和图结构验证覆盖范围。
 - [算子覆盖报告](docs/reports/operator_coverage.md)：记录 ONNXImport、C 后端、CUDA verifier 和数值计划覆盖情况。
 
@@ -70,6 +71,22 @@ $PYTHON tools/cli.py compile-cuda
 $PYTHON tools/cli.py numerical --iterations 20 --skip-plots
 $PYTHON tools/verify_all.py --skip-cuda
 $PYTHON tools/audit_ops.py --strict --output /tmp/onnx_translator_audit.md
+make PYTHON=$PYTHON release-check
+make PYTHON=$PYTHON onnx-semantic-matrix
+make PYTHON=$PYTHON release-preflight
+make PYTHON=$PYTHON release-artifacts
+make PYTHON=$PYTHON package-smoke
+make PYTHON=$PYTHON manylinux-wheels
+make PYTHON=$PYTHON manylinux-wheelhouse-check
+make PYTHON=$PYTHON manylinux-wheels-full
+make PYTHON=$PYTHON manylinux-wheelhouse-check-full
+make PYTHON=$PYTHON model-smoke
+make PYTHON=$PYTHON benchmark-smoke
+make PYTHON=$PYTHON benchmark-smoke-report
+make PYTHON=$PYTHON benchmark-baseline-check
+make PYTHON=$PYTHON benchmark-fixed-runner-check
+make PYTHON=$PYTHON benchmark
+make PYTHON=$PYTHON sanitize
 ```
 
 如果只改 Python 导入或 shape 逻辑，优先运行 `make PYTHON=$PYTHON check` 和 `$PYTHON -m pytest -q tests`。如果改 C 后端或 CUDA verifier，应补充 `$PYTHON tools/cli.py compile-cuda` 和对应 `$PYTHON tools/cli.py numerical --op <op>`。
@@ -119,6 +136,85 @@ make PYTHON=$PYTHON audit
 ```
 
 报告写入 `docs/reports/operator_coverage.md`，会区分实际 C runtime path、合理 Python 调度/元数据算子、当前暂缓后端化算子、当前暂缓深度语义/数值验证算子，以及 CUDA/数值验证覆盖。提交或交接前建议使用 `tools/audit_ops.py --strict`，让覆盖回退直接变成非零退出码。
+
+## 发布、性能和内存安全
+
+发布前运行：
+
+```bash
+make PYTHON=$PYTHON release-check
+make PYTHON=$PYTHON release-preflight
+```
+
+该门禁会确认包元数据存在、当前 ONNX 最新默认域名称级导入无缺口、官方 ONNX 语义矩阵无 weak row、普通数值/张量算子没有 Python-only 主路径、C ABI 声明/实现一致、CUDA verifier 与 active numerical 覆盖一致，并检查 manylinux wheel 构建入口和 `cibuildwheel` 配置。
+`onnx-semantic-matrix` 会刷新 `docs/onnx_semantic_matrix.json` 和 `docs/onnx_semantic_matrix.md`，逐项记录最新默认域官方算子的 import、operator class、semantic evidence、deprecated alias 和最终状态。
+`release-preflight` 会进一步聚合语义矩阵、全量 pytest、模型 smoke、性能 smoke 报告、性能 baseline 回归检查、包安装 smoke、release artifacts 和 sanitizer，并写入 `result/release_preflight.json` 作为发布前证据。
+
+C ABI 快照检查：
+
+```bash
+make PYTHON=$PYTHON abi-check
+```
+
+公开 ABI 变化需要显式刷新 `docs/abi_manifest.json`。
+
+发布物安装 smoke test：
+
+```bash
+make PYTHON=$PYTHON package-smoke
+make PYTHON=$PYTHON release-artifacts
+```
+
+`package-smoke` 会验证源码树构建的 wheel 安装后能加载包内 `nn/tensor_ops.so` 并执行 C 后端算子。`release-artifacts` 会构建 sdist/wheel、运行 metadata 检查、确认 sdist 包含 C/CUDA 源码，再从 sdist 重建 wheel 并执行同样的安装 smoke。
+由于 wheel 内包含平台相关的 `tensor_ops.so`，发布 smoke 也会拒绝错误的 `py3-none-any` wheel 和 `.data/purelib` 共享库布局，确保发布物按平台 wheel/platlib 语义分发。
+
+Linux manylinux wheel smoke test 需要 Docker：
+
+```bash
+make PYTHON=$PYTHON manylinux-wheels
+make PYTHON=$PYTHON manylinux-wheelhouse-check
+make PYTHON=$PYTHON manylinux-wheels-full
+make PYTHON=$PYTHON manylinux-wheelhouse-check-full
+```
+
+默认 `manylinux-wheels` 只构建 `cp312-manylinux_x86_64` 快速 wheel；完整发布矩阵使用 `manylinux-wheels-full` 构建 `cp310/cp311/cp312`，并由 `manylinux-wheelhouse-check-full` 强制检查三个 Python tag。`cibuildwheel` 只负责 build/repair，后置 wheelhouse check 负责检查 manylinux tag、`Root-Is-Purelib: false` 和 `.so` 不在 `.data/purelib`。
+
+代表性模型 smoke test：
+
+```bash
+make PYTHON=$PYTHON model-smoke
+```
+
+该命令生成并严格验证 CNN、Transformer block 和 Embedding MLP 三类 ONNX 模型，覆盖常见发布路径中的导入、initializer、图连接、shape 推导，并用 ONNX reference evaluator 对齐 C 后端真实前向数值。
+
+性能基线：
+
+```bash
+make PYTHON=$PYTHON benchmark-smoke
+make PYTHON=$PYTHON benchmark-smoke-report
+make PYTHON=$PYTHON benchmark-baseline-check
+make PYTHON=$PYTHON benchmark-fixed-runner-check
+make PYTHON=$PYTHON benchmark
+```
+
+`benchmark-smoke` 使用保守吞吐阈值，适合 CI 和 PR 上捕捉 C 后端灾难性回退；`benchmark-smoke-report` 会额外写入 `result/benchmark_smoke.json` 供 CI 上传；`benchmark-baseline-check` 使用 `docs/performance_baseline.json` 做版本化回归检查并写入 `result/benchmark_baseline_check.json`；`benchmark-fixed-runner-check` 使用 `docs/performance_fixed_runner_baseline.json`、`baseline_kind=fixed_runner` 和 `PERF_RUNNER_ID` 做固定机器回归检查；`benchmark` 用于在固定机器上记录更稳定的性能数据。
+
+固定机器上可保存并对比性能 baseline：
+
+```bash
+$PYTHON tools/benchmark_runtime.py --write-baseline result/perf_baseline.json
+$PYTHON tools/benchmark_runtime.py --baseline result/perf_baseline.json --max-regression 0.15
+```
+
+内存安全门禁：
+
+```bash
+make PYTHON=$PYTHON sanitize
+```
+
+该门禁在 ASan/UBSan 下运行 C 后端回归子集，并额外跑代表性模型 smoke，让真实模型组合路径也进入内存安全检查。
+
+CUDA CI 使用 `.github/workflows/cuda.yml`，面向带 `cuda` 标签的 self-hosted Linux runner。PR/push 运行 `make verify-cuda-smoke`，定时和手工触发运行完整 CUDA verifier 编译和 numerical 正确性验证。
 
 ## 生成 ONNX 模型
 

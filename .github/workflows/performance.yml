@@ -1,0 +1,61 @@
+# /**
+#   ******************************************************************************
+#   * @file        performance.yml
+#   * @author      Egor Izmaylov
+#   * @brief       Runs fixed-runner C backend performance regression checks.
+#   * @details     2026.06.27  V1.0.0  Created
+#   ******************************************************************************
+#   * @attention
+#   ******************************************************************************
+# */
+
+name: Performance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 21 * * 1"
+
+jobs:
+  fixed-runner-baseline:
+    runs-on: [self-hosted, linux, x64, perf]
+    timeout-minutes: 30
+
+    env:
+      PERF_BASELINE: docs/performance_fixed_runner_baseline.json
+      PERF_MAX_REGRESSION: "0.10"
+      PERF_REPEAT: "20"
+      PERF_RUNNER_ID: fixed-linux-x64-perf
+      PERF_WARMUP: "5"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential make
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run fixed runner performance gate
+        run: |
+          make PYTHON=python benchmark-fixed-runner-check
+
+      - name: Upload fixed runner benchmark report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-fixed-runner-${{ github.run_id }}
+          path: result/benchmark_fixed_runner_check.json
+          if-no-files-found: error

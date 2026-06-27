@@ -21,6 +21,8 @@ def _args(**overrides):
         "skip_cuda": False,
         "skip_numerical": False,
         "skip_audit": False,
+        "skip_model_suite": False,
+        "keep_artifacts": False,
         "iterations": 20,
         "op": None,
     }
@@ -65,6 +67,22 @@ def test_skip_audit_plan_omits_strict_audit_step():
     assert "audit strict operator coverage" not in names
 
 
+def test_default_plan_includes_representative_model_suite():
+    steps = build_steps(_args(skip_cuda=True), Path("/repo"))
+    model_step = next(step for step in steps if step.name == "run representative model suite")
+
+    assert model_step.command[-1] == "tools/model_suite.py"
+
+
+def test_model_suite_step_can_be_skipped_or_keep_artifacts():
+    skipped = build_steps(_args(skip_cuda=True, skip_model_suite=True), Path("/repo"))
+    kept = build_steps(_args(skip_cuda=True, keep_artifacts=True), Path("/repo"))
+
+    assert "run representative model suite" not in [step.name for step in skipped]
+    model_step = next(step for step in kept if step.name == "run representative model suite")
+    assert model_step.command[-1] == "--keep-artifacts"
+
+
 # 验证 `test_cleanup_artifacts_removes_known_generated_paths` 覆盖的回归场景，防止 ONNX 导入、图运行或算子实现被破坏。
 def test_cleanup_artifacts_removes_known_generated_paths(tmp_path):
     (tmp_path / "cache").mkdir()
@@ -73,7 +91,10 @@ def test_cleanup_artifacts_removes_known_generated_paths(tmp_path):
     (tmp_path / ".pytest_cache").mkdir()
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg" / "__pycache__").mkdir()
+    (tmp_path / "nn").mkdir()
     (tmp_path / "tensor_ops.so").write_bytes(b"compiled")
+    (tmp_path / "tensor_ops_asan.so").write_bytes(b"asan")
+    (tmp_path / "nn" / "tensor_ops.so").write_bytes(b"packaged")
 
     cleanup_artifacts(tmp_path)
 
@@ -83,3 +104,5 @@ def test_cleanup_artifacts_removes_known_generated_paths(tmp_path):
     assert not (tmp_path / ".pytest_cache").exists()
     assert not (tmp_path / "pkg" / "__pycache__").exists()
     assert not (tmp_path / "tensor_ops.so").exists()
+    assert not (tmp_path / "tensor_ops_asan.so").exists()
+    assert not (tmp_path / "nn" / "tensor_ops.so").exists()
