@@ -41,8 +41,100 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install -r requirements.txt -c constraints.txt
 
       - name: Run CPU verification gate
         run: |
           python tools/verify_all.py --skip-cuda
+
+  release-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential graphviz make
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt -c constraints.txt
+
+      - name: Build backend and run release gate
+        run: |
+          make PYTHON=python check
+          make PYTHON=python release-check
+
+      - name: Run benchmark smoke gate
+        run: |
+          make PYTHON=python benchmark-smoke-report
+          make PYTHON=python benchmark-baseline-check
+
+      - name: Upload benchmark smoke report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-smoke-${{ github.run_id }}
+          path: |
+            result/benchmark_smoke.json
+            result/benchmark_baseline_check.json
+          if-no-files-found: error
+
+      - name: Run representative model smoke gate
+        run: |
+          make PYTHON=python model-smoke
+
+      - name: Build and verify release artifacts
+        run: |
+          make PYTHON=python release-artifacts
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-artifacts-${{ github.run_id }}
+          path: result/release_artifacts/dist/*
+          if-no-files-found: error
+
+      - name: Verify packaged runtime can execute C backend
+        run: |
+          make PYTHON=python package-smoke
+
+  sanitizer-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential graphviz make
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -c constraints.txt
+
+      - name: Run ASan/UBSan C backend gate
+        run: |
+          make PYTHON=python sanitize

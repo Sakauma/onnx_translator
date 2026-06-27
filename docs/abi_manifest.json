@@ -1,0 +1,1665 @@
+{
+  "counts": {
+    "data_type": 25,
+    "functions": 179,
+    "structs": 4
+  },
+  "data_type": [
+    "DTYPE_FLOAT8_E4M3",
+    "DTYPE_FLOAT8_E5M2",
+    "DTYPE_FLOAT16",
+    "DTYPE_BFLOAT16",
+    "DTYPE_FLOAT32",
+    "DTYPE_FLOAT64",
+    "DTYPE_INT4",
+    "DTYPE_INT8",
+    "DTYPE_UINT8",
+    "DTYPE_INT16",
+    "DTYPE_INT32",
+    "DTYPE_INT64",
+    "DTYPE_UINT16",
+    "DTYPE_UINT32",
+    "DTYPE_UINT64",
+    "DTYPE_BOOL",
+    "DTYPE_COMPLEX64",
+    "DTYPE_COMPLEX128",
+    "DTYPE_FLOAT8_E4M3FNUZ",
+    "DTYPE_FLOAT8_E5M2FNUZ",
+    "DTYPE_UINT4",
+    "DTYPE_INT2",
+    "DTYPE_UINT2",
+    "DTYPE_FLOAT4_E2M1",
+    "DTYPE_FLOAT8_E8M0"
+  ],
+  "functions": {
+    "abs_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "acos_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "acosh_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "add_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "affine_grid_forward": {
+      "args": [
+        "const Tensor* theta",
+        "const Tensor* size",
+        "Tensor* output",
+        "int align_corners"
+      ],
+      "return": "void"
+    },
+    "and_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "argmax_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int axis",
+        "int select_last_index"
+      ],
+      "return": "void"
+    },
+    "argmin_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int axis",
+        "int select_last_index"
+      ],
+      "return": "void"
+    },
+    "asin_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "asinh_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "atan_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "atanh_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "attention_forward": {
+      "args": [
+        "const Tensor* Q",
+        "const Tensor* K",
+        "const Tensor* V",
+        "const Tensor* attn_mask",
+        "Tensor* Y",
+        "int q_num_heads",
+        "int kv_num_heads",
+        "float scale",
+        "int is_causal",
+        "float softcap"
+      ],
+      "return": "void"
+    },
+    "average_pool_forward": {
+      "args": [
+        "const Tensor* X",
+        "Tensor* Y",
+        "PoolParams* params",
+        "int count_include_pad"
+      ],
+      "return": "void"
+    },
+    "batch_norm_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* scale",
+        "const Tensor* B",
+        "const Tensor* mean",
+        "const Tensor* var",
+        "Tensor* output",
+        "float epsilon"
+      ],
+      "return": "void"
+    },
+    "batch_norm_training_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* scale",
+        "const Tensor* B",
+        "const Tensor* mean",
+        "const Tensor* var",
+        "Tensor* output",
+        "Tensor* running_mean",
+        "Tensor* running_var",
+        "float epsilon",
+        "float momentum"
+      ],
+      "return": "void"
+    },
+    "bernoulli_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float seed"
+      ],
+      "return": "void"
+    },
+    "binarizer_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float threshold"
+      ],
+      "return": "void"
+    },
+    "bit_shift_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O",
+        "int direction"
+      ],
+      "return": "void"
+    },
+    "bitcast_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "bitwise_and_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "bitwise_not_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "bitwise_or_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "bitwise_xor_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "blackman_window_forward": {
+      "args": [
+        "const Tensor* size_tensor",
+        "Tensor* output",
+        "int periodic"
+      ],
+      "return": "void"
+    },
+    "cast_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "ceil_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "celu_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float alpha"
+      ],
+      "return": "void"
+    },
+    "center_crop_pad_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "clip_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "const Tensor* min",
+        "const Tensor* max"
+      ],
+      "return": "void"
+    },
+    "col2im_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* image_shape",
+        "const Tensor* block_shape",
+        "Tensor* output",
+        "ConvParams* params"
+      ],
+      "return": "void"
+    },
+    "compress_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* condition",
+        "Tensor* output",
+        "int axis"
+      ],
+      "return": "void"
+    },
+    "concat_forward": {
+      "args": [
+        "const Tensor** inputs",
+        "int num_inputs",
+        "Tensor* output",
+        "int axis"
+      ],
+      "return": "void"
+    },
+    "constant_of_shape_forward": {
+      "args": [
+        "Tensor* output",
+        "const Tensor* value"
+      ],
+      "return": "void"
+    },
+    "conv2d_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* W",
+        "const Tensor* B",
+        "Tensor* Y",
+        "ConvParams* params"
+      ],
+      "return": "void"
+    },
+    "conv_integer_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* W",
+        "const Tensor* XZeroPoint",
+        "const Tensor* WZeroPoint",
+        "Tensor* Y",
+        "ConvParams* params"
+      ],
+      "return": "void"
+    },
+    "conv_transpose2d_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* W",
+        "const Tensor* B",
+        "Tensor* Y",
+        "ConvParams* params"
+      ],
+      "return": "void"
+    },
+    "cos_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "cosh_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "create_tensor": {
+      "args": [
+        "int* shape",
+        "int ndim",
+        "DataType dtype"
+      ],
+      "return": "Tensor*"
+    },
+    "cumprod_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int axis",
+        "int exclusive",
+        "int reverse"
+      ],
+      "return": "void"
+    },
+    "cumsum_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int axis",
+        "int exclusive",
+        "int reverse"
+      ],
+      "return": "void"
+    },
+    "deform_conv2d_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* W",
+        "const Tensor* offset",
+        "const Tensor* B",
+        "const Tensor* mask",
+        "Tensor* Y",
+        "ConvParams* params",
+        "int offset_group"
+      ],
+      "return": "void"
+    },
+    "depth_to_space_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int blocksize",
+        "int mode"
+      ],
+      "return": "void"
+    },
+    "dequantize_linear_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* Scale",
+        "const Tensor* ZeroPoint",
+        "Tensor* Y"
+      ],
+      "return": "void"
+    },
+    "det_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "dft_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int axis",
+        "int inverse",
+        "int onesided",
+        "int dft_length"
+      ],
+      "return": "void"
+    },
+    "div_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "dropout_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float ratio",
+        "int training_mode"
+      ],
+      "return": "void"
+    },
+    "dynamic_quantize_linear_forward": {
+      "args": [
+        "const Tensor* x",
+        "Tensor* y",
+        "Tensor* y_scale",
+        "Tensor* y_zp"
+      ],
+      "return": "void"
+    },
+    "einsum_forward": {
+      "args": [
+        "const Tensor** inputs",
+        "int num_inputs",
+        "Tensor* output",
+        "int iter_dims",
+        "int* loop_limits",
+        "int* input_strides",
+        "int* output_strides"
+      ],
+      "return": "void"
+    },
+    "elu_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float alpha"
+      ],
+      "return": "void"
+    },
+    "equal_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "erf_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "exp_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "expand_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "eye_like_forward": {
+      "args": [
+        "Tensor* output",
+        "int k"
+      ],
+      "return": "void"
+    },
+    "flatten_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "floor_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "free_tensor": {
+      "args": [
+        "Tensor* tensor"
+      ],
+      "return": "void"
+    },
+    "gather_elements_forward": {
+      "args": [
+        "const Tensor* data",
+        "const Tensor* indices",
+        "Tensor* output",
+        "int axis"
+      ],
+      "return": "void"
+    },
+    "gather_forward": {
+      "args": [
+        "const Tensor* data",
+        "const Tensor* indices",
+        "Tensor* output",
+        "int axis"
+      ],
+      "return": "void"
+    },
+    "gather_nd_forward": {
+      "args": [
+        "const Tensor* data",
+        "const Tensor* indices",
+        "Tensor* output",
+        "int batch_dims"
+      ],
+      "return": "void"
+    },
+    "gelu_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "gelu_forward_mode": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int approximate_mode"
+      ],
+      "return": "void"
+    },
+    "gemm_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "const Tensor* C",
+        "Tensor* Y",
+        "float alpha",
+        "float beta",
+        "int transA",
+        "int transB"
+      ],
+      "return": "void"
+    },
+    "global_average_pool_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "global_lp_pool_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int p"
+      ],
+      "return": "void"
+    },
+    "global_max_pool_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "greater_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "greater_or_equal_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "grid_sample_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* grid",
+        "Tensor* output",
+        "int mode",
+        "int padding_mode",
+        "int align_corners"
+      ],
+      "return": "void"
+    },
+    "group_norm_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* scale",
+        "const Tensor* B",
+        "Tensor* output",
+        "int num_groups",
+        "float epsilon"
+      ],
+      "return": "void"
+    },
+    "gru_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* W",
+        "const Tensor* R",
+        "const Tensor* B",
+        "const Tensor* sequence_lens",
+        "const Tensor* initial_h",
+        "Tensor* Y",
+        "Tensor* Y_h",
+        "int hidden_size",
+        "int direction",
+        "int layout",
+        "int linear_before_reset",
+        "const int* activations",
+        "const float* activation_alpha",
+        "const float* activation_beta",
+        "int num_activations",
+        "float clip",
+        "int has_clip"
+      ],
+      "return": "void"
+    },
+    "hamming_window_forward": {
+      "args": [
+        "const Tensor* size_tensor",
+        "Tensor* output",
+        "int periodic"
+      ],
+      "return": "void"
+    },
+    "hann_window_forward": {
+      "args": [
+        "const Tensor* size_tensor",
+        "Tensor* output",
+        "int periodic"
+      ],
+      "return": "void"
+    },
+    "hard_sigmoid_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float alpha",
+        "float beta"
+      ],
+      "return": "void"
+    },
+    "hard_swish_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "hardmax_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int axis"
+      ],
+      "return": "void"
+    },
+    "identity_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "init_cos_lut": {
+      "args": [],
+      "return": "void"
+    },
+    "instance_norm_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* scale",
+        "const Tensor* B",
+        "Tensor* output",
+        "float epsilon"
+      ],
+      "return": "void"
+    },
+    "isinf_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int detect_pos",
+        "int detect_neg"
+      ],
+      "return": "void"
+    },
+    "isnan_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "layer_norm_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* scale",
+        "const Tensor* B",
+        "Tensor* output",
+        "int axis",
+        "float epsilon"
+      ],
+      "return": "void"
+    },
+    "layer_norm_multi_output_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* scale",
+        "const Tensor* B",
+        "Tensor* output",
+        "Tensor* mean_output",
+        "Tensor* inv_std_output",
+        "int axis",
+        "float epsilon"
+      ],
+      "return": "void"
+    },
+    "leaky_relu_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float alpha"
+      ],
+      "return": "void"
+    },
+    "less_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "less_or_equal_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "log_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "log_softmax_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int axis"
+      ],
+      "return": "void"
+    },
+    "lp_normalization_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int axis",
+        "int p"
+      ],
+      "return": "void"
+    },
+    "lp_pool_forward": {
+      "args": [
+        "const Tensor* X",
+        "Tensor* Y",
+        "PoolParams* params",
+        "int p"
+      ],
+      "return": "void"
+    },
+    "lrn_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int size",
+        "float alpha",
+        "float beta",
+        "float bias"
+      ],
+      "return": "void"
+    },
+    "lstm_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* W",
+        "const Tensor* R",
+        "const Tensor* B",
+        "const Tensor* sequence_lens",
+        "const Tensor* initial_h",
+        "const Tensor* initial_c",
+        "const Tensor* P",
+        "Tensor* Y",
+        "Tensor* Y_h",
+        "Tensor* Y_c",
+        "int hidden_size",
+        "int direction",
+        "int layout",
+        "int input_forget",
+        "const int* activations",
+        "const float* activation_alpha",
+        "const float* activation_beta",
+        "int num_activations",
+        "float clip",
+        "int has_clip"
+      ],
+      "return": "void"
+    },
+    "matmul_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* Y"
+      ],
+      "return": "void"
+    },
+    "matmul_integer_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "const Tensor* AZeroPoint",
+        "const Tensor* BZeroPoint",
+        "Tensor* Y"
+      ],
+      "return": "void"
+    },
+    "max_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "max_pool_forward": {
+      "args": [
+        "const Tensor* X",
+        "Tensor* Y",
+        "PoolParams* params"
+      ],
+      "return": "void"
+    },
+    "max_roi_pool_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* rois",
+        "Tensor* Y",
+        "int pooled_h",
+        "int pooled_w",
+        "float spatial_scale"
+      ],
+      "return": "void"
+    },
+    "max_unpool_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* Indices",
+        "Tensor* Y",
+        "PoolParams* params"
+      ],
+      "return": "void"
+    },
+    "mean_forward": {
+      "args": [
+        "const Tensor** inputs",
+        "int num_inputs",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "mean_variance_normalization_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "mel_weight_matrix_forward": {
+      "args": [
+        "const Tensor* num_mel_bins",
+        "const Tensor* dft_length",
+        "const Tensor* sample_rate",
+        "const Tensor* lower_edge_hertz",
+        "const Tensor* upper_edge_hertz",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "min_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "mish_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "mod_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O",
+        "int fmod_mode"
+      ],
+      "return": "void"
+    },
+    "mul_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "multinomial_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int sample_size",
+        "uint32_t seed"
+      ],
+      "return": "void"
+    },
+    "neg_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "negative_log_likelihood_loss_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* target",
+        "const Tensor* weight",
+        "Tensor* output",
+        "int reduction",
+        "int has_ignore_index",
+        "int64_t ignore_index"
+      ],
+      "return": "void"
+    },
+    "non_max_suppression_forward": {
+      "args": [
+        "const Tensor* boxes",
+        "const Tensor* scores",
+        "Tensor* output",
+        "int max_output_boxes_per_class",
+        "float iou_threshold",
+        "float score_threshold",
+        "int center_point_box"
+      ],
+      "return": "int"
+    },
+    "nonzero_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "not_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "one_hot_forward": {
+      "args": [
+        "const Tensor* indices",
+        "const Tensor* values",
+        "Tensor* output",
+        "int axis"
+      ],
+      "return": "void"
+    },
+    "or_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "pad_forward": {
+      "args": [
+        "const Tensor* data",
+        "Tensor* output",
+        "const Tensor* pads",
+        "const Tensor* constant_value",
+        "int mode"
+      ],
+      "return": "void"
+    },
+    "pow_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "prelu_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* slope",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "qlinear_conv_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* XScale",
+        "const Tensor* XZeroPoint",
+        "const Tensor* W",
+        "const Tensor* WScale",
+        "const Tensor* WZeroPoint",
+        "const Tensor* YScale",
+        "const Tensor* YZeroPoint",
+        "const Tensor* Bias",
+        "Tensor* Y",
+        "ConvParams* params"
+      ],
+      "return": "void"
+    },
+    "qlinear_matmul_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* AScale",
+        "const Tensor* AZeroPoint",
+        "const Tensor* B",
+        "const Tensor* BScale",
+        "const Tensor* BZeroPoint",
+        "const Tensor* YScale",
+        "const Tensor* YZeroPoint",
+        "Tensor* Y"
+      ],
+      "return": "void"
+    },
+    "quantize_linear_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* Scale",
+        "const Tensor* ZeroPoint",
+        "Tensor* Y"
+      ],
+      "return": "void"
+    },
+    "quantize_linear_forward_precision": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* Scale",
+        "const Tensor* ZeroPoint",
+        "Tensor* Y",
+        "int precision"
+      ],
+      "return": "void"
+    },
+    "quantize_linear_forward_precision_saturate": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* Scale",
+        "const Tensor* ZeroPoint",
+        "Tensor* Y",
+        "int precision",
+        "int saturate"
+      ],
+      "return": "void"
+    },
+    "random_normal_forward": {
+      "args": [
+        "Tensor* output",
+        "float mean",
+        "float scale",
+        "float seed"
+      ],
+      "return": "void"
+    },
+    "random_uniform_like_forward": {
+      "args": [
+        "Tensor* output",
+        "float low",
+        "float high",
+        "float seed"
+      ],
+      "return": "void"
+    },
+    "range_forward": {
+      "args": [
+        "const Tensor* start",
+        "const Tensor* limit",
+        "const Tensor* delta",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "reciprocal_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "reduce_l1_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "reduce_l2_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "reduce_log_sum_exp_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "reduce_log_sum_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "reduce_max_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "reduce_mean_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "reduce_min_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "reduce_prod_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "reduce_sum_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "reduce_sum_square_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "ReduceParams* params"
+      ],
+      "return": "void"
+    },
+    "relu_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "reshape_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "resize_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float* scales",
+        "int coord_mode",
+        "int mode",
+        "int nearest_mode"
+      ],
+      "return": "void"
+    },
+    "reverse_sequence_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* sequence_lens",
+        "Tensor* output",
+        "int time_axis",
+        "int batch_axis"
+      ],
+      "return": "void"
+    },
+    "rms_normalization_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* scale",
+        "Tensor* output",
+        "int axis",
+        "float epsilon",
+        "int stash_type"
+      ],
+      "return": "void"
+    },
+    "rnn_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* W",
+        "const Tensor* R",
+        "const Tensor* B",
+        "const Tensor* sequence_lens",
+        "const Tensor* initial_h",
+        "Tensor* Y",
+        "Tensor* Y_h",
+        "int hidden_size",
+        "int direction",
+        "int layout",
+        "const int* activations",
+        "const float* activation_alpha",
+        "const float* activation_beta",
+        "int num_activations",
+        "float clip",
+        "int has_clip"
+      ],
+      "return": "void"
+    },
+    "roi_align_forward": {
+      "args": [
+        "const Tensor* X",
+        "const Tensor* rois",
+        "const Tensor* batch_indices",
+        "Tensor* Y",
+        "int output_height",
+        "int output_width",
+        "int sampling_ratio",
+        "float spatial_scale",
+        "int mode",
+        "int coordinate_transformation_mode"
+      ],
+      "return": "void"
+    },
+    "rotary_embedding_forward": {
+      "args": [
+        "const Tensor* input",
+        "const Tensor* cos_cache",
+        "const Tensor* sin_cache",
+        "const Tensor* position_ids",
+        "Tensor* output",
+        "int num_heads",
+        "int rotary_embedding_dim",
+        "int interleaved"
+      ],
+      "return": "void"
+    },
+    "round_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "scatter_elements_forward": {
+      "args": [
+        "Tensor* data",
+        "const Tensor* indices",
+        "const Tensor* updates",
+        "int axis",
+        "int reduction"
+      ],
+      "return": "void"
+    },
+    "scatter_nd_forward": {
+      "args": [
+        "Tensor* data",
+        "const Tensor* indices",
+        "const Tensor* updates",
+        "int reduction"
+      ],
+      "return": "void"
+    },
+    "selu_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float alpha",
+        "float gamma"
+      ],
+      "return": "void"
+    },
+    "shape_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "shrink_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float bias",
+        "float lambd"
+      ],
+      "return": "void"
+    },
+    "sigmoid_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "sign_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "sin_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "sinh_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "size_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "slice_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int* starts",
+        "int* steps"
+      ],
+      "return": "void"
+    },
+    "softmax_cross_entropy_loss_forward": {
+      "args": [
+        "const Tensor* scores",
+        "const Tensor* labels",
+        "const Tensor* weights",
+        "Tensor* loss_output",
+        "Tensor* log_prob_output",
+        "int reduction",
+        "int has_ignore_index",
+        "int64_t ignore_index"
+      ],
+      "return": "void"
+    },
+    "softmax_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int axis"
+      ],
+      "return": "void"
+    },
+    "softplus_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "softsign_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "space_to_depth_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int blocksize"
+      ],
+      "return": "void"
+    },
+    "sqrt_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "stft_forward": {
+      "args": [
+        "const Tensor* signal",
+        "const Tensor* window",
+        "Tensor* output",
+        "int frame_step",
+        "int frame_length",
+        "int onesided"
+      ],
+      "return": "void"
+    },
+    "sub_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "sum_forward": {
+      "args": [
+        "const Tensor** inputs",
+        "int num_inputs",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "swish_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float alpha"
+      ],
+      "return": "void"
+    },
+    "tan_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "tanh_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "tensor_scatter_forward": {
+      "args": [
+        "const Tensor* past_cache",
+        "const Tensor* update",
+        "const Tensor* write_indices",
+        "Tensor* output",
+        "int axis",
+        "int mode"
+      ],
+      "return": "void"
+    },
+    "thresholded_relu_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "float alpha"
+      ],
+      "return": "void"
+    },
+    "tile_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output"
+      ],
+      "return": "void"
+    },
+    "topk_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* values",
+        "Tensor* indices",
+        "int axis",
+        "int largest",
+        "int sorted",
+        "int K"
+      ],
+      "return": "void"
+    },
+    "transpose_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int* perm"
+      ],
+      "return": "void"
+    },
+    "triangular_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* output",
+        "int k",
+        "int upper"
+      ],
+      "return": "void"
+    },
+    "unique_forward": {
+      "args": [
+        "const Tensor* input",
+        "Tensor* values",
+        "Tensor* indices",
+        "Tensor* inverse",
+        "Tensor* counts",
+        "int sorted"
+      ],
+      "return": "int"
+    },
+    "where_forward": {
+      "args": [
+        "const Tensor* Cond",
+        "const Tensor* X",
+        "const Tensor* Y",
+        "Tensor* O"
+      ],
+      "return": "void"
+    },
+    "xor_forward": {
+      "args": [
+        "const Tensor* A",
+        "const Tensor* B",
+        "Tensor* O"
+      ],
+      "return": "void"
+    }
+  },
+  "header": "tensor_ops/tensor_ops.h",
+  "schema_version": 1,
+  "structs": {
+    "ConvParams": [
+      "int* pads",
+      "int* strides",
+      "int* dilations",
+      "int group"
+    ],
+    "PoolParams": [
+      "int* pads",
+      "int* strides",
+      "int* dilations",
+      "int* kernel_shape"
+    ],
+    "ReduceParams": [
+      "int* axes",
+      "int num_axes",
+      "int keepdims"
+    ],
+    "Tensor": [
+      "void* data",
+      "int* shape",
+      "int ndim",
+      "size_t size",
+      "DataType dtype"
+    ]
+  }
+}

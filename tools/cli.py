@@ -25,6 +25,7 @@ from tools.commands.create_graph_ops_model import export_graph_ops_model
 from tools.commands.create_model import export_model
 from tools.commands.graph_logic import main as graph_logic_main
 from tools.commands.verify_graph import main as verify_graph_main
+from tools.model_suite import main as model_suite_main
 from tools.numerical.cli import main as numerical_main
 
 
@@ -54,6 +55,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     passthrough = {
         "verify-graph": "验证 ONNX 导入、图构建、形状推断和可视化。",
+        "model-smoke": "运行代表性 ONNX 模型套件导入和图推导 smoke gate。",
         "numerical": "运行 C 后端与 CUDA 参考程序的数值正确性验证。",
         "compile-cuda": "编译 cuda/verify_*.cu 到 cache/。",
     }
@@ -81,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
         return graph_logic_main(args.model, args.task_name)
     if args.command == "verify-graph":
         return verify_graph_main(args.args)
+    if args.command == "model-smoke":
+        return model_suite_main(args.args)
     if args.command == "numerical":
         return numerical_main(args.args)
     if args.command == "compile-cuda":

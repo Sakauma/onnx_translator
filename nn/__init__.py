@@ -14,14 +14,21 @@ import ctypes
 import numpy as np
 from typing import List, Union
 import os
+from pathlib import Path
 import nn
 
-TENSOR_OPS_LIB_PATH = os.environ.get(
-    "TENSOR_OPS_LIB",
-    os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "tensor_ops.so")),
-)
+def _default_tensor_ops_lib_path():
+    package_lib = Path(__file__).resolve().with_name("tensor_ops.so")
+    repo_lib = Path(__file__).resolve().parent.parent / "tensor_ops.so"
+    for candidate in (package_lib, repo_lib):
+        if candidate.exists():
+            return str(candidate)
+    return str(repo_lib)
+
+
+TENSOR_OPS_LIB_PATH = os.environ.get("TENSOR_OPS_LIB", _default_tensor_ops_lib_path())
 # TENSOR_OPS_LIB 允许测试指向刚构建好的共享库，而不需要修改导入代码。
-# 默认路径会从仓库根目录解析 tensor_ops.so，方便本地开发和验证。
+# 默认路径优先使用 wheel 内的 nn/tensor_ops.so，开发环境回退到仓库根目录 tensor_ops.so。
 
 class CTensor(ctypes.Structure):
     """C张量结构体，用于与C库交互"""

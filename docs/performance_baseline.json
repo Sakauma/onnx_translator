@@ -1,0 +1,64 @@
+{
+  "baseline_kind": "portable_ci_floor",
+  "benchmark_command": "python tools/benchmark_runtime.py --warmup 1 --repeat 3 --baseline docs/performance_baseline.json --max-regression 0 --json result/benchmark_baseline_check.json",
+  "benchmarks": [
+    {
+      "elements_per_second": 10000000.0,
+      "max_ms": 104.858,
+      "median_ms": 104.858,
+      "min_ms": 104.858,
+      "name": "add",
+      "output_elements": 1048576,
+      "repeat": 3,
+      "warmup": 1
+    },
+    {
+      "elements_per_second": 100000.0,
+      "max_ms": 163.84,
+      "median_ms": 163.84,
+      "min_ms": 163.84,
+      "name": "conv2d",
+      "output_elements": 16384,
+      "repeat": 3,
+      "warmup": 1
+    },
+    {
+      "elements_per_second": 100000.0,
+      "max_ms": 655.36,
+      "median_ms": 655.36,
+      "min_ms": 655.36,
+      "name": "matmul",
+      "output_elements": 65536,
+      "repeat": 3,
+      "warmup": 1
+    },
+    {
+      "elements_per_second": 50000.0,
+      "max_ms": 20.48,
+      "median_ms": 20.48,
+      "min_ms": 20.48,
+      "name": "reduce_sum",
+      "output_elements": 1024,
+      "repeat": 3,
+      "warmup": 1
+    },
+    {
+      "elements_per_second": 2000000.0,
+      "max_ms": 65.536,
+      "median_ms": 65.536,
+      "min_ms": 65.536,
+      "name": "softmax",
+      "output_elements": 131072,
+      "repeat": 3,
+      "warmup": 1
+    }
+  ],
+  "generated_at": "2026-06-27T00:00:00+00:00",
+  "max_regression": 0.0,
+  "notes": "Conservative portable floors for release CI. Fixed-runner baselines can use higher local values with the same schema.",
+  "python": "3.12",
+  "repeat": 3,
+  "schema_version": 1,
+  "seed": 20260627,
+  "warmup": 1
+}

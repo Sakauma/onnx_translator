@@ -1,0 +1,67 @@
+# /**
+#   ******************************************************************************
+#   * @file        cuda.yml
+#   * @author      Egor Izmaylov
+#   * @brief       Runs CUDA-backed numerical verification on a self-hosted CUDA runner.
+#   * @details     2026.06.27  V1.0.0  Created
+#   ******************************************************************************
+#   * @attention
+#   ******************************************************************************
+# */
+
+name: CUDA
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 20 * * 1"
+
+jobs:
+  cuda-smoke:
+    runs-on: [self-hosted, linux, x64, cuda]
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -c constraints.txt
+
+      - name: Run CUDA smoke verification gate
+        run: |
+          python tools/health_check.py --require-cuda
+          make PYTHON=python verify-cuda-smoke
+
+  cuda-full:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, linux, x64, cuda]
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -c constraints.txt
+
+      - name: Run full CUDA verification gate
+        run: |
+          python tools/health_check.py --require-cuda
+          python tools/verify_all.py --iterations 3

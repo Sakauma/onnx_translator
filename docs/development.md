@@ -19,6 +19,8 @@
 
 当前 ONNXImport 覆盖的普通数值/张量算子均应具备 C runtime path。复杂算子可以保留 Python fallback 作为对照或动态语义兜底，但不能只实现 Python runtime。
 
+发布级目标要求实现持续和当前安装的 ONNX 默认 domain 最新官方算子对齐。新增官方算子时，除非属于纯图控制、序列、字符串或元数据调度类，否则主功能必须进入 C 后端，并同步进入 CUDA verifier 与 active numerical plan。
+
 ---
 
 ## 1. C 后端接口 (`tensor_ops/tensor_ops.h`)
@@ -81,5 +83,32 @@ make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python audit
 ```
 
 报告会写入 `docs/reports/operator_coverage.md`，用于确认 `forward()` 是否真正走到 C runtime path、是否只有合理的 Python 调度/元数据算子留在 Python，以及 CUDA verifier / active numerical plan 是否同步更新。
+
+## 7. 发布级补充门禁
+
+涉及 C 后端、算子覆盖、包入口或性能敏感路径时，还应运行：
+
+```bash
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python abi-check
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python onnx-semantic-matrix
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python release-check
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python release-preflight
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python release-artifacts
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python manylinux-wheels
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python manylinux-wheelhouse-check
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python manylinux-wheels-full
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python manylinux-wheelhouse-check-full
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python model-smoke
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python benchmark-smoke
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python benchmark-smoke-report
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python benchmark-baseline-check
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python benchmark-fixed-runner-check
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python benchmark
+make PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python sanitize
+```
+
+`onnx-semantic-matrix` 会刷新官方 ONNX latest 默认域语义矩阵，要求每个官方算子都有 import、operator class 或 deprecated canonical alias，以及 numerical/CUDA/pytest/orchestration 等强证据；`release-check` 是快速发布就绪审计；`release-preflight` 是发布前最后一轮聚合门禁，会串联语义矩阵、release、测试、模型、性能、包构建和 sanitizer 并输出 `result/release_preflight.json`；`release-artifacts` 验证 sdist/wheel、metadata、sdist 源码完整性和从 sdist 重建 wheel 的安装 smoke；`manylinux-wheels` 使用 Docker/cibuildwheel 构建 Linux 发布 wheel，`manylinux-wheelhouse-check` 检查 wheel 是否包含 C runtime、是否是非纯 Python 平台 wheel、platform tag 是否为 manylinux，并拒绝 `.data/purelib` 中的共享库；`manylinux-wheels-full` 和 `manylinux-wheelhouse-check-full` 用于发布验收，强制证明 `cp310/cp311/cp312` 完整矩阵；`model-smoke` 用 CNN、Transformer block 和 Embedding MLP 代表性模型验证导入、图推导和 ONNX reference 数值对齐；`benchmark-smoke` 是适合 CI/PR 的保守性能门禁；`benchmark-smoke-report` 会生成可上传的 `result/benchmark_smoke.json`；`benchmark-baseline-check` 使用 `docs/performance_baseline.json` 做版本化回归检查并生成 `result/benchmark_baseline_check.json`；`benchmark-fixed-runner-check` 使用 `docs/performance_fixed_runner_baseline.json` 和固定 `PERF_RUNNER_ID` 做更严格的固定机器性能回归检查；`benchmark` 记录核心 C 后端路径的性能基线；`sanitize` 用 ASan/UBSan 运行 C 后端回归子集和代表性模型组合路径，用于尽早发现越界访问、use-after-free 和未定义行为。
+
+如果修改了 `tensor_ops/tensor_ops.h` 的公开枚举、结构体或函数签名，必须明确评估兼容性；确认这是有意 ABI 变化后，使用 `$PYTHON tools/abi_manifest.py --write` 刷新 `docs/abi_manifest.json`。
 
 ---

@@ -410,11 +410,11 @@ static inline uint16_t float_to_bfloat16(float value) {
 // 实现 `bfloat16_to_float` 的数值格式转换或饱和裁剪，保证低精度存储符合 ONNX dtype 语义。
 static inline float bfloat16_to_float(uint16_t value) {
     // 提取符号位
-    uint32_t sign = (value & 0x8000) << 16;
+    uint32_t sign = ((uint32_t)(value & 0x8000)) << 16;
     // 提取指数位
-    uint32_t exp = (value & 0x7F80) << 16;
+    uint32_t exp = ((uint32_t)(value & 0x7F80)) << 16;
     // 提取尾数位
-    uint32_t frac = (value & 0x007F) << 16;
+    uint32_t frac = ((uint32_t)(value & 0x007F)) << 16;
     // 组合符号位、指数位和尾数位
     uint32_t bits = sign | exp | frac;
     return bits_to_float(bits);

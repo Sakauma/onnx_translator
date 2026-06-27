@@ -82,6 +82,11 @@ def build_steps(args: argparse.Namespace, root: Path) -> list[Step]:
             ],
         ),
     ]
+    if not getattr(args, "skip_model_suite", False):
+        model_suite_command = [_python(), "tools/model_suite.py"]
+        if getattr(args, "keep_artifacts", False):
+            model_suite_command.append("--keep-artifacts")
+        core_steps.insert(3, Step("run representative model suite", model_suite_command))
     if not getattr(args, "skip_audit", False):
         core_steps.insert(3, Step("audit strict operator coverage", [_python(), "tools/audit_ops.py", "--strict"]))
     steps.extend(core_steps)
@@ -118,6 +123,11 @@ def cleanup_artifacts(root: Path) -> None:
         root / "onnx_model",
         root / "result",
         root / "tensor_ops.so",
+        root / "tensor_ops_asan.so",
+        root / "nn" / "tensor_ops.so",
+        root / "build",
+        root / "dist",
+        root / "onnx_translator.egg-info",
     ]
     targets.extend(root.rglob("__pycache__"))
 
@@ -158,6 +168,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=20, help="Iterations per numerical test plan.")
     parser.add_argument("--op", action="append", help="Limit numerical checks to a named op. Can be repeated.")
     parser.add_argument("--skip-audit", action="store_true", help="Skip strict operator coverage audit.")
+    parser.add_argument("--skip-model-suite", action="store_true", help="Skip representative ONNX model smoke checks.")
     parser.add_argument("--keep-artifacts", action="store_true", help="Keep generated build and verification artifacts.")
     parser.add_argument("--no-clean-before", action="store_true", help="Do not remove generated artifacts before running.")
     return parser.parse_args(argv)
