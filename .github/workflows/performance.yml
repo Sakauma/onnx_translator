@@ -46,7 +46,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install -r requirements.txt -c constraints.txt
 
       - name: Run fixed runner performance gate
         run: |

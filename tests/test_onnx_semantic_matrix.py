@@ -76,3 +76,24 @@ def test_row_status_distinguishes_runtime_only_from_strong_semantic_evidence():
         == "verified"
     )
     assert onnx_semantic_matrix.row_status(False, [_info("Resize")], {"numerical_plan"}) == "missing_import"
+
+
+def test_build_matrix_reports_missing_rows_without_crashing(monkeypatch):
+    monkeypatch.setattr(onnx_semantic_matrix, "audit", lambda: ([], {"operator_class_count": 0}))
+    monkeypatch.setattr(
+        onnx_semantic_matrix,
+        "parse_latest_official_schema_details",
+        lambda: (
+            {
+                "NEWOP": {"op_type": "NewOp", "since_version": 1, "deprecated": False},
+            },
+            None,
+        ),
+    )
+    monkeypatch.setattr(onnx_semantic_matrix, "parse_import_supported_raw_ops", lambda: set())
+    monkeypatch.setattr(onnx_semantic_matrix, "parse_import_supported_ops", lambda: set())
+
+    payload, failures = onnx_semantic_matrix.build_matrix()
+
+    assert payload["missing_or_weak_count"] == 1
+    assert failures == ["NewOp: missing_import"]

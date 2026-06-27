@@ -165,7 +165,7 @@ def build_matrix() -> tuple[dict[str, object], list[str]]:
         }
         rows.append(row)
         if status != "verified":
-            failures.append(f"{official_name}: {status}")
+            failures.append(f"{details['op_type']}: {status}")
 
     payload = {
         "schema_version": 1,
