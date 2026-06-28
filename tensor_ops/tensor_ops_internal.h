@@ -1362,6 +1362,51 @@ static inline int is_axis_reduced(int axis, int* axes, int num_axes) {
 // 根据 out_idx 反解出 "基准坐标" (base_coords)。
 // 对于被归约的轴，基准坐标暂时设为 0；对于保留的轴，就是输出的对应坐标。
 // 启动内层循环，遍历所有被归约维度的组合，更新 accumulator。
+static inline void prepare_reduce_coords(
+    size_t out_index,
+    const Tensor* input,
+    const Tensor* output,
+    const ReduceParams* params,
+    int* coords
+) {
+    int out_coords[MAX_NDIM];
+    get_coords_from_index(out_index, out_coords, output->shape, output->ndim);
+
+    if (params->keepdims) {
+        for (int d = 0; d < input->ndim; d++) {
+            coords[d] = is_axis_reduced(d, params->axes, params->num_axes) ? 0 : out_coords[d];
+        }
+        return;
+    }
+
+    int out_dim_idx = 0;
+    for (int d = 0; d < input->ndim; d++) {
+        if (is_axis_reduced(d, params->axes, params->num_axes)) {
+            coords[d] = 0;
+        } else {
+            coords[d] = out_coords[out_dim_idx++];
+        }
+    }
+}
+
+static inline size_t reduce_total_steps_for(const Tensor* input, const ReduceParams* params) {
+    size_t reduce_total_steps = 1;
+    for (int i = 0; i < params->num_axes; i++) {
+        reduce_total_steps *= input->shape[params->axes[i]];
+    }
+    return reduce_total_steps;
+}
+
+static inline void update_reduce_coords(const Tensor* input, const ReduceParams* params, int* coords, size_t reduce_index) {
+    size_t temp_r = reduce_index;
+    for (int k = params->num_axes - 1; k >= 0; k--) {
+        int axis_idx = params->axes[k];
+        int dim_size = input->shape[axis_idx];
+        coords[axis_idx] = temp_r % dim_size;
+        temp_r /= dim_size;
+    }
+}
+
 // 展开 `REDUCE_OP_IMPL` 相关的重复 C 实现，保持多个算子入口与 ctypes ABI 的循环逻辑一致。
 #define REDUCE_OP_IMPL(FUNC_NAME, INIT_VAL, REDUCE_LOGIC, POST_PROC) \
 void FUNC_NAME(const Tensor* input, Tensor* output, ReduceParams* params) { \
