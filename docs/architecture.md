@@ -51,14 +51,18 @@ flowchart LR
 
 - `tensor_ops_internal.h`：共享 dtype 转换、Tensor 读写、坐标、归约和宏模板。
 - `tensor_ops_core.c`：Tensor 创建和释放。
-- `tensor_ops_elementwise.c`：逐元素、比较、逻辑和激活。
-- `tensor_ops_conv_pool_roi.c`：卷积、局部池化、反池化和 ROI。
+- `tensor_ops_elementwise.c`：基础逐元素、比较、逻辑和基础激活。
+- `tensor_ops_activation_extra.c`：扩展激活、bitwise 和额外 unary math。
+- `tensor_ops_conv_pool_roi.c`：卷积、Col2Im、DeformConv 和量化卷积。
+- `tensor_ops_pool_roi.c`：局部池化、反池化和 ROI。
 - `tensor_ops_global_pool.c`：全局池化。
 - `tensor_ops_matrix_quant.c`：矩阵和量化。
 - `tensor_ops_shape_index.c`：shape、索引、scatter/gather 和布局变换。
+- `tensor_ops_shape_grid.c`：网格生成。
 - `tensor_ops_reduce_arg.c`：归约和 Arg。
 - `tensor_ops_spectral_recurrent.c`：谱算子、窗口函数和循环网络。
-- `tensor_ops_normalization_loss_random.c`：归一化、损失、随机和采样。
+- `tensor_ops_normalization_loss_random.c`：归一化、随机和采样。
+- `tensor_ops_loss.c`：损失函数。
 
 ## 验证链路
 
