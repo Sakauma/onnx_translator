@@ -410,13 +410,6 @@ void reduce_min_forward(const Tensor* input, Tensor* output, ReduceParams* param
 }
 
 
-//ArgMax和ArgMin
-ARG_OP_IMPL(argmax_forward, -DBL_MAX, >, TENSOR_COMPARE_GT)
-
-
-ARG_OP_IMPL(argmin_forward, DBL_MAX, <, TENSOR_COMPARE_LT)
-
-
 // ReduceL1: Sum(|x|)
 void reduce_l1_forward(const Tensor* input, Tensor* output, ReduceParams* params) {
     if (is_integer_dtype(input->dtype) && is_integer_dtype(output->dtype)) {
@@ -437,10 +430,6 @@ void reduce_l2_forward(const Tensor* input, Tensor* output, ReduceParams* params
 }
 
 
-// ReduceLogSum: Log(Sum(x))
-REDUCE_OP_IMPL(reduce_log_sum_forward, 0.0, acc += val, acc = log(acc))
-
-
 // ReduceLogSumExp: Log(Sum(exp(x)))，仅实现基础定义
 void reduce_log_sum_exp_forward(const Tensor* input, Tensor* output, ReduceParams* params) {
     reduce_log_sum_exp_stable_forward(input, output, params);
@@ -454,21 +443,4 @@ void reduce_sum_square_forward(const Tensor* input, Tensor* output, ReduceParams
         return;
     }
     reduce_float_formula_forward(input, output, params, REDUCE_FORMULA_SUM_SQUARE);
-}
-
-
-// Mean (Element-wise)
-// 实现 `mean` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
-void mean_forward(const Tensor** inputs, int num_inputs, Tensor* output) {
-    if (!inputs || !output || num_inputs < 1) return;
-    size_t size = output->size;
-    
-    _Pragma("omp parallel for")
-    for (size_t i = 0; i < size; i++) {
-        double sum = 0.0;
-        for (int k = 0; k < num_inputs; k++) {
-            sum += get_value_as_double(inputs[k], i);
-        }
-        set_tensor_value_from_float(output, i, sum / num_inputs);
-    }
 }
