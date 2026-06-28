@@ -89,11 +89,16 @@ REQUIRED_FILES = [
     "tools/run_sanitized_tests.py",
     "tools/wheelhouse_smoke.py",
     "tensor_ops/tensor_ops_activation_extra.c",
+    "tensor_ops/tensor_ops_compare_logic.c",
+    "tensor_ops/tensor_ops_detection_sampling.c",
     "tensor_ops/tensor_ops_dtype.h",
     "tensor_ops/tensor_ops_global_pool.c",
+    "tensor_ops/tensor_ops_layout_sequence.c",
     "tensor_ops/tensor_ops_loss.c",
     "tensor_ops/tensor_ops_pool_roi.c",
+    "tensor_ops/tensor_ops_recurrent.c",
     "tensor_ops/tensor_ops_shape_grid.c",
+    "tensor_ops/tensor_ops_softmax_family.c",
     "docs/performance_baseline.json",
     "docs/performance_fixed_runner_baseline.json",
     "docs/onnx_semantic_matrix.json",
@@ -110,7 +115,7 @@ REQUIRED_FILES = [
 ]
 
 REQUIRED_MANYLINUX_PYTHON_TAGS = {"cp310", "cp311", "cp312"}
-C_BACKEND_MAX_SHARD_LINES = 800
+C_BACKEND_MAX_SHARD_LINES = 600
 REQUIRED_TREND_WINDOW_IDS = {
     "cuda_full",
     "fixed_runner_performance",
