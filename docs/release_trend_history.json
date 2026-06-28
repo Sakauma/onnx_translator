@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-06-28T04:52:47Z",
+  "captured_at": "2026-06-28T05:21:06Z",
   "repository": "Sakauma/onnx_translator",
   "source": "GitHub Actions REST API",
   "minimum_history_for_top_tier_release": 3,
@@ -13,6 +13,44 @@
       "successful_run_count": 3,
       "top_tier_ready": true,
       "successful_runs": [
+        {
+          "run_id": 28312181614,
+          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28312181614",
+          "event": "push",
+          "branch": "main",
+          "head_sha": "ce6568b28f5bc5260ad1e8010441cb1d446534a9",
+          "created_at": "2026-06-28T05:10:13Z",
+          "conclusion": "success",
+          "artifacts": [
+            {
+              "artifact_id": 7931303978,
+              "name": "release-evidence-28312181614",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7931303978",
+              "digest": "sha256:4a219aa6fcd729726fba83e12bf2b7bc6e936d3903708b0aeb78dbf28c66fbaf",
+              "expires_at": "2026-09-26T05:10:13Z",
+              "expired": false
+            }
+          ]
+        },
+        {
+          "run_id": 28312085860,
+          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28312085860",
+          "event": "pull_request",
+          "branch": "codex/release-trend-history",
+          "head_sha": "7e837d9185dcb9c76ef33f3fd368cdd907939d83",
+          "created_at": "2026-06-28T05:05:31Z",
+          "conclusion": "success",
+          "artifacts": [
+            {
+              "artifact_id": 7931276580,
+              "name": "release-evidence-28312085860",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7931276580",
+              "digest": "sha256:4423afde956e7c5e53081897aefb9cf4926409980b42cb91b0016ac6247cf57a",
+              "expires_at": "2026-09-26T05:05:31Z",
+              "expired": false
+            }
+          ]
+        },
         {
           "run_id": 28311668746,
           "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28311668746",
@@ -31,55 +69,12 @@
               "expired": false
             }
           ]
-        },
-        {
-          "run_id": 28311581045,
-          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28311581045",
-          "event": "pull_request",
-          "branch": "codex/thin-c-shards-800",
-          "head_sha": "b7e766b7831fffc1da96aa6805286084f33199de",
-          "created_at": "2026-06-28T04:40:56Z",
-          "conclusion": "success",
-          "artifacts": [
-            {
-              "artifact_id": 7931125485,
-              "name": "release-evidence-28311581045",
-              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7931125485",
-              "digest": "sha256:8b3b959b25fccc14a1eda510e9f91438ac052ba5f15a9dc57ac36a1392b733c5",
-              "expires_at": "2026-09-26T04:40:56Z",
-              "expired": false
-            }
-          ]
-        },
-        {
-          "run_id": 28311113289,
-          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28311113289",
-          "event": "push",
-          "branch": "main",
-          "head_sha": "6cb65795e0b31ae94259df20f92251dfe3259692",
-          "created_at": "2026-06-28T04:18:32Z",
-          "conclusion": "success",
-          "artifacts": [
-            {
-              "artifact_id": 7930985338,
-              "name": "release-evidence-28311113289",
-              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7930985338",
-              "digest": "sha256:eb4f9a80ddfff70433e52a5d685fd0959182260c60c017692c5d2e3649e8ec4d",
-              "expires_at": "2026-09-26T04:18:32Z",
-              "expired": false
-            }
-          ]
         }
       ],
       "next_action": "Continue retaining release-evidence artifacts on every PR, main push, and release-candidate workflow dispatch."
     },
     {
       "id": "cuda_full",
-      "status": "insufficient_history",
-      "minimum_required": 3,
-      "successful_run_count": 0,
-      "top_tier_ready": false,
-      "successful_runs": [],
       "pending_runs": [
         {
           "run_id": 28286314289,
@@ -100,25 +95,25 @@
           "conclusion": null
         }
       ],
+      "status": "insufficient_history",
+      "minimum_required": 3,
+      "successful_run_count": 0,
+      "top_tier_ready": false,
+      "successful_runs": [],
       "next_action": "Run the CUDA workflow by weekly schedule or workflow_dispatch on the self-hosted CUDA runner until three successful cuda-full artifacts are retained."
     },
     {
       "id": "fixed_runner_performance",
+      "observed_state": "No Performance workflow runs were returned by the GitHub Actions API at capture time.",
       "status": "insufficient_history",
       "minimum_required": 3,
       "successful_run_count": 0,
       "top_tier_ready": false,
       "successful_runs": [],
-      "observed_state": "No Performance workflow runs were returned by the GitHub Actions API at capture time.",
       "next_action": "Run the Performance workflow by weekly schedule or workflow_dispatch on the fixed performance runner until three benchmark-fixed-runner artifacts are retained."
     },
     {
       "id": "manylinux_full",
-      "status": "insufficient_history",
-      "minimum_required": 3,
-      "successful_run_count": 0,
-      "top_tier_ready": false,
-      "successful_runs": [],
       "related_smoke_runs": [
         {
           "run_id": 28311668738,
@@ -178,6 +173,11 @@
           ]
         }
       ],
+      "status": "insufficient_history",
+      "minimum_required": 3,
+      "successful_run_count": 0,
+      "top_tier_ready": false,
+      "successful_runs": [],
       "next_action": "Run Wheels by weekly schedule or workflow_dispatch so the manylinux-full matrix produces cp310, cp311, and cp312 artifacts for three retained cycles."
     }
   ]

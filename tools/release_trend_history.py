@@ -12,9 +12,14 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import re
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,10 +43,40 @@ REQUIRED_RUN_FIELDS = {
     "run_id",
     "run_url",
 }
+MANAGED_WINDOW_FIELDS = {
+    "minimum_required",
+    "next_action",
+    "status",
+    "successful_run_count",
+    "successful_runs",
+    "top_tier_ready",
+}
+DEFAULT_NEXT_ACTIONS = {
+    "release_evidence": (
+        "Continue retaining release-evidence artifacts on every PR, main push, "
+        "and release-candidate workflow dispatch."
+    ),
+    "cuda_full": (
+        "Run the CUDA workflow by weekly schedule or workflow_dispatch on the self-hosted CUDA runner "
+        "until three successful cuda-full artifacts are retained."
+    ),
+    "fixed_runner_performance": (
+        "Run the Performance workflow by weekly schedule or workflow_dispatch on the fixed performance runner "
+        "until three benchmark-fixed-runner artifacts are retained."
+    ),
+    "manylinux_full": (
+        "Run Wheels by weekly schedule or workflow_dispatch so the manylinux-full matrix produces cp310, cp311, "
+        "and cp312 artifacts for three retained cycles."
+    ),
+}
 
 
 def _read_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _utc_now_text() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _parse_datetime(value: object, field_name: str, failures: list[str]) -> None:
@@ -66,6 +101,109 @@ def _window_by_id(history: dict[str, object]) -> dict[str, dict[str, object]]:
         if isinstance(window, dict) and window.get("id"):
             windows[str(window["id"])] = window
     return windows
+
+
+def _workflow_filename(path_text: str) -> str:
+    return Path(path_text).name
+
+
+def _artifact_pattern_regex(pattern: str, run_id: object) -> re.Pattern[str]:
+    regex = re.escape(pattern)
+    regex = regex.replace(re.escape("${{ github.run_id }}"), re.escape(str(run_id)))
+    regex = regex.replace(re.escape("${{ matrix.cibw-build }}"), r"(?P<matrix>[^/]+)")
+    return re.compile(f"^{regex}$")
+
+
+def _required_matrix_values(window: dict[str, object]) -> set[str]:
+    values = set()
+    for token in window.get("workflow_tokens", []):
+        text = str(token)
+        if re.fullmatch(r"cp\d+-manylinux_x86_64", text):
+            values.add(text)
+    return values
+
+
+def _matching_artifacts(window: dict[str, object], run_id: object, artifacts: list[dict[str, object]]) -> list[dict[str, object]]:
+    pattern = _artifact_pattern_regex(str(window.get("artifact_pattern", "")), run_id)
+    required_matrix_values = _required_matrix_values(window)
+    matched = []
+    matrix_values = set()
+    for artifact in artifacts:
+        if artifact.get("expired") is True:
+            continue
+        match = pattern.match(str(artifact.get("name", "")))
+        if not match:
+            continue
+        matched.append(artifact)
+        matrix_value = match.groupdict().get("matrix")
+        if matrix_value:
+            matrix_values.add(matrix_value)
+    if required_matrix_values and not required_matrix_values <= matrix_values:
+        return []
+    return sorted(matched, key=lambda item: str(item.get("name", "")))
+
+
+def _artifact_record(artifact: dict[str, object]) -> dict[str, object]:
+    return {
+        "artifact_id": artifact.get("id"),
+        "name": artifact.get("name"),
+        "url": artifact.get("url"),
+        "digest": artifact.get("digest"),
+        "expires_at": artifact.get("expires_at"),
+        "expired": bool(artifact.get("expired", False)),
+    }
+
+
+def _run_record(run: dict[str, object], artifacts: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "run_id": run.get("id"),
+        "run_url": run.get("html_url"),
+        "event": run.get("event"),
+        "branch": run.get("head_branch"),
+        "head_sha": run.get("head_sha"),
+        "created_at": run.get("created_at"),
+        "conclusion": run.get("conclusion"),
+        "artifacts": [_artifact_record(artifact) for artifact in artifacts],
+    }
+
+
+def _window_status(success_count: int, minimum_history: int) -> str:
+    return "satisfied" if success_count >= minimum_history else "insufficient_history"
+
+
+class GitHubActionsClient:
+    def __init__(self, repository: str, token: str | None = None) -> None:
+        self.repository = repository
+        self.token = token
+
+    def _request_json(self, path: str, params: dict[str, object] | None = None) -> dict[str, object]:
+        query = f"?{urlencode(params)}" if params else ""
+        request = Request(f"https://api.github.com/repos/{self.repository}/{path}{query}")
+        request.add_header("Accept", "application/vnd.github+json")
+        request.add_header("X-GitHub-Api-Version", "2022-11-28")
+        if self.token:
+            request.add_header("Authorization", f"Bearer {self.token}")
+        try:
+            with urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"GitHub API request failed for {path}: HTTP {exc.code} {message}") from exc
+
+    def list_workflows(self) -> list[dict[str, object]]:
+        payload = self._request_json("actions/workflows", {"per_page": 100})
+        return [workflow for workflow in payload.get("workflows", []) if isinstance(workflow, dict)]
+
+    def list_workflow_runs(self, workflow_id: object, max_runs: int) -> list[dict[str, object]]:
+        payload = self._request_json(
+            f"actions/workflows/{workflow_id}/runs",
+            {"per_page": min(max_runs, 100)},
+        )
+        return [run for run in payload.get("workflow_runs", []) if isinstance(run, dict)]
+
+    def list_run_artifacts(self, run_id: object) -> list[dict[str, object]]:
+        payload = self._request_json(f"actions/runs/{run_id}/artifacts", {"per_page": 100})
+        return [artifact for artifact in payload.get("artifacts", []) if isinstance(artifact, dict)]
 
 
 def _validate_artifacts(window_id: str, run_id: object, artifacts: object, failures: list[str]) -> None:
@@ -124,24 +262,76 @@ def _validate_successful_runs(window_id: str, runs: object, failures: list[str])
         _validate_artifacts(window_id, run_id, run.get("artifacts"), failures)
 
 
-def validate_trend_history(
+def refresh_trend_history(
+    manifest: dict[str, object],
+    existing_history: dict[str, object],
+    client: GitHubActionsClient,
+    max_runs: int = 50,
+    captured_at: str | None = None,
+) -> dict[str, object]:
+    minimum_history = int(manifest.get("minimum_history_for_top_tier_release", 0))
+    workflows_by_path = {str(workflow.get("path")): workflow for workflow in client.list_workflows()}
+    workflows_by_filename = {_workflow_filename(path): workflow for path, workflow in workflows_by_path.items()}
+    existing_windows = _window_by_id(existing_history)
+    refreshed_windows = []
+
+    for manifest_window in manifest.get("trend_windows", []):
+        if not isinstance(manifest_window, dict):
+            continue
+        window_id = str(manifest_window.get("id", ""))
+        workflow_path = str(manifest_window.get("source_workflow", ""))
+        workflow = workflows_by_path.get(workflow_path) or workflows_by_filename.get(_workflow_filename(workflow_path))
+        if not workflow:
+            raise RuntimeError(f"Could not find GitHub Actions workflow for {workflow_path}")
+
+        successful_runs = []
+        for run in client.list_workflow_runs(workflow.get("id"), max_runs):
+            if run.get("status") != "completed" or run.get("conclusion") != "success":
+                continue
+            artifacts = client.list_run_artifacts(run.get("id"))
+            matched_artifacts = _matching_artifacts(manifest_window, run.get("id"), artifacts)
+            if not matched_artifacts:
+                continue
+            successful_runs.append(_run_record(run, matched_artifacts))
+            if len(successful_runs) >= minimum_history:
+                break
+
+        success_count = len(successful_runs)
+        status = _window_status(success_count, minimum_history)
+        previous_window = existing_windows.get(window_id, {})
+        refreshed_window = {
+            "id": window_id,
+            "status": status,
+            "minimum_required": minimum_history,
+            "successful_run_count": success_count,
+            "top_tier_ready": success_count >= minimum_history,
+            "successful_runs": successful_runs,
+        }
+        for key, value in previous_window.items():
+            if key not in MANAGED_WINDOW_FIELDS and key != "id":
+                refreshed_window[key] = value
+        refreshed_window["next_action"] = previous_window.get("next_action") or DEFAULT_NEXT_ACTIONS.get(window_id, "")
+        refreshed_windows.append(refreshed_window)
+
+    all_ready = all(bool(window.get("top_tier_ready")) for window in refreshed_windows)
+    return {
+        "schema_version": 1,
+        "captured_at": captured_at or _utc_now_text(),
+        "repository": client.repository,
+        "source": "GitHub Actions REST API",
+        "minimum_history_for_top_tier_release": minimum_history,
+        "all_windows_top_tier_ready": all_ready,
+        "windows": refreshed_windows,
+    }
+
+
+def validate_trend_history_payload(
+    history: dict[str, object],
+    manifest: dict[str, object],
     history_path: Path = DEFAULT_HISTORY,
     manifest_path: Path = DEFAULT_MANIFEST,
 ) -> tuple[dict[str, object], list[str]]:
     failures: list[str] = []
-    if not manifest_path.exists():
-        return {}, [f"release trend manifest is missing: {manifest_path}"]
-    if not history_path.exists():
-        return {}, [f"release trend history is missing: {history_path}"]
-
-    try:
-        manifest = _read_json(manifest_path)
-    except Exception as exc:
-        return {}, [f"release trend manifest is not readable: {exc}"]
-    try:
-        history = _read_json(history_path)
-    except Exception as exc:
-        return {}, [f"release trend history is not readable: {exc}"]
 
     if history.get("schema_version") != 1:
         failures.append("release trend history must use schema_version=1")
@@ -178,7 +368,7 @@ def validate_trend_history(
         if int(window.get("minimum_required", 0)) != minimum_history:
             failures.append(f"trend window {window_id} minimum_required must match the trend manifest")
 
-        expected_status = "satisfied" if success_count >= minimum_history else "insufficient_history"
+        expected_status = _window_status(success_count, minimum_history)
         if status and status != expected_status:
             failures.append(f"trend window {window_id} status must be {expected_status} for {success_count} runs")
         expected_ready = success_count >= minimum_history
@@ -216,17 +406,68 @@ def validate_trend_history(
     return summary, failures
 
 
+def validate_trend_history(
+    history_path: Path = DEFAULT_HISTORY,
+    manifest_path: Path = DEFAULT_MANIFEST,
+) -> tuple[dict[str, object], list[str]]:
+    if not manifest_path.exists():
+        return {}, [f"release trend manifest is missing: {manifest_path}"]
+    if not history_path.exists():
+        return {}, [f"release trend history is missing: {history_path}"]
+
+    try:
+        manifest = _read_json(manifest_path)
+    except Exception as exc:
+        return {}, [f"release trend manifest is not readable: {exc}"]
+    try:
+        history = _read_json(history_path)
+    except Exception as exc:
+        return {}, [f"release trend history is not readable: {exc}"]
+
+    return validate_trend_history_payload(history, manifest, history_path, manifest_path)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate archived release trend history evidence.")
     parser.add_argument("--history", default=str(DEFAULT_HISTORY), help="Path to release trend history JSON.")
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST), help="Path to release trend manifest JSON.")
+    parser.add_argument("--repository", help="GitHub repository in owner/name form; defaults to history.repository.")
+    parser.add_argument("--token-env", default="GITHUB_TOKEN", help="Environment variable containing a GitHub token.")
+    parser.add_argument("--max-runs", type=int, default=50, help="Maximum recent workflow runs to scan per trend window.")
+    parser.add_argument("--refresh", action="store_true", help="Refresh history from the GitHub Actions API before validating.")
+    parser.add_argument("--write", action="store_true", help="Write a refreshed history snapshot back to --history.")
     parser.add_argument("--json", dest="json_path", help="Optional path to write the validated summary.")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    summary, failures = validate_trend_history(Path(args.history), Path(args.manifest))
+    history_path = Path(args.history)
+    manifest_path = Path(args.manifest)
+
+    if args.refresh:
+        manifest = _read_json(manifest_path)
+        existing_history = _read_json(history_path) if history_path.exists() else {}
+        repository = args.repository or str(existing_history.get("repository", ""))
+        if not repository:
+            print("ERROR: --repository is required when the history file does not declare repository")
+            return 1
+        token = os.environ.get(args.token_env)
+        client = GitHubActionsClient(repository, token)
+        try:
+            refreshed_history = refresh_trend_history(manifest, existing_history, client, args.max_runs)
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}")
+            if not token:
+                print(f"ERROR: set {args.token_env} to avoid anonymous GitHub API rate limits")
+            return 1
+        summary, failures = validate_trend_history_payload(refreshed_history, manifest, history_path, manifest_path)
+        if not failures and args.write:
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            history_path.write_text(json.dumps(refreshed_history, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+            print(f"Wrote refreshed release trend history: {history_path}")
+    else:
+        summary, failures = validate_trend_history(history_path, manifest_path)
 
     print("Release trend history summary:")
     print(f"- repository: {summary.get('repository', '-')}")
