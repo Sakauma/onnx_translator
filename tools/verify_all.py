@@ -48,7 +48,12 @@ def build_steps(args: argparse.Namespace, root: Path) -> list[Step]:
     ]
 
     if not args.skip_cuda:
-        steps.append(Step("compile CUDA verifiers", [_python(), "tools/cli.py", "compile-cuda"]))
+        compile_cuda_command = [_python(), "tools/cli.py", "compile-cuda"]
+        if getattr(args, "force_cuda_compile", False):
+            compile_cuda_command.append("--force")
+        for op_name in args.op or []:
+            compile_cuda_command.extend(["--op", op_name])
+        steps.append(Step("compile CUDA verifiers", compile_cuda_command))
 
     make_env = {"PYTHON": _python()}
     core_steps = [
@@ -88,7 +93,7 @@ def build_steps(args: argparse.Namespace, root: Path) -> list[Step]:
             model_suite_command.append("--keep-artifacts")
         core_steps.insert(3, Step("run representative model suite", model_suite_command))
     if not getattr(args, "skip_audit", False):
-        core_steps.insert(3, Step("audit strict operator coverage", [_python(), "tools/audit_ops.py", "--strict"]))
+        core_steps.insert(3, Step("audit strict operator coverage", [_python(), "tools/audit_ops.py", "--strict", "--no-output"]))
     steps.extend(core_steps)
 
     if not args.skip_cuda and not args.skip_numerical:
@@ -167,6 +172,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--iterations", type=int, default=20, help="Iterations per numerical test plan.")
     parser.add_argument("--op", action="append", help="Limit numerical checks to a named op. Can be repeated.")
+    parser.add_argument(
+        "--force-cuda-compile",
+        action="store_true",
+        help="Recompile selected CUDA verifiers even when cached executables are fresh.",
+    )
     parser.add_argument("--skip-audit", action="store_true", help="Skip strict operator coverage audit.")
     parser.add_argument("--skip-model-suite", action="store_true", help="Skip representative ONNX model smoke checks.")
     parser.add_argument("--keep-artifacts", action="store_true", help="Keep generated build and verification artifacts.")

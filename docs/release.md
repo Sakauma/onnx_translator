@@ -23,10 +23,24 @@
 make PYTHON=$PYTHON release-preflight
 ```
 
-该命令会依次运行 `onnx-semantic-matrix`、`release-check`、全量 pytest、`model-smoke`、`benchmark-smoke-report`、`benchmark-baseline-check`、`package-smoke`、`release-artifacts` 和 `sanitize`，并写入 `result/release_preflight.json` 记录每个 gate 的命令、状态和耗时。带 CUDA 的机器可以额外运行：
+该命令会依次运行 `onnx-semantic-matrix`、`release-check`、全量 pytest、`model-smoke`、`benchmark-smoke-report`、`benchmark-baseline-check`、`package-smoke`、`release-artifacts` 和 `sanitize`，并写入 `result/release_preflight.json` 记录每个 gate 的命令、状态和耗时，同时生成 `result/release_dashboard.md` 和 `result/release_dashboard.json` 汇总 sanitizer、manylinux、性能和 CUDA 证据。仪表盘会列出每个 gate 的本地命令、返回码、耗时、关键 artifact 状态以及 CI/workflow 配置 token，方便区分“本次已跑”“本次计划但未跑”和“仅 CI 已配置”。
+
+带 CUDA 的机器可以额外运行：
 
 ```bash
 $PYTHON tools/release_preflight.py --include-cuda-smoke
+```
+
+固定 CUDA runner 或发布验收机上可以把完整 CUDA 数值 gate 也纳入预检：
+
+```bash
+$PYTHON tools/release_preflight.py --include-cuda-full
+```
+
+固定性能 runner 上可以把严格性能基线 gate 纳入同一份仪表盘：
+
+```bash
+$PYTHON tools/release_preflight.py --include-fixed-runner-perf
 ```
 
 带 Docker 的 Linux/WSL 环境可以额外把 manylinux wheel 构建纳入预检：
@@ -46,6 +60,17 @@ $PYTHON tools/release_preflight.py --include-manylinux-full
 ```bash
 $PYTHON tools/release_preflight.py --dry-run --json /tmp/release_preflight_plan.json
 ```
+
+已有 preflight JSON 时，可以单独刷新仪表盘：
+
+```bash
+make PYTHON=$PYTHON release-dashboard
+$PYTHON tools/release_dashboard.py --preflight result/release_preflight.json
+```
+
+CI 的 `release-readiness` job 可通过 PR、main/master push 或 `workflow_dispatch` 运行，并会生成一份远端证据入口：`result/release_preflight_plan.json` 使用 `--dry-run` 记录本地、CUDA、manylinux 和固定性能 runner 的完整发布门禁计划；`result/release_dashboard.md` 与 `result/release_dashboard.json` 把该计划、workflow 配置和关键 artifact 路径汇总成表；三者连同 checklist 作为 `release-evidence-${{ github.run_id }}` artifact 上传并保留 90 天。发布验收时应把这份远端 artifact 与 CUDA、Wheels、Performance workflow 的实际 run 链接一起归档。
+
+发布验收时使用 [`docs/release_evidence_checklist.md`](release_evidence_checklist.md) 汇总本地命令、dashboard 产物、manylinux/CUDA/performance 外部 runner 证据和 CI artifact 链接。任何没有在本地执行的重门禁都必须在 checklist 中记录替代 CI run 或明确标为发布阻断项。
 
 ## 发布就绪检查
 
@@ -204,12 +229,12 @@ make PYTHON=$PYTHON sanitize
 make PYTHON=python verify-cuda-smoke
 ```
 
-该 smoke gate 会编译全部 CUDA verifier，但只运行关键算子的少量 numerical 计划，用于快速暴露工具链、C/CUDA ABI 和核心路径回退。
+该 smoke gate 会把 `--op` 过滤条件同时传给 CUDA 编译和 numerical 验证，默认只编译并运行 `add`、`matmul`、`conv2d`、`softmax`、`quantize_linear` 和 `dequantize_linear` 等关键算子。`tools/cli.py compile-cuda` 会跳过比源文件、公共 `.cuh` 头和编译脚本更新的 cached executable；需要强制重编时使用 `--force`。
 
 定时任务和手工触发会运行完整 CUDA gate：
 
 ```bash
-python tools/verify_all.py --iterations 3
+make PYTHON=python verify-cuda-full
 ```
 
-它会编译全部 CUDA verifier，并执行 CUDA-backed numerical 正确性验证。没有 GPU 的普通 GitHub-hosted runner 继续运行 CPU、release 和 sanitizer 门禁。
+它不传 `--op`，因此会编译全部 CUDA verifier，并执行 CUDA-backed numerical 正确性验证。没有 GPU 的普通 GitHub-hosted runner 继续运行 CPU、release 和 sanitizer 门禁。

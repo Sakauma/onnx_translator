@@ -40,6 +40,7 @@ REQUIRED_SCRIPTS = {
     "onnx-translator-release-check",
     "onnx-translator-package-smoke",
     "onnx-translator-release-artifacts",
+    "onnx-translator-release-dashboard",
     "onnx-translator-release-preflight",
     "onnx-translator-wheelhouse-smoke",
     "onnx-translator-onnx-semantic-matrix",
@@ -60,28 +61,34 @@ REQUIRED_MAKE_TARGETS = {
     "onnx-semantic-matrix:",
     "package-smoke:",
     "release-artifacts:",
+    "release-dashboard:",
     "release-preflight:",
     "sanitize:",
     "release-check:",
     "verify-cuda-smoke:",
+    "verify-cuda-full:",
 }
 
 REQUIRED_FILES = [
     "constraints.txt",
     "docs/abi_manifest.json",
     "tools/abi_manifest.py",
+    "tools/audit_operator_data.py",
     "tools/benchmark_runtime.py",
     "tools/model_suite.py",
     "tools/onnx_semantic_matrix.py",
     "tools/package_smoke.py",
     "tools/release_artifacts.py",
+    "tools/release_dashboard.py",
     "tools/release_preflight.py",
     "tools/run_sanitized_tests.py",
     "tools/wheelhouse_smoke.py",
+    "tensor_ops/tensor_ops_dtype.h",
     "docs/performance_baseline.json",
     "docs/performance_fixed_runner_baseline.json",
     "docs/onnx_semantic_matrix.json",
     "docs/onnx_semantic_matrix.md",
+    "docs/release_evidence_checklist.md",
     ".github/workflows/ci.yml",
     ".github/workflows/cuda.yml",
     ".github/workflows/performance.yml",
@@ -190,6 +197,81 @@ def _check_cibuildwheel_config(pyproject: dict, requirements_dev_text: str) -> l
     return failures
 
 
+def _check_release_evidence_checklist() -> list[str]:
+    path = ROOT / "docs" / "release_evidence_checklist.md"
+    if not path.exists():
+        return ["release evidence checklist is missing"]
+    text = path.read_text(encoding="utf-8")
+    required_tokens = [
+        "Release Evidence Checklist",
+        "release candidate commit SHA",
+        "result/release_preflight.json",
+        "result/release_preflight_plan.json",
+        "result/release_dashboard.md",
+        "release-evidence",
+        "manylinux-wheels-full",
+        "benchmark-fixed-runner-check",
+        "verify-cuda-full",
+        "sanitize",
+        "CI run",
+    ]
+    return [f"release evidence checklist is missing {token!r}" for token in required_tokens if token not in text]
+
+
+def _check_release_evidence_workflow() -> list[str]:
+    path = ROOT / ".github" / "workflows" / "ci.yml"
+    if not path.exists():
+        return ["release evidence workflow is missing .github/workflows/ci.yml"]
+    text = path.read_text(encoding="utf-8")
+    required_tokens = [
+        "Build release evidence dashboard",
+        "Upload release evidence dashboard",
+        "workflow_dispatch",
+        "release-evidence-${{ github.run_id }}",
+        "result/release_preflight_plan.json",
+        "result/release_dashboard.md",
+        "result/release_dashboard.json",
+        "docs/release_evidence_checklist.md",
+        "retention-days: 90",
+        "--include-cuda-smoke",
+        "--include-cuda-full",
+        "--include-manylinux",
+        "--include-manylinux-full",
+        "--include-fixed-runner-perf",
+    ]
+    return [f"release evidence workflow is missing {token!r}" for token in required_tokens if token not in text]
+
+
+def _check_heavy_gate_artifact_retention() -> list[str]:
+    required_by_file = {
+        ".github/workflows/cuda.yml": [
+            "Upload CUDA smoke evidence",
+            "Upload full CUDA evidence",
+            "cuda-smoke-${{ github.run_id }}",
+            "cuda-full-${{ github.run_id }}",
+            "retention-days: 90",
+        ],
+        ".github/workflows/performance.yml": [
+            "benchmark-fixed-runner-${{ github.run_id }}",
+            "retention-days: 180",
+        ],
+        ".github/workflows/wheels.yml": [
+            "manylinux-smoke-${{ github.run_id }}",
+            "manylinux-${{ matrix.cibw-build }}-${{ github.run_id }}",
+            "retention-days: 90",
+        ],
+    }
+    failures = []
+    for path_text, tokens in required_by_file.items():
+        path = ROOT / path_text
+        if not path.exists():
+            failures.append(f"heavy gate workflow is missing {path_text}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        failures.extend(f"heavy gate workflow {path_text} is missing {token!r}" for token in tokens if token not in text)
+    return failures
+
+
 def build_release_summary() -> tuple[dict[str, object], list[str]]:
     pyproject = _load_pyproject()
     infos, metadata = audit()
@@ -197,6 +279,9 @@ def build_release_summary() -> tuple[dict[str, object], list[str]]:
     requirements_dev = ROOT / "requirements-dev.txt"
     requirements_dev_text = requirements_dev.read_text(encoding="utf-8") if requirements_dev.exists() else ""
     failures.extend(_check_cibuildwheel_config(pyproject, requirements_dev_text))
+    failures.extend(_check_release_evidence_checklist())
+    failures.extend(_check_release_evidence_workflow())
+    failures.extend(_check_heavy_gate_artifact_retention())
     failures.extend(strict_failures(infos, metadata))
     semantic_matrix, semantic_failures = _check_onnx_semantic_matrix()
     failures.extend(semantic_failures)

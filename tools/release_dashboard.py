@@ -1,0 +1,311 @@
+# /**
+#   ******************************************************************************
+#   * @file        release_dashboard.py
+#   * @author      Egor Izmaylov
+#   * @brief       Builds a concise release evidence dashboard from preflight output and CI configuration.
+#   * @details     2026.06.27  V1.0.0  Created
+#   ******************************************************************************
+#   * @attention
+#   ******************************************************************************
+# */
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PREFLIGHT = ROOT / "result" / "release_preflight.json"
+DEFAULT_MARKDOWN = ROOT / "result" / "release_dashboard.md"
+DEFAULT_JSON = ROOT / "result" / "release_dashboard.json"
+
+
+GATES = [
+    {
+        "id": "sanitizer",
+        "title": "ASan/UBSan Sanitizer",
+        "steps": ["sanitize"],
+        "artifacts": [],
+        "workflow_checks": [(".github/workflows/ci.yml", "Run ASan/UBSan C backend gate")],
+    },
+    {
+        "id": "manylinux_smoke",
+        "title": "Manylinux Smoke Wheel",
+        "steps": ["manylinux-wheels", "manylinux-wheelhouse-check"],
+        "artifacts": ["wheelhouse"],
+        "workflow_checks": [(".github/workflows/wheels.yml", "manylinux-smoke")],
+    },
+    {
+        "id": "manylinux_full",
+        "title": "Manylinux Full Matrix",
+        "steps": ["manylinux-wheels-full", "manylinux-wheelhouse-check-full"],
+        "artifacts": ["wheelhouse"],
+        "workflow_checks": [(".github/workflows/wheels.yml", "manylinux-full")],
+    },
+    {
+        "id": "performance_smoke",
+        "title": "Performance Smoke/Baseline",
+        "steps": ["benchmark-smoke-report", "benchmark-baseline-check"],
+        "artifacts": ["result/benchmark_smoke.json", "result/benchmark_baseline_check.json"],
+        "workflow_checks": [(".github/workflows/ci.yml", "Run benchmark smoke gate")],
+    },
+    {
+        "id": "performance_fixed_runner",
+        "title": "Fixed Runner Performance",
+        "steps": ["benchmark-fixed-runner-check"],
+        "artifacts": ["docs/performance_fixed_runner_baseline.json", "result/benchmark_fixed_runner_check.json"],
+        "workflow_checks": [(".github/workflows/performance.yml", "fixed-runner-baseline")],
+    },
+    {
+        "id": "cuda_smoke",
+        "title": "CUDA Smoke",
+        "steps": ["verify-cuda-smoke"],
+        "artifacts": [],
+        "workflow_checks": [(".github/workflows/cuda.yml", "cuda-smoke")],
+    },
+    {
+        "id": "cuda_full",
+        "title": "Full CUDA Numerical",
+        "steps": ["verify-cuda-full"],
+        "artifacts": [],
+        "workflow_checks": [
+            (".github/workflows/cuda.yml", "cuda-full"),
+            (".github/workflows/cuda.yml", "make PYTHON=python verify-cuda-full"),
+        ],
+    },
+]
+
+
+def _read_json(path: Path) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _step_statuses(preflight: dict[str, object] | None) -> dict[str, str]:
+    return {name: str(record.get("status", "unknown")) for name, record in _step_records(preflight).items()}
+
+
+def _step_records(preflight: dict[str, object] | None) -> dict[str, dict[str, object]]:
+    if not preflight:
+        return {}
+    records = {}
+    for step in preflight.get("steps", []):
+        if isinstance(step, dict) and isinstance(step.get("name"), str):
+            records[str(step["name"])] = {
+                "name": str(step["name"]),
+                "command": list(step.get("command", [])),
+                "status": str(step.get("status", "unknown")),
+                "returncode": step.get("returncode"),
+                "duration_seconds": step.get("duration_seconds"),
+                "started_at": step.get("started_at"),
+            }
+    return records
+
+
+def _artifact(path_text: str) -> dict[str, object]:
+    path = ROOT / path_text
+    if path.is_dir():
+        count = sum(1 for _ in path.iterdir())
+        return {"path": path_text, "present": True, "kind": "directory", "entries": count}
+    if path.exists():
+        return {"path": path_text, "present": True, "kind": "file", "bytes": path.stat().st_size}
+    return {"path": path_text, "present": False, "kind": "missing"}
+
+
+def _workflow_check(path_text: str, token: str) -> dict[str, object]:
+    path = ROOT / path_text
+    present = path.exists() and token in path.read_text(encoding="utf-8")
+    return {"path": path_text, "token": token, "present": present}
+
+
+def _status_for_gate(gate: dict[str, object], step_statuses: dict[str, str], workflow_checks: list[dict[str, object]]) -> str:
+    steps = list(gate["steps"])
+    if not steps:
+        return "configured" if all(check["present"] for check in workflow_checks) else "missing"
+
+    statuses = [step_statuses.get(step) for step in steps]
+    if all(status == "passed" for status in statuses):
+        return "passed"
+    if any(status == "failed" for status in statuses):
+        return "failed"
+    if all(status == "skipped" for status in statuses):
+        return "planned"
+    if any(status is not None for status in statuses):
+        return "partial"
+    return "configured" if all(check["present"] for check in workflow_checks) else "missing"
+
+
+def build_dashboard(preflight_path: Path = DEFAULT_PREFLIGHT) -> dict[str, object]:
+    preflight = _read_json(preflight_path)
+    records = _step_records(preflight)
+    statuses = _step_statuses(preflight)
+    gates = []
+    for gate in GATES:
+        workflow_checks = [_workflow_check(path, token) for path, token in gate["workflow_checks"]]
+        artifacts = [_artifact(path) for path in gate["artifacts"]]
+        gate_steps = {step: statuses.get(step, "not-run") for step in gate["steps"]}
+        gate_step_records = [
+            records.get(
+                step,
+                {
+                    "name": step,
+                    "command": [],
+                    "status": "not-run",
+                    "returncode": None,
+                    "duration_seconds": None,
+                    "started_at": None,
+                },
+            )
+            for step in gate["steps"]
+        ]
+        gates.append(
+            {
+                "id": gate["id"],
+                "title": gate["title"],
+                "status": _status_for_gate(gate, statuses, workflow_checks),
+                "steps": gate_steps,
+                "step_records": gate_step_records,
+                "artifacts": artifacts,
+                "workflow_checks": workflow_checks,
+            }
+        )
+
+    preflight_flags = {}
+    if preflight:
+        for key in [
+            "include_cuda_smoke",
+            "include_cuda_full",
+            "include_manylinux",
+            "include_manylinux_full",
+            "include_fixed_runner_perf",
+        ]:
+            preflight_flags[key] = bool(preflight.get(key, False))
+
+    return {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "preflight_path": str(preflight_path),
+        "preflight_present": preflight is not None,
+        "preflight_status": preflight.get("status") if preflight else "missing",
+        "preflight_dry_run": preflight.get("dry_run") if preflight else None,
+        "preflight_flags": preflight_flags,
+        "gates": gates,
+    }
+
+
+def _format_command(command: list[object]) -> str:
+    if not command:
+        return "-"
+    return " ".join(str(part) for part in command)
+
+
+def _format_steps(step_records: list[dict[str, object]]) -> str:
+    if not step_records:
+        return "workflow-only"
+    parts = []
+    for record in step_records:
+        details = []
+        if record.get("returncode") is not None:
+            details.append(f"rc={record['returncode']}")
+        if record.get("duration_seconds") is not None:
+            details.append(f"{record['duration_seconds']}s")
+        suffix = f" ({', '.join(details)})" if details else ""
+        parts.append(
+            "`{name}`: {status}{suffix}<br>`{command}`".format(
+                name=record["name"],
+                status=record["status"],
+                suffix=suffix,
+                command=_format_command(record.get("command", [])),
+            )
+        )
+    return "<br>".join(parts)
+
+
+def _format_artifacts(artifacts: list[dict[str, object]]) -> str:
+    if not artifacts:
+        return "-"
+    parts = []
+    for artifact in artifacts:
+        if not artifact["present"]:
+            suffix = "missing"
+        elif artifact["kind"] == "directory":
+            suffix = f"present ({artifact['entries']} entries)"
+        else:
+            suffix = f"present ({artifact['bytes']} bytes)"
+        parts.append(f"`{artifact['path']}`: {suffix}")
+    return "<br>".join(parts)
+
+
+def _format_workflows(checks: list[dict[str, object]]) -> str:
+    parts = []
+    for check in checks:
+        suffix = "configured" if check["present"] else "missing"
+        parts.append(f"`{check['path']}`: {suffix}<br>`{check['token']}`")
+    return "<br>".join(parts)
+
+
+def _format_flags(flags: dict[str, object]) -> str:
+    if not flags:
+        return "-"
+    return ", ".join(f"`{key}`={value}" for key, value in sorted(flags.items()))
+
+
+def render_markdown(payload: dict[str, object]) -> str:
+    lines = [
+        "# Release Evidence Dashboard",
+        "",
+        f"- Generated at: `{payload['generated_at']}`",
+        f"- Preflight report: `{payload['preflight_path']}`",
+        f"- Preflight status: `{payload['preflight_status']}`",
+        f"- Dry run: `{payload['preflight_dry_run']}`",
+        f"- Optional gate flags: {_format_flags(payload.get('preflight_flags', {}))}",
+        "",
+        "| Gate | Status | Local Evidence | Artifacts | CI / Workflow Evidence |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for gate in payload["gates"]:
+        lines.append(
+            "| {title} | `{status}` | {steps} | {artifacts} | {workflows} |".format(
+                title=gate["title"],
+                status=gate["status"],
+                steps=_format_steps(gate["step_records"]),
+                artifacts=_format_artifacts(gate["artifacts"]),
+                workflows=_format_workflows(gate["workflow_checks"]),
+            )
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_dashboard(payload: dict[str, object], markdown_path: Path, json_path: Path | None = None) -> None:
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(render_markdown(payload), encoding="utf-8")
+    print(f"Wrote release dashboard: {markdown_path}")
+    if json_path is not None:
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"Wrote release dashboard JSON: {json_path}")
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build a concise release evidence dashboard.")
+    parser.add_argument("--preflight", default=str(DEFAULT_PREFLIGHT), help="Path to release_preflight.json.")
+    parser.add_argument("--markdown", default=str(DEFAULT_MARKDOWN), help="Path to write the Markdown dashboard.")
+    parser.add_argument("--json", default=str(DEFAULT_JSON), help="Path to write the JSON dashboard.")
+    parser.add_argument("--no-json", action="store_true", help="Only write the Markdown dashboard.")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    payload = build_dashboard(Path(args.preflight))
+    write_dashboard(payload, Path(args.markdown), None if args.no_json else Path(args.json))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

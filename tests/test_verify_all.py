@@ -25,6 +25,7 @@ def _args(**overrides):
         "keep_artifacts": False,
         "iterations": 20,
         "op": None,
+        "force_cuda_compile": False,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -45,9 +46,11 @@ def test_skip_cuda_plan_omits_cuda_and_numerical_steps():
 def test_full_plan_includes_numerical_filters():
     steps = build_steps(_args(iterations=3, op=["add", "mul"]), Path("/repo"))
     numerical_step = next(step for step in steps if step.name == "run numerical correctness checks")
+    compile_step = next(step for step in steps if step.name == "compile CUDA verifiers")
     audit_step = next(step for step in steps if step.name == "audit strict operator coverage")
 
-    assert audit_step.command[-1] == "--strict"
+    assert audit_step.command[-2:] == ["--strict", "--no-output"]
+    assert compile_step.command[-4:] == ["--op", "add", "--op", "mul"]
     assert numerical_step.command[-7:] == [
         "--iterations",
         "3",
@@ -57,6 +60,13 @@ def test_full_plan_includes_numerical_filters():
         "--op",
         "mul",
     ]
+
+
+def test_cuda_compile_step_can_force_rebuild():
+    steps = build_steps(_args(force_cuda_compile=True, op=["add"]), Path("/repo"))
+    compile_step = next(step for step in steps if step.name == "compile CUDA verifiers")
+
+    assert compile_step.command[-3:] == ["--force", "--op", "add"]
 
 
 # 验证 `test_skip_audit_plan_omits_strict_audit_step` 覆盖的回归场景，防止排障开关影响默认门禁。
