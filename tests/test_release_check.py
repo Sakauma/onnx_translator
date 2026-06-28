@@ -126,10 +126,11 @@ def test_release_check_requires_split_dtype_header():
 
 
 def test_release_check_requires_c_backend_shard_budget():
-    assert C_BACKEND_MAX_SHARD_LINES == 600
+    assert C_BACKEND_MAX_SHARD_LINES == 550
     for path in [
         "tensor_ops/tensor_ops_activation_extra.c",
         "tensor_ops/tensor_ops_compare_logic.c",
+        "tensor_ops/tensor_ops_conv_quant.c",
         "tensor_ops/tensor_ops_detection_sampling.c",
         "tensor_ops/tensor_ops_global_pool.c",
         "tensor_ops/tensor_ops_layout_sequence.c",

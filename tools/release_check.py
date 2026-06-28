@@ -90,6 +90,7 @@ REQUIRED_FILES = [
     "tools/wheelhouse_smoke.py",
     "tensor_ops/tensor_ops_activation_extra.c",
     "tensor_ops/tensor_ops_compare_logic.c",
+    "tensor_ops/tensor_ops_conv_quant.c",
     "tensor_ops/tensor_ops_detection_sampling.c",
     "tensor_ops/tensor_ops_dtype.h",
     "tensor_ops/tensor_ops_global_pool.c",
@@ -115,7 +116,7 @@ REQUIRED_FILES = [
 ]
 
 REQUIRED_MANYLINUX_PYTHON_TAGS = {"cp310", "cp311", "cp312"}
-C_BACKEND_MAX_SHARD_LINES = 600
+C_BACKEND_MAX_SHARD_LINES = 550
 REQUIRED_TREND_WINDOW_IDS = {
     "cuda_full",
     "fixed_runner_performance",
