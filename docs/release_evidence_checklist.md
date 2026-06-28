@@ -33,7 +33,7 @@
 
 - [ ] `python tools/release_preflight.py --json result/release_preflight.json` 通过，且 `dry_run=false`。
 - [ ] `result/release_dashboard.md` 和 `result/release_dashboard.json` 已生成。
-- [ ] `release-readiness` CI run 上传 `release-evidence` artifact，包含 `result/release_preflight_plan.json`、`result/release_dashboard.md`、`result/release_dashboard.json` 和本 checklist。
+- [ ] `release-readiness` CI run 或手动 `workflow_dispatch` 上传 `release-evidence` artifact，包含 `result/release_preflight_plan.json`、`result/release_dashboard.md`、`result/release_dashboard.json` 和本 checklist。
 - [ ] dashboard 中 sanitizer、performance smoke/baseline、package smoke、release artifacts 的状态为 `passed`。
 - [ ] 对 dashboard 中状态为 `planned`、`configured` 或 `missing` 的 gate，记录对应 CI run、runner 要求或发布阻断原因。
 
@@ -49,6 +49,7 @@
 - [ ] `make PYTHON=$PYTHON benchmark-smoke-report` 通过并保留 `result/benchmark_smoke.json`。
 - [ ] `make PYTHON=$PYTHON benchmark-baseline-check` 通过并保留 `result/benchmark_baseline_check.json`。
 - [ ] 固定 runner 上运行 `make PYTHON=$PYTHON benchmark-fixed-runner-check`，或记录 Performance workflow 的 `fixed-runner-baseline` run。
+- [ ] 固定 runner 性能 JSON artifact 保留 180 天，用于对比周期间趋势。
 - [ ] `make PYTHON=$PYTHON sanitize` 通过，证明 ASan/UBSan C 后端回归子集和代表性模型路径均通过。
 
 ## CUDA 证据

@@ -59,3 +59,4 @@ jobs:
           name: benchmark-fixed-runner-${{ github.run_id }}
           path: result/benchmark_fixed_runner_check.json
           if-no-files-found: error
+          retention-days: 180

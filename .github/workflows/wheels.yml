@@ -56,6 +56,7 @@ jobs:
           name: manylinux-smoke-${{ github.run_id }}
           path: wheelhouse/*.whl
           if-no-files-found: error
+          retention-days: 90
 
   manylinux-full:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -99,3 +100,4 @@ jobs:
           name: manylinux-${{ matrix.cibw-build }}-${{ github.run_id }}
           path: wheelhouse/*.whl
           if-no-files-found: error
+          retention-days: 90

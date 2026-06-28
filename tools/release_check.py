@@ -226,11 +226,13 @@ def _check_release_evidence_workflow() -> list[str]:
     required_tokens = [
         "Build release evidence dashboard",
         "Upload release evidence dashboard",
+        "workflow_dispatch",
         "release-evidence-${{ github.run_id }}",
         "result/release_preflight_plan.json",
         "result/release_dashboard.md",
         "result/release_dashboard.json",
         "docs/release_evidence_checklist.md",
+        "retention-days: 90",
         "--include-cuda-smoke",
         "--include-cuda-full",
         "--include-manylinux",
@@ -238,6 +240,36 @@ def _check_release_evidence_workflow() -> list[str]:
         "--include-fixed-runner-perf",
     ]
     return [f"release evidence workflow is missing {token!r}" for token in required_tokens if token not in text]
+
+
+def _check_heavy_gate_artifact_retention() -> list[str]:
+    required_by_file = {
+        ".github/workflows/cuda.yml": [
+            "Upload CUDA smoke evidence",
+            "Upload full CUDA evidence",
+            "cuda-smoke-${{ github.run_id }}",
+            "cuda-full-${{ github.run_id }}",
+            "retention-days: 90",
+        ],
+        ".github/workflows/performance.yml": [
+            "benchmark-fixed-runner-${{ github.run_id }}",
+            "retention-days: 180",
+        ],
+        ".github/workflows/wheels.yml": [
+            "manylinux-smoke-${{ github.run_id }}",
+            "manylinux-${{ matrix.cibw-build }}-${{ github.run_id }}",
+            "retention-days: 90",
+        ],
+    }
+    failures = []
+    for path_text, tokens in required_by_file.items():
+        path = ROOT / path_text
+        if not path.exists():
+            failures.append(f"heavy gate workflow is missing {path_text}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        failures.extend(f"heavy gate workflow {path_text} is missing {token!r}" for token in tokens if token not in text)
+    return failures
 
 
 def build_release_summary() -> tuple[dict[str, object], list[str]]:
@@ -249,6 +281,7 @@ def build_release_summary() -> tuple[dict[str, object], list[str]]:
     failures.extend(_check_cibuildwheel_config(pyproject, requirements_dev_text))
     failures.extend(_check_release_evidence_checklist())
     failures.extend(_check_release_evidence_workflow())
+    failures.extend(_check_heavy_gate_artifact_retention())
     failures.extend(strict_failures(infos, metadata))
     semantic_matrix, semantic_failures = _check_onnx_semantic_matrix()
     failures.extend(semantic_failures)

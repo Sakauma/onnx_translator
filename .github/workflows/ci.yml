@@ -12,6 +12,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -90,6 +91,7 @@ jobs:
             result/benchmark_smoke.json
             result/benchmark_baseline_check.json
           if-no-files-found: error
+          retention-days: 90
 
       - name: Run representative model smoke gate
         run: |
@@ -106,6 +108,7 @@ jobs:
           name: release-artifacts-${{ github.run_id }}
           path: result/release_artifacts/dist/*
           if-no-files-found: error
+          retention-days: 90
 
       - name: Verify packaged runtime can execute C backend
         run: |
@@ -135,6 +138,7 @@ jobs:
             result/release_dashboard.json
             docs/release_evidence_checklist.md
           if-no-files-found: error
+          retention-days: 90
 
   sanitizer-gate:
     runs-on: ubuntu-latest

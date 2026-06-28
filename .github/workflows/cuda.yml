@@ -41,6 +41,16 @@ jobs:
           python tools/health_check.py --require-cuda
           make PYTHON=python verify-cuda-smoke
 
+      - name: Upload CUDA smoke evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cuda-smoke-${{ github.run_id }}
+          path: |
+            cache/verify_*
+          if-no-files-found: warn
+          retention-days: 90
+
   cuda-full:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, linux, x64, cuda]
@@ -65,3 +75,13 @@ jobs:
         run: |
           python tools/health_check.py --require-cuda
           make PYTHON=python verify-cuda-full
+
+      - name: Upload full CUDA evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cuda-full-${{ github.run_id }}
+          path: |
+            cache/verify_*
+          if-no-files-found: warn
+          retention-days: 90
