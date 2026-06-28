@@ -41,7 +41,7 @@ SRCS = $(wildcard $(SRC_DIR)/*.c)
 
 all: $(TARGET)
 
-.PHONY: all clean check test audit abi-check benchmark benchmark-baseline-check benchmark-fixed-runner-check benchmark-smoke benchmark-smoke-report manylinux-wheelhouse-check manylinux-wheelhouse-check-full manylinux-wheels manylinux-wheels-full model-smoke onnx-semantic-matrix package-smoke release-artifacts release-dashboard release-preflight sanitize release-check verify verify-cpu verify-cuda-smoke verify-cuda-full
+.PHONY: all clean check test audit abi-check benchmark benchmark-baseline-check benchmark-fixed-runner-check benchmark-smoke benchmark-smoke-report manylinux-wheelhouse-check manylinux-wheelhouse-check-full manylinux-wheels manylinux-wheels-full model-smoke onnx-semantic-matrix package-smoke release-artifacts release-dashboard release-preflight release-trend-history sanitize release-check verify verify-cpu verify-cuda-smoke verify-cuda-full
 
 $(TARGET): $(SRCS) $(SRC_DIR)/tensor_ops.h $(SRC_DIR)/tensor_ops_internal.h $(SRC_DIR)/tensor_ops_dtype.h
 	@echo "Compiling C extension..."
@@ -58,7 +58,7 @@ check: all
 		tools/__init__.py tools/cli.py tools/health_check.py tools/verify_all.py tools/audit_ops.py tools/audit_operator_data.py \
 		tools/commands/__init__.py tools/commands/create_model.py tools/commands/create_graph_ops_model.py \
 	tools/commands/graph_logic.py tools/commands/verify_graph.py tools/commands/numerical_correctness.py \
-	tools/abi_manifest.py tools/benchmark_runtime.py tools/model_suite.py tools/onnx_semantic_matrix.py tools/package_smoke.py tools/release_artifacts.py tools/release_check.py tools/release_dashboard.py tools/release_preflight.py tools/run_sanitized_tests.py tools/wheelhouse_smoke.py \
+	tools/abi_manifest.py tools/benchmark_runtime.py tools/model_suite.py tools/onnx_semantic_matrix.py tools/package_smoke.py tools/release_artifacts.py tools/release_check.py tools/release_dashboard.py tools/release_preflight.py tools/release_trend_history.py tools/run_sanitized_tests.py tools/wheelhouse_smoke.py \
 	tools/numerical/__init__.py tools/numerical/cli.py tools/numerical/compare.py tools/numerical/cuda.py \
 	tools/numerical/data.py tools/numerical/dtype.py tools/numerical/runner.py tools/numerical/runner_cuda_params.py tools/numerical/runner_nps.py tools/numerical/runner_params.py
 	@echo "Static Python compile check passed."
@@ -116,6 +116,9 @@ release-dashboard:
 
 release-preflight:
 	$(PYTHON) tools/release_preflight.py
+
+release-trend-history:
+	$(PYTHON) tools/release_trend_history.py
 
 $(SANITIZER_TARGET): $(SRCS) $(SRC_DIR)/tensor_ops.h $(SRC_DIR)/tensor_ops_internal.h $(SRC_DIR)/tensor_ops_dtype.h
 	@echo "Compiling sanitized C backend..."

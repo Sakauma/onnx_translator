@@ -33,10 +33,10 @@
 
 - [ ] `python tools/release_preflight.py --json result/release_preflight.json` 通过，且 `dry_run=false`。
 - [ ] `result/release_dashboard.md` 和 `result/release_dashboard.json` 已生成。
-- [ ] `release-readiness` CI run 或手动 `workflow_dispatch` 上传 `release-evidence` artifact，包含 `result/release_preflight_plan.json`、`result/release_dashboard.md`、`result/release_dashboard.json`、`docs/release_trend_manifest.json` 和本 checklist。
+- [ ] `release-readiness` CI run 或手动 `workflow_dispatch` 上传 `release-evidence` artifact，包含 `result/release_preflight_plan.json`、`result/release_dashboard.md`、`result/release_dashboard.json`、`docs/release_trend_manifest.json`、`docs/release_trend_history.json` 和本 checklist。
 - [ ] dashboard 中 sanitizer、performance smoke/baseline、package smoke、release artifacts 的状态为 `passed`。
 - [ ] 对 dashboard 中状态为 `planned`、`configured` 或 `missing` 的 gate，记录对应 CI run、runner 要求或发布阻断原因。
-- [ ] dashboard 的 Trend Evidence 表中 release evidence、full CUDA、fixed-runner performance 和 manylinux full wheel 四类窗口均显示 workflow configured。
+- [ ] dashboard 的 Trend Evidence 表中 release evidence、full CUDA、fixed-runner performance 和 manylinux full wheel 四类窗口均显示 workflow configured，并显示当前 history 样本数和不足窗口的 next action。
 
 ## 包与 manylinux 证据
 
@@ -64,7 +64,7 @@
 ## 归档
 
 - [ ] 归档 `result/release_preflight.json`、`result/release_preflight_plan.json`、`result/release_dashboard.md`、`result/release_dashboard.json`。
-- [ ] 归档 `docs/release_trend_manifest.json` 和每个趋势窗口最近至少 3 次 run 链接。
+- [ ] 归档 `docs/release_trend_manifest.json`、`docs/release_trend_history.json` 和每个趋势窗口最近至少 3 次 run 链接。
 - [ ] 归档 `result/benchmark_smoke.json`、`result/benchmark_baseline_check.json`，以及固定 runner 性能结果。
 - [ ] 归档 release artifact 目录、manylinux wheelhouse 或对应 CI artifacts。
 - [ ] 在 PR 或 release note 中粘贴本 checklist 的完成状态和所有外部 CI run 链接。
