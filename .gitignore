@@ -234,4 +234,5 @@ AGENTS.md
 result/
 onnx_model/
 cache/
+wheelhouse/
 tmp_*.bin
