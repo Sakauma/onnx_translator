@@ -41,7 +41,7 @@ SRCS = $(wildcard $(SRC_DIR)/*.c)
 
 all: $(TARGET)
 
-.PHONY: all clean check test audit abi-check benchmark benchmark-baseline-check benchmark-fixed-runner-check benchmark-smoke benchmark-smoke-report manylinux-wheelhouse-check manylinux-wheelhouse-check-full manylinux-wheels manylinux-wheels-full model-smoke onnx-semantic-matrix package-smoke release-artifacts release-dashboard release-preflight release-trend-history sanitize release-check verify verify-cpu verify-cuda-smoke verify-cuda-full
+.PHONY: all clean check test audit abi-check benchmark benchmark-baseline-check benchmark-fixed-runner-check benchmark-smoke benchmark-smoke-report manylinux-wheelhouse-check manylinux-wheelhouse-check-full manylinux-wheels manylinux-wheels-full model-smoke onnx-semantic-matrix package-smoke release-artifacts release-dashboard release-preflight release-trend-history release-trend-history-refresh sanitize release-check verify verify-cpu verify-cuda-smoke verify-cuda-full
 
 $(TARGET): $(SRCS) $(SRC_DIR)/tensor_ops.h $(SRC_DIR)/tensor_ops_internal.h $(SRC_DIR)/tensor_ops_dtype.h
 	@echo "Compiling C extension..."
@@ -119,6 +119,9 @@ release-preflight:
 
 release-trend-history:
 	$(PYTHON) tools/release_trend_history.py
+
+release-trend-history-refresh:
+	$(PYTHON) tools/release_trend_history.py --refresh --write
 
 $(SANITIZER_TARGET): $(SRCS) $(SRC_DIR)/tensor_ops.h $(SRC_DIR)/tensor_ops_internal.h $(SRC_DIR)/tensor_ops_dtype.h
 	@echo "Compiling sanitized C backend..."

@@ -66,6 +66,7 @@ REQUIRED_MAKE_TARGETS = {
     "release-dashboard:",
     "release-preflight:",
     "release-trend-history:",
+    "release-trend-history-refresh:",
     "sanitize:",
     "release-check:",
     "verify-cuda-smoke:",

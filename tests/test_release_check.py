@@ -107,6 +107,7 @@ def test_release_check_requires_release_trend_manifest():
 def test_release_check_requires_release_trend_history():
     assert "onnx-translator-release-trend-history" in REQUIRED_SCRIPTS
     assert "release-trend-history:" in REQUIRED_MAKE_TARGETS
+    assert "release-trend-history-refresh:" in REQUIRED_MAKE_TARGETS
     assert "tools/release_trend_history.py" in REQUIRED_FILES
     assert "docs/release_trend_history.json" in REQUIRED_FILES
     assert _check_release_trend_history() == []

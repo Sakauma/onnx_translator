@@ -74,6 +74,14 @@ CI 的 `release-readiness` job 可通过 PR、main/master push 或 `workflow_dis
 
 [`docs/release_trend_manifest.json`](release_trend_manifest.json) 是长期证据契约，声明 release evidence、full CUDA、fixed-runner performance 和 manylinux full wheel 四类趋势窗口的 workflow、artifact 名称、保留周期和必备 payload。[`docs/release_trend_history.json`](release_trend_history.json) 是当前历史样本快照，记录每个窗口已经归档的成功 run、artifact digest、样本数和下一步缺口。`release-check` 会校验 manifest、history 与 workflow 配置一致；顶级发布判定至少需要 3 次同一窗口的历史 run 作为趋势样本，失败项必须记录 failed gate、run URL、commit SHA、owner、root cause、resolution 和 follow-up。
 
+外部 CUDA、Performance 或 manylinux full workflow 跑完后，可用下面的命令从 GitHub Actions API 刷新历史快照；未设置 `GITHUB_TOKEN` 时会使用 GitHub 公共 API，但更容易触发匿名 rate limit。
+
+```bash
+make PYTHON=$PYTHON release-trend-history-refresh
+```
+
+该命令会按 manifest 中的 artifact pattern 自动筛选成功 run。manylinux full 只有在同一次 workflow run 同时保留 `cp310`、`cp311`、`cp312` 三个 manylinux artifact 时才计入 full-matrix 趋势样本。
+
 ## 发布就绪检查
 
 ```bash
