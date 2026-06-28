@@ -23,6 +23,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORT = ROOT / "result" / "release_preflight.json"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.release_dashboard import build_dashboard, write_dashboard
 
 
 @dataclass(frozen=True)
@@ -34,8 +38,10 @@ class PreflightStep:
 def build_steps(
     python_executable: str,
     include_cuda_smoke: bool = False,
+    include_cuda_full: bool = False,
     include_manylinux: bool = False,
     include_manylinux_full: bool = False,
+    include_fixed_runner_perf: bool = False,
 ) -> list[PreflightStep]:
     make_python = f"PYTHON={python_executable}"
     steps = [
@@ -66,8 +72,12 @@ def build_steps(
                 ),
             ]
         )
+    if include_fixed_runner_perf:
+        steps.append(PreflightStep("benchmark-fixed-runner-check", ["make", make_python, "benchmark-fixed-runner-check"]))
     if include_cuda_smoke:
         steps.append(PreflightStep("verify-cuda-smoke", ["make", make_python, "verify-cuda-smoke"]))
+    if include_cuda_full:
+        steps.append(PreflightStep("verify-cuda-full", ["make", make_python, "verify-cuda-full"]))
     return steps
 
 
@@ -107,14 +117,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the aggregate release preflight gate.")
     parser.add_argument("--json", default=str(DEFAULT_REPORT), help="Path for the machine-readable preflight report.")
     parser.add_argument("--include-cuda-smoke", action="store_true", help="Also run the CUDA smoke verification gate.")
+    parser.add_argument("--include-cuda-full", action="store_true", help="Also run the full CUDA numerical verification gate.")
     parser.add_argument("--include-manylinux", action="store_true", help="Also build and inspect manylinux wheels with cibuildwheel.")
     parser.add_argument(
         "--include-manylinux-full",
         action="store_true",
         help="Also build and inspect the full cp310/cp311/cp312 manylinux wheel matrix.",
     )
+    parser.add_argument(
+        "--include-fixed-runner-perf",
+        action="store_true",
+        help="Also run the fixed-runner performance baseline gate.",
+    )
     parser.add_argument("--keep-going", action="store_true", help="Continue running later gates after a failure.")
     parser.add_argument("--dry-run", action="store_true", help="Print and report the planned gates without executing them.")
+    parser.add_argument("--no-dashboard", action="store_true", help="Do not write the release evidence dashboard.")
+    parser.add_argument("--dashboard", help="Path for the Markdown release evidence dashboard.")
+    parser.add_argument("--dashboard-json", help="Path for the JSON release evidence dashboard.")
     return parser.parse_args(argv)
 
 
@@ -123,8 +142,10 @@ def main(argv: list[str] | None = None) -> int:
     steps = build_steps(
         sys.executable,
         include_cuda_smoke=args.include_cuda_smoke,
+        include_cuda_full=args.include_cuda_full,
         include_manylinux=args.include_manylinux,
         include_manylinux_full=args.include_manylinux_full,
+        include_fixed_runner_perf=args.include_fixed_runner_perf,
     )
     results = []
     failed = False
@@ -142,13 +163,20 @@ def main(argv: list[str] | None = None) -> int:
         "python": sys.executable,
         "dry_run": args.dry_run,
         "include_cuda_smoke": args.include_cuda_smoke,
+        "include_cuda_full": args.include_cuda_full,
         "include_manylinux": args.include_manylinux,
         "include_manylinux_full": args.include_manylinux_full,
+        "include_fixed_runner_perf": args.include_fixed_runner_perf,
         "keep_going": args.keep_going,
         "status": "failed" if failed else "passed",
         "steps": results,
     }
-    write_report(Path(args.json), payload)
+    report_path = Path(args.json)
+    write_report(report_path, payload)
+    if not args.no_dashboard:
+        dashboard_path = Path(args.dashboard) if args.dashboard else report_path.with_name("release_dashboard.md")
+        dashboard_json_path = Path(args.dashboard_json) if args.dashboard_json else report_path.with_name("release_dashboard.json")
+        write_dashboard(build_dashboard(report_path), dashboard_path, dashboard_json_path)
     return 1 if failed else 0
 
 

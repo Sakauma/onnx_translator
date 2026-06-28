@@ -40,6 +40,7 @@ REQUIRED_SCRIPTS = {
     "onnx-translator-release-check",
     "onnx-translator-package-smoke",
     "onnx-translator-release-artifacts",
+    "onnx-translator-release-dashboard",
     "onnx-translator-release-preflight",
     "onnx-translator-wheelhouse-smoke",
     "onnx-translator-onnx-semantic-matrix",
@@ -60,28 +61,34 @@ REQUIRED_MAKE_TARGETS = {
     "onnx-semantic-matrix:",
     "package-smoke:",
     "release-artifacts:",
+    "release-dashboard:",
     "release-preflight:",
     "sanitize:",
     "release-check:",
     "verify-cuda-smoke:",
+    "verify-cuda-full:",
 }
 
 REQUIRED_FILES = [
     "constraints.txt",
     "docs/abi_manifest.json",
     "tools/abi_manifest.py",
+    "tools/audit_operator_data.py",
     "tools/benchmark_runtime.py",
     "tools/model_suite.py",
     "tools/onnx_semantic_matrix.py",
     "tools/package_smoke.py",
     "tools/release_artifacts.py",
+    "tools/release_dashboard.py",
     "tools/release_preflight.py",
     "tools/run_sanitized_tests.py",
     "tools/wheelhouse_smoke.py",
+    "tensor_ops/tensor_ops_dtype.h",
     "docs/performance_baseline.json",
     "docs/performance_fixed_runner_baseline.json",
     "docs/onnx_semantic_matrix.json",
     "docs/onnx_semantic_matrix.md",
+    "docs/release_evidence_checklist.md",
     ".github/workflows/ci.yml",
     ".github/workflows/cuda.yml",
     ".github/workflows/performance.yml",
@@ -190,6 +197,25 @@ def _check_cibuildwheel_config(pyproject: dict, requirements_dev_text: str) -> l
     return failures
 
 
+def _check_release_evidence_checklist() -> list[str]:
+    path = ROOT / "docs" / "release_evidence_checklist.md"
+    if not path.exists():
+        return ["release evidence checklist is missing"]
+    text = path.read_text(encoding="utf-8")
+    required_tokens = [
+        "Release Evidence Checklist",
+        "release candidate commit SHA",
+        "result/release_preflight.json",
+        "result/release_dashboard.md",
+        "manylinux-wheels-full",
+        "benchmark-fixed-runner-check",
+        "verify-cuda-full",
+        "sanitize",
+        "CI run",
+    ]
+    return [f"release evidence checklist is missing {token!r}" for token in required_tokens if token not in text]
+
+
 def build_release_summary() -> tuple[dict[str, object], list[str]]:
     pyproject = _load_pyproject()
     infos, metadata = audit()
@@ -197,6 +223,7 @@ def build_release_summary() -> tuple[dict[str, object], list[str]]:
     requirements_dev = ROOT / "requirements-dev.txt"
     requirements_dev_text = requirements_dev.read_text(encoding="utf-8") if requirements_dev.exists() else ""
     failures.extend(_check_cibuildwheel_config(pyproject, requirements_dev_text))
+    failures.extend(_check_release_evidence_checklist())
     failures.extend(strict_failures(infos, metadata))
     semantic_matrix, semantic_failures = _check_onnx_semantic_matrix()
     failures.extend(semantic_failures)

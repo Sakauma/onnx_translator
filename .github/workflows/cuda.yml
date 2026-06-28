@@ -64,4 +64,4 @@ jobs:
       - name: Run full CUDA verification gate
         run: |
           python tools/health_check.py --require-cuda
-          python tools/verify_all.py --iterations 3
+          make PYTHON=python verify-cuda-full

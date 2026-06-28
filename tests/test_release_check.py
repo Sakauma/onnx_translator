@@ -9,7 +9,13 @@
 #   ******************************************************************************
 # */
 
-from tools.release_check import REQUIRED_FILES, REQUIRED_MAKE_TARGETS, REQUIRED_SCRIPTS, _check_cibuildwheel_config
+from tools.release_check import (
+    REQUIRED_FILES,
+    REQUIRED_MAKE_TARGETS,
+    REQUIRED_SCRIPTS,
+    _check_cibuildwheel_config,
+    _check_release_evidence_checklist,
+)
 
 
 def _pyproject_with_cibuildwheel():
@@ -60,9 +66,32 @@ def test_release_check_requires_fixed_runner_performance_target():
     assert "benchmark-fixed-runner-check:" in REQUIRED_MAKE_TARGETS
 
 
+def test_release_check_requires_full_cuda_target():
+    assert "verify-cuda-full:" in REQUIRED_MAKE_TARGETS
+
+
 def test_release_check_requires_onnx_semantic_matrix_gate():
     assert "onnx-translator-onnx-semantic-matrix" in REQUIRED_SCRIPTS
     assert "onnx-semantic-matrix:" in REQUIRED_MAKE_TARGETS
     assert "tools/onnx_semantic_matrix.py" in REQUIRED_FILES
     assert "docs/onnx_semantic_matrix.json" in REQUIRED_FILES
     assert "docs/onnx_semantic_matrix.md" in REQUIRED_FILES
+
+
+def test_release_check_requires_release_dashboard_gate():
+    assert "onnx-translator-release-dashboard" in REQUIRED_SCRIPTS
+    assert "release-dashboard:" in REQUIRED_MAKE_TARGETS
+    assert "tools/release_dashboard.py" in REQUIRED_FILES
+
+
+def test_release_check_requires_release_evidence_checklist():
+    assert "docs/release_evidence_checklist.md" in REQUIRED_FILES
+    assert _check_release_evidence_checklist() == []
+
+
+def test_release_check_requires_split_audit_data_module():
+    assert "tools/audit_operator_data.py" in REQUIRED_FILES
+
+
+def test_release_check_requires_split_dtype_header():
+    assert "tensor_ops/tensor_ops_dtype.h" in REQUIRED_FILES

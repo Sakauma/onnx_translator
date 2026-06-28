@@ -39,7 +39,7 @@
 ## 4. CUDA verifier
 
 1. 新增 `cuda/verify_<op>.cu`，命名与数值计划中的 `op_name` 保持一致。
-2. 运行 `python tools/cli.py compile-cuda`，确认可执行文件写入 `cache/verify_<op>`。
+2. 运行 `python tools/cli.py compile-cuda --op <op>`，确认可执行文件写入 `cache/verify_<op>`；需要全量刷新时再运行不带 `--op` 的命令。
 3. CUDA 输出使用二进制文件协议，与 `tools/numerical/cuda.py` 保持一致。
 
 ## 5. 数值计划
@@ -61,7 +61,7 @@
 ```bash
 make PYTHON=$PYTHON check
 $PYTHON -m pytest -q tests
-$PYTHON tools/cli.py compile-cuda
+$PYTHON tools/cli.py compile-cuda --op <op>
 $PYTHON tools/cli.py numerical --op <op> --iterations 5 --skip-plots
 $PYTHON tools/audit_ops.py --strict --output /tmp/onnx_translator_audit.md
 ```

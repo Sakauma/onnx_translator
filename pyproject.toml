@@ -48,6 +48,7 @@ onnx-translator-release-check = "tools.release_check:main"
 onnx-translator-package-smoke = "tools.package_smoke:main"
 onnx-translator-release-artifacts = "tools.release_artifacts:main"
 onnx-translator-release-preflight = "tools.release_preflight:main"
+onnx-translator-release-dashboard = "tools.release_dashboard:main"
 onnx-translator-wheelhouse-smoke = "tools.wheelhouse_smoke:main"
 onnx-translator-onnx-semantic-matrix = "tools.onnx_semantic_matrix:main"
 

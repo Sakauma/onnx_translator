@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import ast
 import re
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,8 +22,20 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 OPERATORS_SOURCES = [ROOT / "nn" / "Operators.py", *sorted((ROOT / "nn" / "operators").glob("*.py"))]
 IMPORTER_SOURCES = [ROOT / "nn" / "ONNXImport.py", *sorted((ROOT / "nn" / "importer").glob("*.py"))]
+
+
+from tools.audit_operator_data import (
+    DEEP_SEMANTIC_PYTEST_COVERAGE,
+    DEFERRED_C_BACKEND_RUNTIME,
+    MANUAL_ALIASES,
+    PYTEST_SEMANTIC_COVERAGE,
+    PYTHON_ORCHESTRATION_RUNTIME,
+    REFERENCE_PARITY_PYTEST_COVERAGE,
+)
 
 
 @dataclass(frozen=True)
@@ -43,327 +56,6 @@ class OperatorInfo:
     notes: tuple[str, ...]
 
 
-MANUAL_ALIASES = {
-    "ABS": {"abs"},
-    "ADD": {"add"},
-    "AffineGrid": {"affine_grid"},
-    "COS": {"cos"},
-    "DIV": {"div"},
-    "EXP": {"exp"},
-    "LOG": {"log"},
-    "MUL": {"mul"},
-    "RELU": {"relu"},
-    "SIGMOID": {"sigmoid"},
-    "SQRT": {"sqrt"},
-    "SUB": {"sub"},
-    "TANH": {"tanh"},
-    "Attention": {"attention"},
-    "Col2Im": {"col2im", "col2_im"},
-    "Conv": {"conv2d", "conv"},
-    "DeformConv": {"deform_conv", "deformconv"},
-    "CumProd": {"cumprod", "cum_prod"},
-    "ScatterND": {"scatternd", "scatter_nd"},
-    "GatherND": {"gathernd", "gather_nd"},
-    "QLinearConv": {"qlinear_conv"},
-    "QuantizeLinear": {"quantize_linear"},
-    "DequantizeLinear": {"dequantize_linear"},
-    "MatMulInteger": {"matmul_integer"},
-    "QLinearMatMul": {"qlinear_matmul"},
-    "GreaterOrEqual": {"greater_or_equal"},
-    "LessOrEqual": {"less_or_equal"},
-    "MaxPool": {"max_pool"},
-    "ReduceMean": {"reduce_mean"},
-    "ReduceSum": {"reduce_sum"},
-    "ReduceMax": {"reduce_max"},
-    "ReduceMin": {"reduce_min"},
-    "ReduceProd": {"reduce_prod"},
-    "ReduceL1": {"reduce_l1"},
-    "ReduceL2": {"reduce_l2"},
-    "ReduceLogSum": {"reduce_log_sum"},
-    "ReduceLogSumExp": {"reduce_log_sum_exp"},
-    "ReduceSumSquare": {"reduce_sum_square"},
-    "ArgMax": {"argmax", "arg_max"},
-    "ArgMin": {"argmin", "arg_min"},
-    "RandomUniformLike": {"random_uniform_like"},
-    "RandomNormalLike": {"random_normal_like"},
-    "RMSNormalization": {"rms_normalization", "rms_norm"},
-    "RotaryEmbedding": {"rotary_embedding"},
-    "BatchNormalization": {"batch_normalization", "batch_norm"},
-    "InstanceNormalization": {"instance_normalization", "instance_norm"},
-    "LayerNormalization": {"layer_normalization", "layer_norm"},
-    "GroupNormalization": {"group_normalization", "group_norm"},
-    "BitwiseAnd": {"bitwise_and"},
-    "BitwiseOr": {"bitwise_or"},
-    "BitwiseXor": {"bitwise_xor"},
-    "BitwiseNot": {"bitwise_not"},
-    "BitShift": {"bit_shift"},
-    "HardSigmoid": {"hard_sigmoid"},
-    "HardSwish": {"hard_swish"},
-    "Softplus": {"softplus"},
-    "Softsign": {"softsign"},
-    "ThresholdedRelu": {"thresholded_relu"},
-    "GlobalAveragePool": {"global_average_pool"},
-    "GlobalMaxPool": {"global_max_pool"},
-    "GlobalLpPool": {"global_lp_pool"},
-    "LpPool": {"lp_pool"},
-    "LpNormalization": {"lp_normalization"},
-    "DepthToSpace": {"depth_to_space"},
-    "SpaceToDepth": {"space_to_depth"},
-    "ReverseSequence": {"reverse_sequence"},
-    "ScatterElements": {"scatter_elements"},
-    "GatherElements": {"gather_elements"},
-    "ConstantOfShape": {"constant_of_shape"},
-    "DynamicQuantizeLinear": {"dynamic_quantize_linear"},
-    "HannWindow": {"hann_window"},
-    "HammingWindow": {"hamming_window"},
-    "BlackmanWindow": {"blackman_window"},
-    "LogSoftmax": {"log_softmax"},
-}
-
-
-PYTHON_ORCHESTRATION_RUNTIME = {
-    "Shape",
-    "Constant",
-    "SequenceEmpty",
-    "SequenceConstruct",
-    "SequenceAt",
-    "SequenceInsert",
-    "SequenceErase",
-    "SequenceLength",
-    "ConcatFromSequence",
-    "SplitToSequence",
-    "Optional",
-    "OptionalGetElement",
-    "OptionalHasElement",
-    "RegexFullMatch",
-    "StringConcat",
-    "StringSplit",
-    "ImageDecoder",
-    "StringNormalizer",
-    "TfIdfVectorizer",
-    "If",
-    "Loop",
-    "Scan",
-    "SequenceMap",
-}
-
-
-DEFERRED_C_BACKEND_RUNTIME = set()
-
-
-DEEP_SEMANTIC_PYTEST_COVERAGE = {
-    "Bernoulli",
-    "Binarizer",
-    "BitShift",
-    "BitwiseAnd",
-    "BitwiseNot",
-    "BitwiseOr",
-    "BitwiseXor",
-    "ConcatFromSequence",
-    "Dropout",
-    "LRN",
-    "If",
-    "Loop",
-    "MaxRoiPool",
-    "MeanVarianceNormalization",
-    "Gelu",
-    "GroupNormalization",
-    "GlobalLpPool",
-    "Multinomial",
-    "Mish",
-    "Optional",
-    "OptionalGetElement",
-    "OptionalHasElement",
-    "RandomNormal",
-    "RandomNormalLike",
-    "RandomUniform",
-    "RandomUniformLike",
-    "Tril",
-    "Triu",
-    "Unique",
-    "ReduceL1",
-    "ReduceL2",
-    "ReduceLogSum",
-    "ReduceLogSumExp",
-    "ReduceSumSquare",
-    "RoiAlign",
-    "RNN",
-    "GRU",
-    "Scan",
-    "SequenceAt",
-    "SequenceConstruct",
-    "SequenceEmpty",
-    "SequenceErase",
-    "SequenceInsert",
-    "SequenceLength",
-    "SequenceMap",
-    "SplitToSequence",
-    "StringNormalizer",
-    "LSTM",
-    "DFT",
-    "STFT",
-    "TfIdfVectorizer",
-}
-
-
-REFERENCE_PARITY_PYTEST_COVERAGE = {
-    "ABS",
-    "ADD",
-    "Acos",
-    "Acosh",
-    "AffineGrid",
-    "And",
-    "Asin",
-    "Asinh",
-    "Atanh",
-    "Atan",
-    "Attention",
-    "AveragePool",
-    "ArgMax",
-    "ArgMin",
-    "BatchNormalization",
-    "BitCast",
-    "BlackmanWindow",
-    "Cast",
-    "CastLike",
-    "Celu",
-    "Ceil",
-    "CenterCropPad",
-    "Clip",
-    "Col2Im",
-    "Compress",
-    "Concat",
-    "Constant",
-    "ConstantOfShape",
-    "Conv",
-    "ConvInteger",
-    "ConvTranspose",
-    "COS",
-    "Cosh",
-    "CumProd",
-    "CumSum",
-    "DeformConv",
-    "DepthToSpace",
-    "Det",
-    "DIV",
-    "DynamicQuantizeLinear",
-    "Elu",
-    "Einsum",
-    "Erf",
-    "Expand",
-    "EXP",
-    "EyeLike",
-    "Equal",
-    "Flatten",
-    "Floor",
-    "Gather",
-    "GatherElements",
-    "GatherND",
-    "Gemm",
-    "GlobalAveragePool",
-    "GlobalMaxPool",
-    "Greater",
-    "GreaterOrEqual",
-    "GridSample",
-    "HammingWindow",
-    "HannWindow",
-    "HardSigmoid",
-    "HardSwish",
-    "Hardmax",
-    "Identity",
-    "ImageDecoder",
-    "InstanceNormalization",
-    "IsInf",
-    "IsNaN",
-    "LayerNormalization",
-    "LeakyRelu",
-    "Less",
-    "LessOrEqual",
-    "LOG",
-    "LogSoftmax",
-    "LpNormalization",
-    "LpPool",
-    "MatMul",
-    "MatMulInteger",
-    "MaxPool",
-    "MaxUnpool",
-    "Max",
-    "MelWeightMatrix",
-    "Mean",
-    "Min",
-    "Mod",
-    "MUL",
-    "Neg",
-    "NegativeLogLikelihoodLoss",
-    "NonMaxSuppression",
-    "NonZero",
-    "Not",
-    "OneHot",
-    "Or",
-    "Pad",
-    "PRelu",
-    "Pow",
-    "QLinearConv",
-    "QLinearMatMul",
-    "QuantizeLinear",
-    "Range",
-    "RegexFullMatch",
-    "Reciprocal",
-    "DequantizeLinear",
-    "ReduceMax",
-    "ReduceMean",
-    "ReduceMin",
-    "ReduceProd",
-    "ReduceSum",
-    "RELU",
-    "Reshape",
-    "Resize",
-    "RMSNormalization",
-    "RotaryEmbedding",
-    "ReverseSequence",
-    "Round",
-    "ScatterElements",
-    "ScatterND",
-    "TensorScatter",
-    "Selu",
-    "Shape",
-    "Shrink",
-    "SIGMOID",
-    "Sign",
-    "Sin",
-    "Sinh",
-    "Slice",
-    "Size",
-    "Softmax",
-    "Softplus",
-    "Softsign",
-    "SoftmaxCrossEntropyLoss",
-    "Swish",
-    "SpaceToDepth",
-    "Split",
-    "StringConcat",
-    "StringSplit",
-    "SQRT",
-    "Squeeze",
-    "SUB",
-    "ThresholdedRelu",
-    "Tile",
-    "TopK",
-    "Transpose",
-    "Trilu",
-    "Tan",
-    "TANH",
-    "Unsqueeze",
-    "Where",
-    "Sum",
-    "Xor",
-}
-
-
-PYTEST_SEMANTIC_COVERAGE = DEEP_SEMANTIC_PYTEST_COVERAGE | REFERENCE_PARITY_PYTEST_COVERAGE
-
-
-# 实现 `normalize_name` 步骤，规范化输入并返回下游期望的数据或元信息。
 def normalize_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", name).upper()
 
@@ -865,9 +557,15 @@ def yes_no(value: bool) -> str:
 
 
 # 实现 `render_markdown` 步骤，规范化输入并返回下游期望的数据或元信息。
-def render_markdown(infos: list[OperatorInfo], metadata: dict[str, object], strict: bool = False) -> str:
+def render_markdown(
+    infos: list[OperatorInfo],
+    metadata: dict[str, object],
+    strict: bool = False,
+    generated_at: str | None = None,
+) -> str:
     status_counts = Counter(info.status for info in infos)
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if generated_at is None:
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     command = "python tools/audit_ops.py"
     if strict:
         command += " --strict"
@@ -1150,14 +848,22 @@ def main() -> int:
         action="store_true",
         help="Fail if ordinary tensor/numeric operators lose C runtime, CUDA verifier, numerical plan, or ONNXImport coverage.",
     )
+    parser.add_argument(
+        "--no-output",
+        action="store_true",
+        help="Run the audit without writing the Markdown report. Useful for gates that must leave git-tracked reports untouched.",
+    )
     args = parser.parse_args()
 
     infos, metadata = audit()
     output = Path(args.output)
     if not output.is_absolute():
         output = ROOT / output
-    output.write_text(render_markdown(infos, metadata, strict=args.strict), encoding="utf-8")
-    print(f"Wrote {output}")
+    if args.no_output:
+        print("Skipped writing operator coverage report.")
+    else:
+        output.write_text(render_markdown(infos, metadata, strict=args.strict), encoding="utf-8")
+        print(f"Wrote {output}")
     if args.strict:
         failures = strict_failures(infos, metadata)
         if failures:

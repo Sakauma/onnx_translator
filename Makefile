@@ -41,9 +41,9 @@ SRCS = $(wildcard $(SRC_DIR)/*.c)
 
 all: $(TARGET)
 
-.PHONY: all clean check test audit abi-check benchmark benchmark-baseline-check benchmark-fixed-runner-check benchmark-smoke benchmark-smoke-report manylinux-wheelhouse-check manylinux-wheelhouse-check-full manylinux-wheels manylinux-wheels-full model-smoke onnx-semantic-matrix package-smoke release-artifacts release-preflight sanitize release-check verify verify-cpu verify-cuda-smoke
+.PHONY: all clean check test audit abi-check benchmark benchmark-baseline-check benchmark-fixed-runner-check benchmark-smoke benchmark-smoke-report manylinux-wheelhouse-check manylinux-wheelhouse-check-full manylinux-wheels manylinux-wheels-full model-smoke onnx-semantic-matrix package-smoke release-artifacts release-dashboard release-preflight sanitize release-check verify verify-cpu verify-cuda-smoke verify-cuda-full
 
-$(TARGET): $(SRCS) $(SRC_DIR)/tensor_ops.h $(SRC_DIR)/tensor_ops_internal.h
+$(TARGET): $(SRCS) $(SRC_DIR)/tensor_ops.h $(SRC_DIR)/tensor_ops_internal.h $(SRC_DIR)/tensor_ops_dtype.h
 	@echo "Compiling C extension..."
 	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)
 	@echo "Build successful: $(TARGET)"
@@ -55,12 +55,12 @@ clean:
 check: all
 	$(PYTHON) -m py_compile \
 		nn/__init__.py nn/Operators.py nn/ONNXImport.py nn/ModelInitParas.py nn/GraphVisualization.py \
-		tools/__init__.py tools/cli.py tools/health_check.py tools/verify_all.py tools/audit_ops.py \
+		tools/__init__.py tools/cli.py tools/health_check.py tools/verify_all.py tools/audit_ops.py tools/audit_operator_data.py \
 		tools/commands/__init__.py tools/commands/create_model.py tools/commands/create_graph_ops_model.py \
-		tools/commands/graph_logic.py tools/commands/verify_graph.py tools/commands/numerical_correctness.py \
-		tools/abi_manifest.py tools/benchmark_runtime.py tools/model_suite.py tools/onnx_semantic_matrix.py tools/package_smoke.py tools/release_artifacts.py tools/release_check.py tools/release_preflight.py tools/run_sanitized_tests.py tools/wheelhouse_smoke.py \
-		tools/numerical/__init__.py tools/numerical/cli.py tools/numerical/compare.py tools/numerical/cuda.py \
-		tools/numerical/data.py tools/numerical/dtype.py tools/numerical/runner.py
+	tools/commands/graph_logic.py tools/commands/verify_graph.py tools/commands/numerical_correctness.py \
+	tools/abi_manifest.py tools/benchmark_runtime.py tools/model_suite.py tools/onnx_semantic_matrix.py tools/package_smoke.py tools/release_artifacts.py tools/release_check.py tools/release_dashboard.py tools/release_preflight.py tools/run_sanitized_tests.py tools/wheelhouse_smoke.py \
+	tools/numerical/__init__.py tools/numerical/cli.py tools/numerical/compare.py tools/numerical/cuda.py \
+	tools/numerical/data.py tools/numerical/dtype.py tools/numerical/runner.py tools/numerical/runner_cuda_params.py tools/numerical/runner_nps.py tools/numerical/runner_params.py
 	@echo "Static Python compile check passed."
 
 test:
@@ -111,10 +111,13 @@ package-smoke:
 release-artifacts:
 	$(PYTHON) tools/release_artifacts.py --keep-artifacts
 
+release-dashboard:
+	$(PYTHON) tools/release_dashboard.py
+
 release-preflight:
 	$(PYTHON) tools/release_preflight.py
 
-$(SANITIZER_TARGET): $(SRCS) $(SRC_DIR)/tensor_ops.h $(SRC_DIR)/tensor_ops_internal.h
+$(SANITIZER_TARGET): $(SRCS) $(SRC_DIR)/tensor_ops.h $(SRC_DIR)/tensor_ops_internal.h $(SRC_DIR)/tensor_ops_dtype.h
 	@echo "Compiling sanitized C backend..."
 	$(CC) $(SANITIZER_CFLAGS) -o $@ $(SRCS) $(SANITIZER_LDFLAGS)
 	@echo "Sanitized build successful: $(SANITIZER_TARGET)"
@@ -133,3 +136,6 @@ verify-cpu:
 
 verify-cuda-smoke:
 	$(PYTHON) tools/verify_all.py --iterations 3 $(CUDA_SMOKE_ARGS)
+
+verify-cuda-full:
+	$(PYTHON) tools/verify_all.py --iterations 3
