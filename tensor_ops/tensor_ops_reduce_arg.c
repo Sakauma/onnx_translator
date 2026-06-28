@@ -24,54 +24,6 @@ typedef enum {
     REDUCE_FORMULA_SUM_SQUARE = 2,
 } ReduceFormulaMode;
 
-// 初始化归约坐标，将输出坐标映射回输入坐标，归约轴先置零。
-static inline void prepare_reduce_coords(
-    size_t out_index,
-    const Tensor* input,
-    const Tensor* output,
-    const ReduceParams* params,
-    int* coords
-) {
-    int out_coords[MAX_NDIM];
-    get_coords_from_index(out_index, out_coords, output->shape, output->ndim);
-
-    if (params->keepdims) {
-        for (int d = 0; d < input->ndim; d++) {
-            coords[d] = is_axis_reduced(d, params->axes, params->num_axes) ? 0 : out_coords[d];
-        }
-        return;
-    }
-
-    int out_dim_idx = 0;
-    for (int d = 0; d < input->ndim; d++) {
-        if (is_axis_reduced(d, params->axes, params->num_axes)) {
-            coords[d] = 0;
-        } else {
-            coords[d] = out_coords[out_dim_idx++];
-        }
-    }
-}
-
-// 计算归约轴组合数量，作为内层循环的展开空间。
-static inline size_t reduce_total_steps_for(const Tensor* input, const ReduceParams* params) {
-    size_t reduce_total_steps = 1;
-    for (int i = 0; i < params->num_axes; i++) {
-        reduce_total_steps *= input->shape[params->axes[i]];
-    }
-    return reduce_total_steps;
-}
-
-// 根据归约空间线性索引更新当前输入坐标。
-static inline void update_reduce_coords(const Tensor* input, const ReduceParams* params, int* coords, size_t reduce_index) {
-    size_t temp_r = reduce_index;
-    for (int k = params->num_axes - 1; k >= 0; k--) {
-        int axis_idx = params->axes[k];
-        int dim_size = input->shape[axis_idx];
-        coords[axis_idx] = temp_r % dim_size;
-        temp_r /= dim_size;
-    }
-}
-
 // 保留原有 double 累加/比较路径，服务浮点归约和低精度浮点写回。
 static void reduce_float_numeric_forward(const Tensor* input, Tensor* output, ReduceParams* params, ReduceNumericMode mode) {
     if (!input || !output || !params) return;
@@ -151,39 +103,6 @@ static void reduce_float_formula_forward(const Tensor* input, Tensor* output, Re
             acc = sqrt(acc);
         }
         set_tensor_value_from_float(output, i, acc);
-    }
-}
-
-// ReduceLogSumExp 使用官方 reference 的稳定形式：先减去归约窗口最大值，再执行 exp/sum/log，避免大输入溢出成 Inf。
-static void reduce_log_sum_exp_stable_forward(const Tensor* input, Tensor* output, ReduceParams* params) {
-    if (!input || !output || !params) return;
-    size_t reduce_total_steps = reduce_total_steps_for(input, params);
-
-    _Pragma("omp parallel for")
-    for (size_t i = 0; i < output->size; i++) {
-        int coords[MAX_NDIM];
-        prepare_reduce_coords(i, input, output, params, coords);
-
-        double max_value = -INFINITY;
-        for (size_t r = 0; r < reduce_total_steps; r++) {
-            update_reduce_coords(input, params, coords, r);
-            size_t in_idx = get_index_from_coords(coords, input->shape, input->ndim);
-            double val = get_value_as_double(input, in_idx);
-            double candidate = isinf(val) ? -INFINITY : val;
-            if (candidate > max_value) {
-                max_value = candidate;
-            }
-        }
-
-        double sum = 0.0;
-        for (size_t r = 0; r < reduce_total_steps; r++) {
-            update_reduce_coords(input, params, coords, r);
-            size_t in_idx = get_index_from_coords(coords, input->shape, input->ndim);
-            double val = get_value_as_double(input, in_idx);
-            sum += exp(val - max_value);
-        }
-
-        set_tensor_value_from_float(output, i, log(sum) + max_value);
     }
 }
 
@@ -427,12 +346,6 @@ void reduce_l2_forward(const Tensor* input, Tensor* output, ReduceParams* params
         return;
     }
     reduce_float_formula_forward(input, output, params, REDUCE_FORMULA_L2);
-}
-
-
-// ReduceLogSumExp: Log(Sum(exp(x)))，仅实现基础定义
-void reduce_log_sum_exp_forward(const Tensor* input, Tensor* output, ReduceParams* params) {
-    reduce_log_sum_exp_stable_forward(input, output, params);
 }
 
 
