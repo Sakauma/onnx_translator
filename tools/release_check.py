@@ -243,6 +243,12 @@ def _check_release_evidence_workflow() -> list[str]:
 
 
 def _check_heavy_gate_artifact_retention() -> list[str]:
+    makefile_text = (ROOT / "Makefile").read_text(encoding="utf-8")
+    if "verify-cuda-smoke:\n\t$(PYTHON) tools/verify_all.py --iterations 3 --keep-artifacts" not in makefile_text:
+        return ["verify-cuda-smoke must preserve cache artifacts for CUDA evidence upload"]
+    if "verify-cuda-full:\n\t$(PYTHON) tools/verify_all.py --iterations 3 --keep-artifacts" not in makefile_text:
+        return ["verify-cuda-full must preserve cache artifacts for CUDA evidence upload"]
+
     required_by_file = {
         ".github/workflows/cuda.yml": [
             "Upload CUDA smoke evidence",

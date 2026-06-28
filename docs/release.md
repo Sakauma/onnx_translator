@@ -230,6 +230,7 @@ make PYTHON=python verify-cuda-smoke
 ```
 
 该 smoke gate 会把 `--op` 过滤条件同时传给 CUDA 编译和 numerical 验证，默认只编译并运行 `add`、`matmul`、`conv2d`、`softmax`、`quantize_linear` 和 `dequantize_linear` 等关键算子。`tools/cli.py compile-cuda` 会跳过比源文件、公共 `.cuh` 头和编译脚本更新的 cached executable；需要强制重编时使用 `--force`。
+CUDA smoke 和 full Make target 会向 `tools/verify_all.py` 传入 `--keep-artifacts`，保证成功运行后 `cache/verify_*` 仍可被 workflow 上传为 CUDA evidence artifact。
 
 定时任务和手工触发会运行完整 CUDA gate：
 

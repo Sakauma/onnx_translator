@@ -135,7 +135,7 @@ verify-cpu:
 	$(PYTHON) tools/verify_all.py --skip-cuda
 
 verify-cuda-smoke:
-	$(PYTHON) tools/verify_all.py --iterations 3 $(CUDA_SMOKE_ARGS)
+	$(PYTHON) tools/verify_all.py --iterations 3 --keep-artifacts $(CUDA_SMOKE_ARGS)
 
 verify-cuda-full:
-	$(PYTHON) tools/verify_all.py --iterations 3
+	$(PYTHON) tools/verify_all.py --iterations 3 --keep-artifacts
