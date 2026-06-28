@@ -23,6 +23,7 @@
         "result/release_dashboard.md",
         "result/release_dashboard.json",
         "docs/release_evidence_checklist.md",
+        "docs/release_trend_history.json",
         "docs/release_trend_manifest.json"
       ],
       "workflow_tokens": [
@@ -31,6 +32,7 @@
         "result/release_dashboard.md",
         "result/release_dashboard.json",
         "docs/release_evidence_checklist.md",
+        "docs/release_trend_history.json",
         "docs/release_trend_manifest.json",
         "retention-days: 90"
       ]

@@ -28,6 +28,7 @@ from tools.benchmark_runtime import BENCHMARKS, _load_baseline
 from tools.onnx_semantic_matrix import DEFAULT_JSON as ONNX_SEMANTIC_MATRIX_JSON
 from tools.onnx_semantic_matrix import DEFAULT_MARKDOWN as ONNX_SEMANTIC_MATRIX_MARKDOWN
 from tools.onnx_semantic_matrix import build_matrix as build_onnx_semantic_matrix
+from tools.release_trend_history import validate_trend_history
 
 
 REQUIRED_SCRIPTS = {
@@ -42,6 +43,7 @@ REQUIRED_SCRIPTS = {
     "onnx-translator-release-artifacts",
     "onnx-translator-release-dashboard",
     "onnx-translator-release-preflight",
+    "onnx-translator-release-trend-history",
     "onnx-translator-wheelhouse-smoke",
     "onnx-translator-onnx-semantic-matrix",
 }
@@ -63,6 +65,7 @@ REQUIRED_MAKE_TARGETS = {
     "release-artifacts:",
     "release-dashboard:",
     "release-preflight:",
+    "release-trend-history:",
     "sanitize:",
     "release-check:",
     "verify-cuda-smoke:",
@@ -81,6 +84,7 @@ REQUIRED_FILES = [
     "tools/release_artifacts.py",
     "tools/release_dashboard.py",
     "tools/release_preflight.py",
+    "tools/release_trend_history.py",
     "tools/run_sanitized_tests.py",
     "tools/wheelhouse_smoke.py",
     "tensor_ops/tensor_ops_activation_extra.c",
@@ -94,6 +98,7 @@ REQUIRED_FILES = [
     "docs/onnx_semantic_matrix.json",
     "docs/onnx_semantic_matrix.md",
     "docs/release_evidence_checklist.md",
+    "docs/release_trend_history.json",
     "docs/release_trend_manifest.json",
     ".github/workflows/ci.yml",
     ".github/workflows/cuda.yml",
@@ -231,6 +236,7 @@ def _check_release_evidence_checklist() -> list[str]:
         "result/release_preflight_plan.json",
         "result/release_dashboard.md",
         "docs/release_trend_manifest.json",
+        "docs/release_trend_history.json",
         "release-evidence",
         "manylinux-wheels-full",
         "benchmark-fixed-runner-check",
@@ -255,6 +261,7 @@ def _check_release_evidence_workflow() -> list[str]:
         "result/release_dashboard.md",
         "result/release_dashboard.json",
         "docs/release_evidence_checklist.md",
+        "docs/release_trend_history.json",
         "docs/release_trend_manifest.json",
         "retention-days: 90",
         "--include-cuda-smoke",
@@ -323,6 +330,11 @@ def _check_release_trend_manifest() -> list[str]:
         for token in sorted({token for token in required_tokens if token}):
             if token not in workflow_text:
                 failures.append(f"release trend window {window_id} workflow {workflow} is missing {token!r}")
+    return failures
+
+
+def _check_release_trend_history() -> list[str]:
+    _, failures = validate_trend_history()
     return failures
 
 
@@ -398,6 +410,8 @@ def build_release_summary() -> tuple[dict[str, object], list[str]]:
     failures.extend(_check_release_evidence_checklist())
     failures.extend(_check_release_evidence_workflow())
     failures.extend(_check_release_trend_manifest())
+    trend_history, trend_history_failures = validate_trend_history()
+    failures.extend(trend_history_failures)
     failures.extend(_check_heavy_gate_artifact_retention())
     failures.extend(_check_c_backend_shard_budgets())
     failures.extend(strict_failures(infos, metadata))
@@ -504,6 +518,7 @@ def build_release_summary() -> tuple[dict[str, object], list[str]]:
             key=lambda item: int(item["lines"]),
             reverse=True,
         )[:5],
+        "trend_history": trend_history,
         "release_infrastructure_files": REQUIRED_FILES,
         "release_make_targets": sorted(target.rstrip(":") for target in REQUIRED_MAKE_TARGETS),
         "manylinux_python_tags": sorted(REQUIRED_MANYLINUX_PYTHON_TAGS),
@@ -545,6 +560,10 @@ def main(argv: list[str] | None = None) -> int:
         f"{item['path']}={item['lines']}" for item in summary["c_backend_largest_shards"]
     )
     print(f"- C backend shard line limit: {summary['c_backend_shard_line_limit']} ({largest_shards})")
+    print(
+        "- release trend history top-tier ready: "
+        f"{summary['trend_history'].get('all_windows_top_tier_ready', False)}"
+    )
     print(f"- release Make targets: {', '.join(summary['release_make_targets'])}")
 
     if args.json_path:
