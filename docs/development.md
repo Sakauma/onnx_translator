@@ -32,7 +32,7 @@
 ## 2. C 后端实现 (`tensor_ops/tensor_ops_*.c`)
 这是核心计算逻辑，**精度优先**。
 
-* **选择分域文件**：按算子职责放入 `tensor_ops_elementwise.c`、`tensor_ops_shape_index.c`、`tensor_ops_conv_pool_roi.c`、`tensor_ops_global_pool.c` 等文件。
+* **选择分域文件**：按算子职责放入 `tensor_ops_elementwise.c`、`tensor_ops_activation_extra.c`、`tensor_ops_shape_index.c`、`tensor_ops_shape_grid.c`、`tensor_ops_conv_pool_roi.c`、`tensor_ops_pool_roi.c`、`tensor_ops_global_pool.c` 等文件。
 * **复用辅助函数**：共享 dtype、Tensor 读写、坐标和宏模板逻辑优先放在 `tensor_ops/tensor_ops_internal.h`。
 * **核心逻辑**：
     * 解析输入形状和参数。
