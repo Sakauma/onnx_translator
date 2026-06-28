@@ -33,9 +33,10 @@
 
 - [ ] `python tools/release_preflight.py --json result/release_preflight.json` 通过，且 `dry_run=false`。
 - [ ] `result/release_dashboard.md` 和 `result/release_dashboard.json` 已生成。
-- [ ] `release-readiness` CI run 或手动 `workflow_dispatch` 上传 `release-evidence` artifact，包含 `result/release_preflight_plan.json`、`result/release_dashboard.md`、`result/release_dashboard.json` 和本 checklist。
+- [ ] `release-readiness` CI run 或手动 `workflow_dispatch` 上传 `release-evidence` artifact，包含 `result/release_preflight_plan.json`、`result/release_dashboard.md`、`result/release_dashboard.json`、`docs/release_trend_manifest.json` 和本 checklist。
 - [ ] dashboard 中 sanitizer、performance smoke/baseline、package smoke、release artifacts 的状态为 `passed`。
 - [ ] 对 dashboard 中状态为 `planned`、`configured` 或 `missing` 的 gate，记录对应 CI run、runner 要求或发布阻断原因。
+- [ ] dashboard 的 Trend Evidence 表中 release evidence、full CUDA、fixed-runner performance 和 manylinux full wheel 四类窗口均显示 workflow configured。
 
 ## 包与 manylinux 证据
 
@@ -50,17 +51,20 @@
 - [ ] `make PYTHON=$PYTHON benchmark-baseline-check` 通过并保留 `result/benchmark_baseline_check.json`。
 - [ ] 固定 runner 上运行 `make PYTHON=$PYTHON benchmark-fixed-runner-check`，或记录 Performance workflow 的 `fixed-runner-baseline` run。
 - [ ] 固定 runner 性能 JSON artifact 保留 180 天，用于对比周期间趋势。
+- [ ] 至少归档 3 次固定 runner performance 历史 run，或在发布记录中说明趋势样本不足并将其标为发布风险。
 - [ ] `make PYTHON=$PYTHON sanitize` 通过，证明 ASan/UBSan C 后端回归子集和代表性模型路径均通过。
 
 ## CUDA 证据
 
 - [ ] `make PYTHON=$PYTHON verify-cuda-smoke` 通过，或记录 CUDA workflow 的 `cuda-smoke` run。
 - [ ] 发布验收运行 `make PYTHON=$PYTHON verify-cuda-full`，或记录 CUDA workflow 的 `cuda-full` run。
+- [ ] 至少归档 3 次 full CUDA 历史 run，或在发布记录中说明趋势样本不足并将其标为发布风险。
 - [ ] 如果本地只跑 smoke，必须在 dashboard 或发布记录中说明 full CUDA 由 self-hosted CUDA runner 覆盖。
 
 ## 归档
 
 - [ ] 归档 `result/release_preflight.json`、`result/release_preflight_plan.json`、`result/release_dashboard.md`、`result/release_dashboard.json`。
+- [ ] 归档 `docs/release_trend_manifest.json` 和每个趋势窗口最近至少 3 次 run 链接。
 - [ ] 归档 `result/benchmark_smoke.json`、`result/benchmark_baseline_check.json`，以及固定 runner 性能结果。
 - [ ] 归档 release artifact 目录、manylinux wheelhouse 或对应 CI artifacts。
 - [ ] 在 PR 或 release note 中粘贴本 checklist 的完成状态和所有外部 CI run 链接。

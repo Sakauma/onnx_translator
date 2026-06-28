@@ -52,7 +52,8 @@ flowchart LR
 - `tensor_ops_internal.h`：共享 dtype 转换、Tensor 读写、坐标、归约和宏模板。
 - `tensor_ops_core.c`：Tensor 创建和释放。
 - `tensor_ops_elementwise.c`：逐元素、比较、逻辑和激活。
-- `tensor_ops_conv_pool_roi.c`：卷积、池化和 ROI。
+- `tensor_ops_conv_pool_roi.c`：卷积、局部池化、反池化和 ROI。
+- `tensor_ops_global_pool.c`：全局池化。
 - `tensor_ops_matrix_quant.c`：矩阵和量化。
 - `tensor_ops_shape_index.c`：shape、索引、scatter/gather 和布局变换。
 - `tensor_ops_reduce_arg.c`：归约和 Arg。

@@ -137,6 +137,7 @@ jobs:
             result/release_dashboard.md
             result/release_dashboard.json
             docs/release_evidence_checklist.md
+            docs/release_trend_manifest.json
           if-no-files-found: error
           retention-days: 90
 

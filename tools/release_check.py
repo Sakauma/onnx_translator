@@ -84,11 +84,13 @@ REQUIRED_FILES = [
     "tools/run_sanitized_tests.py",
     "tools/wheelhouse_smoke.py",
     "tensor_ops/tensor_ops_dtype.h",
+    "tensor_ops/tensor_ops_global_pool.c",
     "docs/performance_baseline.json",
     "docs/performance_fixed_runner_baseline.json",
     "docs/onnx_semantic_matrix.json",
     "docs/onnx_semantic_matrix.md",
     "docs/release_evidence_checklist.md",
+    "docs/release_trend_manifest.json",
     ".github/workflows/ci.yml",
     ".github/workflows/cuda.yml",
     ".github/workflows/performance.yml",
@@ -98,6 +100,22 @@ REQUIRED_FILES = [
 ]
 
 REQUIRED_MANYLINUX_PYTHON_TAGS = {"cp310", "cp311", "cp312"}
+C_BACKEND_MAX_SHARD_LINES = 950
+REQUIRED_TREND_WINDOW_IDS = {
+    "cuda_full",
+    "fixed_runner_performance",
+    "manylinux_full",
+    "release_evidence",
+}
+REQUIRED_FAILURE_TRIAGE_FIELDS = {
+    "commit_sha",
+    "failed_gate",
+    "follow_up",
+    "owner",
+    "resolution",
+    "root_cause",
+    "run_url",
+}
 
 
 def _stable_semantic_matrix(payload: dict[str, object]) -> dict[str, object]:
@@ -208,6 +226,7 @@ def _check_release_evidence_checklist() -> list[str]:
         "result/release_preflight.json",
         "result/release_preflight_plan.json",
         "result/release_dashboard.md",
+        "docs/release_trend_manifest.json",
         "release-evidence",
         "manylinux-wheels-full",
         "benchmark-fixed-runner-check",
@@ -232,6 +251,7 @@ def _check_release_evidence_workflow() -> list[str]:
         "result/release_dashboard.md",
         "result/release_dashboard.json",
         "docs/release_evidence_checklist.md",
+        "docs/release_trend_manifest.json",
         "retention-days: 90",
         "--include-cuda-smoke",
         "--include-cuda-full",
@@ -240,6 +260,92 @@ def _check_release_evidence_workflow() -> list[str]:
         "--include-fixed-runner-perf",
     ]
     return [f"release evidence workflow is missing {token!r}" for token in required_tokens if token not in text]
+
+
+def _check_release_trend_manifest() -> list[str]:
+    path = ROOT / "docs" / "release_trend_manifest.json"
+    if not path.exists():
+        return ["release trend manifest is missing"]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return [f"release trend manifest is not readable: {exc}"]
+
+    failures = []
+    if payload.get("schema_version") != 1:
+        failures.append("release trend manifest must use schema_version=1")
+    if int(payload.get("minimum_history_for_top_tier_release", 0)) < 3:
+        failures.append("release trend manifest must require at least 3 historical runs for top-tier release")
+
+    triage_fields = set(payload.get("failure_triage_fields", []))
+    missing_triage = sorted(REQUIRED_FAILURE_TRIAGE_FIELDS - triage_fields)
+    if missing_triage:
+        failures.append("release trend manifest is missing failure triage fields: " + ", ".join(missing_triage))
+
+    windows = payload.get("trend_windows", [])
+    if not isinstance(windows, list):
+        return failures + ["release trend manifest trend_windows must be a list"]
+
+    windows_by_id = {str(window.get("id")): window for window in windows if isinstance(window, dict)}
+    missing_windows = sorted(REQUIRED_TREND_WINDOW_IDS - set(windows_by_id))
+    if missing_windows:
+        failures.append("release trend manifest is missing trend windows: " + ", ".join(missing_windows))
+
+    for window_id, window in sorted(windows_by_id.items()):
+        workflow = str(window.get("source_workflow", ""))
+        artifact_pattern = str(window.get("artifact_pattern", ""))
+        retention_days = int(window.get("retention_days", 0))
+        required_payloads = [str(item) for item in window.get("required_payloads", [])]
+        workflow_tokens = [str(item) for item in window.get("workflow_tokens", [])]
+
+        if not workflow:
+            failures.append(f"release trend window {window_id} must declare source_workflow")
+            continue
+        workflow_path = ROOT / workflow
+        if not workflow_path.exists():
+            failures.append(f"release trend window {window_id} references missing workflow {workflow}")
+            continue
+        if not artifact_pattern:
+            failures.append(f"release trend window {window_id} must declare artifact_pattern")
+        if retention_days < 90:
+            failures.append(f"release trend window {window_id} must retain artifacts for at least 90 days")
+        if window_id == "fixed_runner_performance" and retention_days < 180:
+            failures.append("fixed runner performance trend must retain artifacts for at least 180 days")
+        if not required_payloads:
+            failures.append(f"release trend window {window_id} must declare required_payloads")
+
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        required_tokens = [artifact_pattern, f"retention-days: {retention_days}", *required_payloads, *workflow_tokens]
+        for token in sorted({token for token in required_tokens if token}):
+            if token not in workflow_text:
+                failures.append(f"release trend window {window_id} workflow {workflow} is missing {token!r}")
+    return failures
+
+
+def _c_backend_shard_lines() -> list[dict[str, object]]:
+    shards = []
+    for path in sorted((ROOT / "tensor_ops").glob("tensor_ops_*.c")):
+        shards.append(
+            {
+                "path": str(path.relative_to(ROOT)),
+                "lines": len(path.read_text(encoding="utf-8").splitlines()),
+            }
+        )
+    return shards
+
+
+def _check_c_backend_shard_budgets() -> list[str]:
+    shards = _c_backend_shard_lines()
+    if not shards:
+        return ["C backend shard budget cannot find tensor_ops/tensor_ops_*.c files"]
+    failures = []
+    for shard in shards:
+        if int(shard["lines"]) > C_BACKEND_MAX_SHARD_LINES:
+            failures.append(
+                f"C backend shard {shard['path']} has {shard['lines']} lines; "
+                f"limit is {C_BACKEND_MAX_SHARD_LINES}"
+            )
+    return failures
 
 
 def _check_heavy_gate_artifact_retention() -> list[str]:
@@ -287,7 +393,9 @@ def build_release_summary() -> tuple[dict[str, object], list[str]]:
     failures.extend(_check_cibuildwheel_config(pyproject, requirements_dev_text))
     failures.extend(_check_release_evidence_checklist())
     failures.extend(_check_release_evidence_workflow())
+    failures.extend(_check_release_trend_manifest())
     failures.extend(_check_heavy_gate_artifact_retention())
+    failures.extend(_check_c_backend_shard_budgets())
     failures.extend(strict_failures(infos, metadata))
     semantic_matrix, semantic_failures = _check_onnx_semantic_matrix()
     failures.extend(semantic_failures)
@@ -386,6 +494,12 @@ def build_release_summary() -> tuple[dict[str, object], list[str]]:
         "onnx_semantic_deprecated_aliases": semantic_matrix["deprecated_alias_count"],
         "runtime_library": str(runtime_library),
         "runtime_library_present": runtime_library.exists(),
+        "c_backend_shard_line_limit": C_BACKEND_MAX_SHARD_LINES,
+        "c_backend_largest_shards": sorted(
+            _c_backend_shard_lines(),
+            key=lambda item: int(item["lines"]),
+            reverse=True,
+        )[:5],
         "release_infrastructure_files": REQUIRED_FILES,
         "release_make_targets": sorted(target.rstrip(":") for target in REQUIRED_MAKE_TARGETS),
         "manylinux_python_tags": sorted(REQUIRED_MANYLINUX_PYTHON_TAGS),
@@ -423,6 +537,10 @@ def main(argv: list[str] | None = None) -> int:
         f"{summary['onnx_semantic_deprecated_aliases']}"
     )
     print(f"- runtime library present: {summary['runtime_library_present']} ({summary['runtime_library']})")
+    largest_shards = ", ".join(
+        f"{item['path']}={item['lines']}" for item in summary["c_backend_largest_shards"]
+    )
+    print(f"- C backend shard line limit: {summary['c_backend_shard_line_limit']} ({largest_shards})")
     print(f"- release Make targets: {', '.join(summary['release_make_targets'])}")
 
     if args.json_path:

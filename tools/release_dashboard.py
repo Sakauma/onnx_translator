@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PREFLIGHT = ROOT / "result" / "release_preflight.json"
 DEFAULT_MARKDOWN = ROOT / "result" / "release_dashboard.md"
 DEFAULT_JSON = ROOT / "result" / "release_dashboard.json"
+TREND_MANIFEST = ROOT / "docs" / "release_trend_manifest.json"
 
 
 GATES = [
@@ -122,6 +123,48 @@ def _workflow_check(path_text: str, token: str) -> dict[str, object]:
     return {"path": path_text, "token": token, "present": present}
 
 
+def _unique_texts(values: list[object]) -> list[str]:
+    seen = set()
+    unique = []
+    for value in values:
+        text = str(value)
+        if text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
+
+
+def _trend_windows(manifest: dict[str, object] | None) -> list[dict[str, object]]:
+    if not manifest:
+        return []
+    windows = []
+    for window in manifest.get("trend_windows", []):
+        if not isinstance(window, dict):
+            continue
+        workflow = str(window.get("source_workflow", ""))
+        tokens = list(window.get("workflow_tokens", []))
+        artifact_pattern = str(window.get("artifact_pattern", ""))
+        retention_days = window.get("retention_days")
+        if artifact_pattern:
+            tokens.append(artifact_pattern)
+        if retention_days is not None:
+            tokens.append(f"retention-days: {retention_days}")
+        windows.append(
+            {
+                "id": str(window.get("id", "")),
+                "title": str(window.get("title", window.get("id", ""))),
+                "cadence": str(window.get("cadence", "")),
+                "source_workflow": workflow,
+                "artifact_pattern": artifact_pattern,
+                "retention_days": retention_days,
+                "required_payloads": [str(item) for item in window.get("required_payloads", [])],
+                "workflow_checks": [_workflow_check(workflow, token) for token in _unique_texts(tokens) if workflow],
+            }
+        )
+    return windows
+
+
 def _status_for_gate(gate: dict[str, object], step_statuses: dict[str, str], workflow_checks: list[dict[str, object]]) -> str:
     steps = list(gate["steps"])
     if not steps:
@@ -141,6 +184,7 @@ def _status_for_gate(gate: dict[str, object], step_statuses: dict[str, str], wor
 
 def build_dashboard(preflight_path: Path = DEFAULT_PREFLIGHT) -> dict[str, object]:
     preflight = _read_json(preflight_path)
+    trend_manifest = _read_json(TREND_MANIFEST)
     records = _step_records(preflight)
     statuses = _step_statuses(preflight)
     gates = []
@@ -194,6 +238,12 @@ def build_dashboard(preflight_path: Path = DEFAULT_PREFLIGHT) -> dict[str, objec
         "preflight_dry_run": preflight.get("dry_run") if preflight else None,
         "preflight_flags": preflight_flags,
         "gates": gates,
+        "trend_manifest_path": str(TREND_MANIFEST),
+        "trend_manifest_present": trend_manifest is not None,
+        "trend_minimum_history_for_top_tier_release": (
+            trend_manifest.get("minimum_history_for_top_tier_release") if trend_manifest else None
+        ),
+        "trend_windows": _trend_windows(trend_manifest),
     }
 
 
@@ -248,6 +298,12 @@ def _format_workflows(checks: list[dict[str, object]]) -> str:
     return "<br>".join(parts)
 
 
+def _format_payloads(payloads: list[str]) -> str:
+    if not payloads:
+        return "-"
+    return "<br>".join(f"`{payload}`" for payload in payloads)
+
+
 def _format_flags(flags: dict[str, object]) -> str:
     if not flags:
         return "-"
@@ -275,6 +331,31 @@ def render_markdown(payload: dict[str, object]) -> str:
                 steps=_format_steps(gate["step_records"]),
                 artifacts=_format_artifacts(gate["artifacts"]),
                 workflows=_format_workflows(gate["workflow_checks"]),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Trend Evidence",
+            "",
+            f"- Trend manifest: `{payload['trend_manifest_path']}`",
+            f"- Minimum history for top-tier release: `{payload['trend_minimum_history_for_top_tier_release']}`",
+            "",
+            "| Window | Cadence | Artifact | Retention | Payloads | Workflow Evidence |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    if not payload["trend_windows"]:
+        lines.append("| - | - | - | - | - | missing |")
+    for window in payload["trend_windows"]:
+        lines.append(
+            "| {title} | {cadence} | `{artifact}` | {retention} days | {payloads} | {workflows} |".format(
+                title=window["title"],
+                cadence=window["cadence"] or "-",
+                artifact=window["artifact_pattern"] or "-",
+                retention=window["retention_days"] if window["retention_days"] is not None else "-",
+                payloads=_format_payloads(window["required_payloads"]),
+                workflows=_format_workflows(window["workflow_checks"]),
             )
         )
     lines.append("")
