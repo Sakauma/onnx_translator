@@ -15,6 +15,7 @@ from tools.release_check import (
     REQUIRED_SCRIPTS,
     _check_cibuildwheel_config,
     _check_release_evidence_checklist,
+    _check_release_evidence_workflow,
 )
 
 
@@ -87,6 +88,10 @@ def test_release_check_requires_release_dashboard_gate():
 def test_release_check_requires_release_evidence_checklist():
     assert "docs/release_evidence_checklist.md" in REQUIRED_FILES
     assert _check_release_evidence_checklist() == []
+
+
+def test_release_check_requires_ci_release_evidence_dashboard_artifact():
+    assert _check_release_evidence_workflow() == []
 
 
 def test_release_check_requires_split_audit_data_module():

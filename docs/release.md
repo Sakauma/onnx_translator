@@ -68,6 +68,8 @@ make PYTHON=$PYTHON release-dashboard
 $PYTHON tools/release_dashboard.py --preflight result/release_preflight.json
 ```
 
+CI 的 `release-readiness` job 会在每次 PR/push 后生成一份远端证据入口：`result/release_preflight_plan.json` 使用 `--dry-run` 记录本地、CUDA、manylinux 和固定性能 runner 的完整发布门禁计划；`result/release_dashboard.md` 与 `result/release_dashboard.json` 把该计划、workflow 配置和关键 artifact 路径汇总成表；三者连同 checklist 作为 `release-evidence-${{ github.run_id }}` artifact 上传。发布验收时应把这份远端 artifact 与 CUDA、Wheels、Performance workflow 的实际 run 链接一起归档。
+
 发布验收时使用 [`docs/release_evidence_checklist.md`](release_evidence_checklist.md) 汇总本地命令、dashboard 产物、manylinux/CUDA/performance 外部 runner 证据和 CI artifact 链接。任何没有在本地执行的重门禁都必须在 checklist 中记录替代 CI run 或明确标为发布阻断项。
 
 ## 发布就绪检查

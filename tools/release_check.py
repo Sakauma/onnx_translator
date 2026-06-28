@@ -206,7 +206,9 @@ def _check_release_evidence_checklist() -> list[str]:
         "Release Evidence Checklist",
         "release candidate commit SHA",
         "result/release_preflight.json",
+        "result/release_preflight_plan.json",
         "result/release_dashboard.md",
+        "release-evidence",
         "manylinux-wheels-full",
         "benchmark-fixed-runner-check",
         "verify-cuda-full",
@@ -214,6 +216,28 @@ def _check_release_evidence_checklist() -> list[str]:
         "CI run",
     ]
     return [f"release evidence checklist is missing {token!r}" for token in required_tokens if token not in text]
+
+
+def _check_release_evidence_workflow() -> list[str]:
+    path = ROOT / ".github" / "workflows" / "ci.yml"
+    if not path.exists():
+        return ["release evidence workflow is missing .github/workflows/ci.yml"]
+    text = path.read_text(encoding="utf-8")
+    required_tokens = [
+        "Build release evidence dashboard",
+        "Upload release evidence dashboard",
+        "release-evidence-${{ github.run_id }}",
+        "result/release_preflight_plan.json",
+        "result/release_dashboard.md",
+        "result/release_dashboard.json",
+        "docs/release_evidence_checklist.md",
+        "--include-cuda-smoke",
+        "--include-cuda-full",
+        "--include-manylinux",
+        "--include-manylinux-full",
+        "--include-fixed-runner-perf",
+    ]
+    return [f"release evidence workflow is missing {token!r}" for token in required_tokens if token not in text]
 
 
 def build_release_summary() -> tuple[dict[str, object], list[str]]:
@@ -224,6 +248,7 @@ def build_release_summary() -> tuple[dict[str, object], list[str]]:
     requirements_dev_text = requirements_dev.read_text(encoding="utf-8") if requirements_dev.exists() else ""
     failures.extend(_check_cibuildwheel_config(pyproject, requirements_dev_text))
     failures.extend(_check_release_evidence_checklist())
+    failures.extend(_check_release_evidence_workflow())
     failures.extend(strict_failures(infos, metadata))
     semantic_matrix, semantic_failures = _check_onnx_semantic_matrix()
     failures.extend(semantic_failures)

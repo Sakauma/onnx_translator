@@ -111,6 +111,31 @@ jobs:
         run: |
           make PYTHON=python package-smoke
 
+      - name: Build release evidence dashboard
+        if: always()
+        run: |
+          python tools/release_preflight.py --dry-run \
+            --include-cuda-smoke \
+            --include-cuda-full \
+            --include-manylinux \
+            --include-manylinux-full \
+            --include-fixed-runner-perf \
+            --json result/release_preflight_plan.json \
+            --dashboard result/release_dashboard.md \
+            --dashboard-json result/release_dashboard.json
+
+      - name: Upload release evidence dashboard
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence-${{ github.run_id }}
+          path: |
+            result/release_preflight_plan.json
+            result/release_dashboard.md
+            result/release_dashboard.json
+            docs/release_evidence_checklist.md
+          if-no-files-found: error
+
   sanitizer-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
