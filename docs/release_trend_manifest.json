@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "minimum_history_for_top_tier_release": 3,
+  "failure_triage_fields": [
+    "failed_gate",
+    "run_url",
+    "commit_sha",
+    "owner",
+    "root_cause",
+    "resolution",
+    "follow_up"
+  ],
+  "trend_windows": [
+    {
+      "id": "release_evidence",
+      "title": "Release evidence dashboard",
+      "cadence": "pull request, main push, and manual release candidate",
+      "source_workflow": ".github/workflows/ci.yml",
+      "artifact_pattern": "release-evidence-${{ github.run_id }}",
+      "retention_days": 90,
+      "required_payloads": [
+        "result/release_preflight_plan.json",
+        "result/release_dashboard.md",
+        "result/release_dashboard.json",
+        "docs/release_evidence_checklist.md",
+        "docs/release_trend_manifest.json"
+      ],
+      "workflow_tokens": [
+        "release-evidence-${{ github.run_id }}",
+        "result/release_preflight_plan.json",
+        "result/release_dashboard.md",
+        "result/release_dashboard.json",
+        "docs/release_evidence_checklist.md",
+        "docs/release_trend_manifest.json",
+        "retention-days: 90"
+      ]
+    },
+    {
+      "id": "cuda_full",
+      "title": "Full CUDA numerical trend",
+      "cadence": "weekly schedule and manual workflow dispatch",
+      "source_workflow": ".github/workflows/cuda.yml",
+      "artifact_pattern": "cuda-full-${{ github.run_id }}",
+      "retention_days": 90,
+      "required_payloads": [
+        "cache/verify_*"
+      ],
+      "workflow_tokens": [
+        "cron: \"0 20 * * 1\"",
+        "make PYTHON=python verify-cuda-full",
+        "cuda-full-${{ github.run_id }}",
+        "cache/verify_*",
+        "retention-days: 90"
+      ]
+    },
+    {
+      "id": "fixed_runner_performance",
+      "title": "Fixed runner performance trend",
+      "cadence": "weekly schedule and manual workflow dispatch",
+      "source_workflow": ".github/workflows/performance.yml",
+      "artifact_pattern": "benchmark-fixed-runner-${{ github.run_id }}",
+      "retention_days": 180,
+      "required_payloads": [
+        "result/benchmark_fixed_runner_check.json"
+      ],
+      "workflow_tokens": [
+        "cron: \"30 21 * * 1\"",
+        "make PYTHON=python benchmark-fixed-runner-check",
+        "benchmark-fixed-runner-${{ github.run_id }}",
+        "result/benchmark_fixed_runner_check.json",
+        "retention-days: 180"
+      ]
+    },
+    {
+      "id": "manylinux_full",
+      "title": "Manylinux full wheel trend",
+      "cadence": "weekly schedule and manual workflow dispatch",
+      "source_workflow": ".github/workflows/wheels.yml",
+      "artifact_pattern": "manylinux-${{ matrix.cibw-build }}-${{ github.run_id }}",
+      "retention_days": 90,
+      "required_payloads": [
+        "wheelhouse/*.whl"
+      ],
+      "workflow_tokens": [
+        "cron: \"0 21 * * 1\"",
+        "cp310-manylinux_x86_64",
+        "cp311-manylinux_x86_64",
+        "cp312-manylinux_x86_64",
+        "manylinux-${{ matrix.cibw-build }}-${{ github.run_id }}",
+        "wheelhouse/*.whl",
+        "retention-days: 90"
+      ]
+    }
+  ]
+}

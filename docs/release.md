@@ -68,9 +68,11 @@ make PYTHON=$PYTHON release-dashboard
 $PYTHON tools/release_dashboard.py --preflight result/release_preflight.json
 ```
 
-CI 的 `release-readiness` job 可通过 PR、main/master push 或 `workflow_dispatch` 运行，并会生成一份远端证据入口：`result/release_preflight_plan.json` 使用 `--dry-run` 记录本地、CUDA、manylinux 和固定性能 runner 的完整发布门禁计划；`result/release_dashboard.md` 与 `result/release_dashboard.json` 把该计划、workflow 配置和关键 artifact 路径汇总成表；三者连同 checklist 作为 `release-evidence-${{ github.run_id }}` artifact 上传并保留 90 天。发布验收时应把这份远端 artifact 与 CUDA、Wheels、Performance workflow 的实际 run 链接一起归档。
+CI 的 `release-readiness` job 可通过 PR、main/master push 或 `workflow_dispatch` 运行，并会生成一份远端证据入口：`result/release_preflight_plan.json` 使用 `--dry-run` 记录本地、CUDA、manylinux 和固定性能 runner 的完整发布门禁计划；`result/release_dashboard.md` 与 `result/release_dashboard.json` 把该计划、workflow 配置、关键 artifact 路径和长期趋势证据窗口汇总成表；三者连同 checklist 与 `docs/release_trend_manifest.json` 作为 `release-evidence-${{ github.run_id }}` artifact 上传并保留 90 天。发布验收时应把这份远端 artifact 与 CUDA、Wheels、Performance workflow 的实际 run 链接一起归档。
 
 发布验收时使用 [`docs/release_evidence_checklist.md`](release_evidence_checklist.md) 汇总本地命令、dashboard 产物、manylinux/CUDA/performance 外部 runner 证据和 CI artifact 链接。任何没有在本地执行的重门禁都必须在 checklist 中记录替代 CI run 或明确标为发布阻断项。
+
+[`docs/release_trend_manifest.json`](release_trend_manifest.json) 是长期证据契约，声明 release evidence、full CUDA、fixed-runner performance 和 manylinux full wheel 四类趋势窗口的 workflow、artifact 名称、保留周期和必备 payload。`release-check` 会校验 manifest 与 workflow 配置一致；顶级发布判定至少需要 3 次同一窗口的历史 run 作为趋势样本，失败项必须记录 failed gate、run URL、commit SHA、owner、root cause、resolution 和 follow-up。
 
 ## 发布就绪检查
 
@@ -88,6 +90,7 @@ make PYTHON=$PYTHON release-check
 - `tensor_ops.h` 与 `tensor_ops_*.c` 的公共 C ABI 声明/实现必须一致。
 - `docs/abi_manifest.json` 必须与当前 `tensor_ops/tensor_ops.h` 的公开 ABI 一致。
 - CUDA verifier 数量必须与 active numerical 唯一算子覆盖一致。
+- `tensor_ops/tensor_ops_*.c` 后端 shard 单文件行数不能超过 950 行，避免重新退化成难维护的大文件。
 - `cibuildwheel` manylinux 配置、wheelhouse 检查入口和发布构建目标必须存在。
 - 代表性模型 smoke、性能 smoke、包安装 smoke、sanitizer 和 CUDA smoke 均有可执行入口。
 

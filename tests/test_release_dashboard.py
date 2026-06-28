@@ -62,7 +62,17 @@ def test_release_dashboard_summarizes_preflight_and_workflow_evidence(tmp_path):
     assert gates["cuda_full"]["step_records"][0]["command"] == ["make", "PYTHON=/env/bin/python", "verify-cuda-full"]
     assert payload["preflight_flags"]["include_cuda_full"] is True
     assert payload["preflight_flags"]["include_fixed_runner_perf"] is True
+    assert payload["trend_manifest_present"] is True
+    assert payload["trend_minimum_history_for_top_tier_release"] == 3
+    assert {window["id"] for window in payload["trend_windows"]} >= {
+        "cuda_full",
+        "fixed_runner_performance",
+        "manylinux_full",
+        "release_evidence",
+    }
     assert "Full CUDA Numerical" in markdown
+    assert "Trend Evidence" in markdown
+    assert "Fixed runner performance trend" in markdown
     assert "make PYTHON=/env/bin/python verify-cuda-full" in markdown
     assert "make PYTHON=/env/bin/python benchmark-fixed-runner-check" in markdown
     assert "Optional gate flags" in markdown

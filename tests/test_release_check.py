@@ -10,13 +10,16 @@
 # */
 
 from tools.release_check import (
+    C_BACKEND_MAX_SHARD_LINES,
     REQUIRED_FILES,
     REQUIRED_MAKE_TARGETS,
     REQUIRED_SCRIPTS,
+    _check_c_backend_shard_budgets,
     _check_cibuildwheel_config,
     _check_heavy_gate_artifact_retention,
     _check_release_evidence_checklist,
     _check_release_evidence_workflow,
+    _check_release_trend_manifest,
 )
 
 
@@ -95,6 +98,11 @@ def test_release_check_requires_ci_release_evidence_dashboard_artifact():
     assert _check_release_evidence_workflow() == []
 
 
+def test_release_check_requires_release_trend_manifest():
+    assert "docs/release_trend_manifest.json" in REQUIRED_FILES
+    assert _check_release_trend_manifest() == []
+
+
 def test_release_check_requires_heavy_gate_artifact_retention():
     assert _check_heavy_gate_artifact_retention() == []
 
@@ -105,3 +113,9 @@ def test_release_check_requires_split_audit_data_module():
 
 def test_release_check_requires_split_dtype_header():
     assert "tensor_ops/tensor_ops_dtype.h" in REQUIRED_FILES
+
+
+def test_release_check_requires_c_backend_shard_budget():
+    assert C_BACKEND_MAX_SHARD_LINES == 950
+    assert "tensor_ops/tensor_ops_global_pool.c" in REQUIRED_FILES
+    assert _check_c_backend_shard_budgets() == []
