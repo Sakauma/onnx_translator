@@ -9,7 +9,7 @@
   ******************************************************************************
 */
 
-#include "tensor_ops_internal.h"
+#include "internal/random.h"
 
 // 根据元素下标派生随机状态，保证随机算子的输出不受 OpenMP 线程数和调度顺序影响。
 static uint32_t random_state_for_index(uint32_t base_seed, size_t index) {

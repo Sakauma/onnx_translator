@@ -23,7 +23,6 @@ from pathlib import Path
 PYTHON_MODULES = [
     "numpy",
     "onnx",
-    "onnxscript",
     "torch",
     "matplotlib",
     "graphviz",

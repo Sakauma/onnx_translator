@@ -24,7 +24,6 @@
 #include <time.h>
 #include <math.h>
 #include <omp.h>
-#include <pthread.h>
 #include <float.h>
 
 #define MAX_NDIM 16  
@@ -33,16 +32,6 @@
 #define M_SQRT1_2 0.70710678118654752440
 #endif
 
-// 余弦查找表大小
-#define COS_LUT_SIZE 4096
-// 余弦查找表位数
-#define COS_LUT_BITS 12
-// 余弦查找表
-static double cos_lut[COS_LUT_SIZE + 1];
-// 余弦查找表初始化标志
-static int cos_lut_initialized = 0;
-// 余弦查找表初始化互斥锁
-static pthread_mutex_t cos_lut_mutex = PTHREAD_MUTEX_INITIALIZER;
 // 圆周率常量
 #define PI 3.141592653589793238462643383279502884197
 // 两倍圆周率
@@ -50,17 +39,9 @@ static pthread_mutex_t cos_lut_mutex = PTHREAD_MUTEX_INITIALIZER;
 // 半圆周率
 #define HALF_PI (PI / 2.0)
 
-static uint32_t simple_lcg(uint32_t* state);
 
 #include "tensor_ops_dtype.h"
 
-// 用于排序
-typedef struct {
-    double value;
-    uint64_t raw_value;
-    int64_t signed_value;
-    int64_t index;
-} TopKElement;
 
 /**
  * 创建张量
@@ -579,22 +560,6 @@ static inline int64_t op_div(int64_t a, int64_t b) {
 // 实现 `op_div_u` 的无符号整数版本；除零保持既有保护策略，避免 C 未定义行为。
 static inline uint64_t op_div_u(uint64_t a, uint64_t b) { return b == 0 ? UINT64_MAX : a / b; }
 
-// 安全获取4D张量的值
-// 封装 `get_val_4d_with_padding` 的 Tensor ABI 读写或复制逻辑，统一 Python ctypes 与 C 后端的数据解释方式。
-static inline double get_val_4d_with_padding(const Tensor* T, int n, int c, int h, int w, double pad_val) {
-    int N = T->shape[0];
-    int C = T->shape[1];
-    int H = T->shape[2];
-    int W = T->shape[3];
-
-    // 越界检查：如果坐标在张量范围外，返回 padding 值
-    if (n < 0 || n >= N || c < 0 || c >= C || h < 0 || h >= H || w < 0 || w >= W) {
-        return pad_val;
-    }
-    // 计算平坦索引
-    size_t idx = ((size_t)n * C * H * W) + ((size_t)c * H * W) + ((size_t)h * W) + w;
-    return get_value_as_double(T, idx);
-}
 
 /**
  * ReLU激活函数前向传播实现
@@ -612,38 +577,6 @@ static inline double get_val_4d_with_padding(const Tensor* T, int n, int c, int 
  */
 // 实现 `abs` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
-/**
- * 初始化余弦查找表
- * 使用泰勒级数展开计算余弦值并存储在查找表中
- */
-// 实现 `init_cos_lut` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-
-/**
- * 使用查找表计算余弦值
- * 
- * @param x 输入角度（弧度）
- * @return 余弦值
- */
-// 实现 `cos_lut_lookup` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double cos_lut_lookup(double x) {
-    // 如果查找表未初始化，则先初始化
-    if (!cos_lut_initialized) {
-        init_cos_lut();
-    }
-    // 处理负角度并归一化到[0, 2π]区间
-    double reduced = fmod(fabs(x), TWO_PI);
-    // 计算查找表索引和插值因子
-    double idx_f = reduced * COS_LUT_SIZE / TWO_PI;
-    int idx = (int)idx_f;
-    double frac = idx_f - idx;
-    // 边界处理
-    if (idx >= COS_LUT_SIZE) {
-        idx = COS_LUT_SIZE - 1;
-        frac = 0.0;
-    }
-    // 线性插值计算余弦值
-    return cos_lut[idx] * (1.0 - frac) + cos_lut[idx + 1] * frac;
-}
 
 /**
  * 余弦函数前向传播
@@ -710,100 +643,6 @@ static double cos_lut_lookup(double x) {
 
 // 实现 `max roi pool` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
-// 实现 `roi_align_bilinear_sample` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double roi_align_bilinear_sample(const Tensor* X, int batch, int channel, double y, double x) {
-    int channels = X->shape[1];
-    int height = X->shape[2];
-    int width = X->shape[3];
-    if (y < -1.0 || y > (double)height || x < -1.0 || x > (double)width) {
-        return 0.0;
-    }
-    if (y < 0.0) y = 0.0;
-    if (x < 0.0) x = 0.0;
-    int y0 = (int)y;
-    int x0 = (int)x;
-    int y1;
-    int x1;
-    if (y0 >= height - 1) {
-        y1 = y0 = height - 1;
-        y = (double)y0;
-    } else {
-        y1 = y0 + 1;
-    }
-    if (x0 >= width - 1) {
-        x1 = x0 = width - 1;
-        x = (double)x0;
-    } else {
-        x1 = x0 + 1;
-    }
-    double ly = y - (double)y0;
-    double lx = x - (double)x0;
-    double hy = 1.0 - ly;
-    double hx = 1.0 - lx;
-    double total = 0.0;
-    int ys[2] = {y0, y1};
-    int xs[2] = {x0, x1};
-    double wy[2] = {hy, ly};
-    double wx[2] = {hx, lx};
-    for (int iy = 0; iy < 2; iy++) {
-        for (int ix = 0; ix < 2; ix++) {
-            size_t idx = ((size_t)batch * channels * height * width)
-                       + ((size_t)channel * height * width)
-                       + ((size_t)ys[iy] * width)
-                       + (size_t)xs[ix];
-            total += get_value_as_double(X, idx) * wy[iy] * wx[ix];
-        }
-    }
-    return total;
-}
-
-// 实现 `roi_align_max_weighted_term` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double roi_align_max_weighted_term(const Tensor* X, int batch, int channel, double y, double x) {
-    int channels = X->shape[1];
-    int height = X->shape[2];
-    int width = X->shape[3];
-    if (y < -1.0 || y > (double)height || x < -1.0 || x > (double)width) {
-        return 0.0;
-    }
-    if (y < 0.0) y = 0.0;
-    if (x < 0.0) x = 0.0;
-    int y_low = (int)y;
-    int x_low = (int)x;
-    int y_high;
-    int x_high;
-    if (y_low >= height - 1) {
-        y_high = y_low = height - 1;
-        y = (double)y_low;
-    } else {
-        y_high = y_low + 1;
-    }
-    if (x_low >= width - 1) {
-        x_high = x_low = width - 1;
-        x = (double)x_low;
-    } else {
-        x_high = x_low + 1;
-    }
-    double ly = y - (double)y_low;
-    double lx = x - (double)x_low;
-    double hy = 1.0 - ly;
-    double hx = 1.0 - lx;
-    int ys[2] = {y_low, y_high};
-    int xs[2] = {x_low, x_high};
-    double wy[2] = {hy, ly};
-    double wx[2] = {hx, lx};
-    double max_term = -DBL_MAX;
-    for (int iy = 0; iy < 2; iy++) {
-        for (int ix = 0; ix < 2; ix++) {
-            size_t idx = ((size_t)batch * channels * height * width)
-                       + ((size_t)channel * height * width)
-                       + ((size_t)ys[iy] * width)
-                       + (size_t)xs[ix];
-            double term = get_value_as_double(X, idx) * wy[iy] * wx[ix];
-            if (term > max_term) max_term = term;
-        }
-    }
-    return max_term;
-}
 
 // 实现 `roi align` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
@@ -894,193 +733,14 @@ static inline uint64_t op_min_u(uint64_t a, uint64_t b) { return a < b ? a : b; 
 
 // 实现 `det` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
-// 实现 `tensor_scalar_equal` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static int tensor_scalar_equal(const Tensor* tensor, size_t lhs, size_t rhs) {
-    if (!tensor || !tensor->data) return 0;
-    if (IS_INT_TYPE(tensor->dtype)) {
-        return get_value_as_int64(tensor, lhs) == get_value_as_int64(tensor, rhs);
-    }
-    double a = get_value_as_double(tensor, lhs);
-    double b = get_value_as_double(tensor, rhs);
-    if (isnan(a) && isnan(b)) return 1;
-    return a == b;
-}
-
-// 作为 `tensor_scalar_compare` 排序比较函数，保证排序类算子的值和索引顺序稳定。
-static int tensor_scalar_compare(const Tensor* tensor, size_t lhs, size_t rhs) {
-    if (IS_INT_TYPE(tensor->dtype)) {
-        int64_t a = get_value_as_int64(tensor, lhs);
-        int64_t b = get_value_as_int64(tensor, rhs);
-        return (a > b) - (a < b);
-    }
-    double a = get_value_as_double(tensor, lhs);
-    double b = get_value_as_double(tensor, rhs);
-    int a_nan = isnan(a);
-    int b_nan = isnan(b);
-    if (a_nan && b_nan) return 0;
-    if (a_nan) return 1;
-    if (b_nan) return -1;
-    return (a > b) - (a < b);
-}
-
-// 实现 `unique` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
-
-// 实现 `hz_to_mel` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double hz_to_mel(double frequency) {
-    return 2595.0 * log10(1.0 + frequency / 700.0);
-}
-
-// 实现 `mel_to_hz` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double mel_to_hz(double mel) {
-    return 700.0 * (pow(10.0, mel / 2595.0) - 1.0);
-}
 
 // 实现 `mel weight matrix` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
-// 实现 `complex_tensor_index` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static size_t complex_tensor_index(const Tensor* tensor, const int* coords, int component) {
-    int complex_rank = tensor->ndim - 1;
-    size_t idx = 0;
-    for (int d = 0; d < complex_rank; d++) {
-        idx = idx * (size_t)tensor->shape[d] + (size_t)coords[d];
-    }
-    return idx * (size_t)tensor->shape[complex_rank] + (size_t)component;
-}
-
-// 封装 `get_complex_value` 的 Tensor ABI 读写或复制逻辑，统一 Python ctypes 与 C 后端的数据解释方式。
-static void get_complex_value(const Tensor* tensor, const int* coords, double* real, double* imag) {
-    *real = get_value_as_double(tensor, complex_tensor_index(tensor, coords, 0));
-    *imag = 0.0;
-    if (tensor->shape[tensor->ndim - 1] == 2) {
-        *imag = get_value_as_double(tensor, complex_tensor_index(tensor, coords, 1));
-    }
-}
-
-// 实现 `normalize_complex_axis` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static int normalize_complex_axis(int axis, int complex_rank) {
-    if (axis < 0) axis += complex_rank + 1;
-    return axis;
-}
 
 // 实现 `dft` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
 // 实现 `stft` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
-// 实现 `recurrent_alpha` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double recurrent_alpha(const float* values, int index, double default_value) {
-    if (!values) return default_value;
-    float value = values[index];
-    return isnan(value) ? default_value : (double)value;
-}
-
-// 实现 `recurrent_clip` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double recurrent_clip(double value, float clip, int has_clip) {
-    if (!has_clip) return value;
-    if (value > (double)clip) return (double)clip;
-    if (value < -(double)clip) return -(double)clip;
-    return value;
-}
-
-// 实现 `recurrent_activation` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double recurrent_activation(double x, int code, const float* alphas, const float* betas, int index) {
-    switch (code) {
-        case 1:
-            return 1.0 / (1.0 + exp(-x));
-        case 2:
-            return x > 0.0 ? x : 0.0;
-        case 3: {
-            double a = recurrent_alpha(alphas, index, 1.0);
-            double b = recurrent_alpha(betas, index, 0.0);
-            return a * x + b;
-        }
-        case 4: {
-            double a = recurrent_alpha(alphas, index, 0.01);
-            return x >= 0.0 ? x : a * x;
-        }
-        case 5: {
-            double a = recurrent_alpha(alphas, index, 1.0);
-            return x >= a ? x : 0.0;
-        }
-        case 6: {
-            double a = recurrent_alpha(alphas, index, 1.0);
-            double b = recurrent_alpha(betas, index, 1.0);
-            return a * tanh(b * x);
-        }
-        case 7: {
-            double a = recurrent_alpha(alphas, index, 0.2);
-            double b = recurrent_alpha(betas, index, 0.5);
-            double y = a * x + b;
-            if (y < 0.0) return 0.0;
-            if (y > 1.0) return 1.0;
-            return y;
-        }
-        case 8: {
-            double a = recurrent_alpha(alphas, index, 1.0);
-            return x >= 0.0 ? x : a * (exp(x) - 1.0);
-        }
-        case 9:
-            return x / (1.0 + fabs(x));
-        case 10:
-            return log1p(exp(x));
-        case 0:
-        default:
-            return tanh(x);
-    }
-}
-
-// 实现 `recurrent_activation_code` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static int recurrent_activation_code(const int* activations, int num_activations, int index, int default_code) {
-    if (!activations || index >= num_activations) return default_code;
-    return activations[index];
-}
-
-// 实现 `recurrent_num_dirs` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static int recurrent_num_dirs(int direction) {
-    return direction == 2 ? 2 : 1;
-}
-
-// 实现 `recurrent_is_reverse` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static int recurrent_is_reverse(int direction, int dir_index) {
-    return direction == 1 || (direction == 2 && dir_index == 1);
-}
-
-// 实现 `recurrent_x_index` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static size_t recurrent_x_index(const Tensor* X, int layout, int t, int b, int i) {
-    if (layout == 1) {
-        int seq_len = X->shape[1];
-        int input_size = X->shape[2];
-        return ((size_t)b * seq_len * input_size) + ((size_t)t * input_size) + (size_t)i;
-    }
-    int batch = X->shape[1];
-    int input_size = X->shape[2];
-    return ((size_t)t * batch * input_size) + ((size_t)b * input_size) + (size_t)i;
-}
-
-// 实现 `recurrent_y_index` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static size_t recurrent_y_index(const Tensor* Y, int layout, int t, int d, int b, int h) {
-    if (layout == 1) {
-        int seq_len = Y->shape[1];
-        int num_dirs = Y->shape[2];
-        int hidden = Y->shape[3];
-        return ((size_t)b * seq_len * num_dirs * hidden)
-             + ((size_t)t * num_dirs * hidden)
-             + ((size_t)d * hidden)
-             + (size_t)h;
-    }
-    int num_dirs = Y->shape[1];
-    int batch = Y->shape[2];
-    int hidden = Y->shape[3];
-    return ((size_t)t * num_dirs * batch * hidden)
-         + ((size_t)d * batch * hidden)
-         + ((size_t)b * hidden)
-         + (size_t)h;
-}
-
-// 实现 `recurrent_sequence_active` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static int recurrent_sequence_active(const Tensor* sequence_lens, int t, int b) {
-    if (!sequence_lens || !sequence_lens->data) return 1;
-    return get_value_as_int64(sequence_lens, (size_t)b) > t;
-}
 
 // 实现 `rnn` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
@@ -1090,175 +750,11 @@ static int recurrent_sequence_active(const Tensor* sequence_lens, int t, int b) 
 
 // 实现 `multinomial` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
-// 实现 `loss_spatial_size` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static size_t loss_spatial_size(const Tensor* input) {
-    size_t spatial = 1;
-    for (int i = 2; i < input->ndim; i++) spatial *= (size_t)input->shape[i];
-    return spatial;
-}
-
-// 实现 `loss_target_weight` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double loss_target_weight(const Tensor* weight, int64_t cls) {
-    if (!weight) return 1.0;
-    return get_value_as_double(weight, (size_t)cls);
-}
 
 // 实现 `negative log likelihood loss` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
 // 实现 `softmax cross entropy loss` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
-// 实现 `nms_box_corners` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static void nms_box_corners(const Tensor* boxes, int batch, int box_idx, int center_point_box,
-                            double* y1, double* x1, double* y2, double* x2) {
-    int num_boxes = boxes->shape[1];
-    size_t base = ((size_t)batch * num_boxes + (size_t)box_idx) * 4;
-    double a = get_value_as_double(boxes, base + 0);
-    double b = get_value_as_double(boxes, base + 1);
-    double c = get_value_as_double(boxes, base + 2);
-    double d = get_value_as_double(boxes, base + 3);
-
-    if (center_point_box) {
-        double x_center = a;
-        double y_center = b;
-        double width = c;
-        double height = d;
-        *y1 = y_center - height / 2.0;
-        *x1 = x_center - width / 2.0;
-        *y2 = y_center + height / 2.0;
-        *x2 = x_center + width / 2.0;
-    } else {
-        *y1 = a;
-        *x1 = b;
-        *y2 = c;
-        *x2 = d;
-    }
-
-    if (*y1 > *y2) {
-        double tmp = *y1;
-        *y1 = *y2;
-        *y2 = tmp;
-    }
-    if (*x1 > *x2) {
-        double tmp = *x1;
-        *x1 = *x2;
-        *x2 = tmp;
-    }
-}
-
-// 实现 `nms_iou` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double nms_iou(const Tensor* boxes, int batch, int lhs, int rhs, int center_point_box) {
-    double ay1, ax1, ay2, ax2;
-    double by1, bx1, by2, bx2;
-    nms_box_corners(boxes, batch, lhs, center_point_box, &ay1, &ax1, &ay2, &ax2);
-    nms_box_corners(boxes, batch, rhs, center_point_box, &by1, &bx1, &by2, &bx2);
-
-    double inter_h = fmax(0.0, fmin(ay2, by2) - fmax(ay1, by1));
-    double inter_w = fmax(0.0, fmin(ax2, bx2) - fmax(ax1, bx1));
-    double inter = inter_h * inter_w;
-    double area_a = fmax(0.0, ay2 - ay1) * fmax(0.0, ax2 - ax1);
-    double area_b = fmax(0.0, by2 - by1) * fmax(0.0, bx2 - bx1);
-    double union_area = area_a + area_b - inter;
-    return union_area <= 0.0 ? 0.0 : inter / union_area;
-}
-
-// 实现 `non max suppression` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
-
-// 实现 `grid_denormalize` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double grid_denormalize(double coord, int length, int align_corners) {
-    if (align_corners) {
-        return (coord + 1.0) * (double)(length - 1) / 2.0;
-    }
-    return ((coord + 1.0) * (double)length - 1.0) / 2.0;
-}
-
-// 实现 `grid_reflect_coordinate` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double grid_reflect_coordinate(double coord, double low, double high) {
-    if (high <= low) return low;
-    double span = high - low;
-    double value = fabs(fmod(coord - low, 2.0 * span));
-    if (value > span) value = 2.0 * span - value;
-    return value + low;
-}
-
-// 实现 `grid_sample_coordinate` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double grid_sample_coordinate(double coord, int length, int padding_mode, int align_corners) {
-    if (padding_mode == 1) {
-        return fmin(fmax(coord, 0.0), (double)(length - 1));
-    }
-    if (padding_mode == 2) {
-        double low = align_corners ? 0.0 : -0.5;
-        double high = align_corners ? (double)(length - 1) : (double)length - 0.5;
-        double reflected = grid_reflect_coordinate(coord, low, high);
-        return fmin(fmax(reflected, 0.0), (double)(length - 1));
-    }
-    return coord;
-}
-
-// 实现 `grid_get_pixel_2d` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double grid_get_pixel_2d(const Tensor* input, int n, int c, double y, double x,
-                                int padding_mode, int align_corners) {
-    int height = input->shape[2];
-    int width = input->shape[3];
-    if (padding_mode == 1 || padding_mode == 2) {
-        y = grid_sample_coordinate(y, height, padding_mode, align_corners);
-        x = grid_sample_coordinate(x, width, padding_mode, align_corners);
-    }
-    int yi = (int)y;
-    int xi = (int)x;
-    if (yi < 0 || yi >= height || xi < 0 || xi >= width) return 0.0;
-    size_t idx = ((size_t)n * input->shape[1] * height * width)
-               + ((size_t)c * height * width)
-               + ((size_t)yi * width)
-               + (size_t)xi;
-    return get_value_as_double(input, idx);
-}
-
-// 实现 `grid_bilinear_sample_2d` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double grid_bilinear_sample_2d(const Tensor* input, int n, int c, double y, double x,
-                                      int padding_mode, int align_corners) {
-    int y0 = (int)floor(y);
-    int x0 = (int)floor(x);
-    int y1 = y0 + 1;
-    int x1 = x0 + 1;
-    double ly = y - (double)y0;
-    double lx = x - (double)x0;
-    double hy = 1.0 - ly;
-    double hx = 1.0 - lx;
-    return grid_get_pixel_2d(input, n, c, y0, x0, padding_mode, align_corners) * hy * hx
-         + grid_get_pixel_2d(input, n, c, y0, x1, padding_mode, align_corners) * hy * lx
-         + grid_get_pixel_2d(input, n, c, y1, x0, padding_mode, align_corners) * ly * hx
-         + grid_get_pixel_2d(input, n, c, y1, x1, padding_mode, align_corners) * ly * lx;
-}
-
-// 实现 `grid_cubic_coefficients` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static void grid_cubic_coefficients(double t, double coeffs[4]) {
-    double alpha = -0.75;
-    double x = fabs(t);
-    coeffs[0] = ((alpha * (x + 1.0) - 5.0 * alpha) * (x + 1.0) + 8.0 * alpha) * (x + 1.0) - 4.0 * alpha;
-    coeffs[1] = ((alpha + 2.0) * x - (alpha + 3.0)) * x * x + 1.0;
-    coeffs[2] = ((alpha + 2.0) * (1.0 - x) - (alpha + 3.0)) * (1.0 - x) * (1.0 - x) + 1.0;
-    coeffs[3] = ((alpha * (2.0 - x) - 5.0 * alpha) * (2.0 - x) + 8.0 * alpha) * (2.0 - x) - 4.0 * alpha;
-}
-
-// 实现 `grid_bicubic_sample_2d` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static double grid_bicubic_sample_2d(const Tensor* input, int n, int c, double y, double x,
-                                     int padding_mode, int align_corners) {
-    int y0 = (int)floor(y);
-    int x0 = (int)floor(x);
-    double cy[4];
-    double cx[4];
-    grid_cubic_coefficients(y - (double)y0, cy);
-    grid_cubic_coefficients(x - (double)x0, cx);
-    double total = 0.0;
-    for (int iy = 0; iy < 4; iy++) {
-        for (int ix = 0; ix < 4; ix++) {
-            total += cy[iy] * cx[ix] * grid_get_pixel_2d(
-                input, n, c, y0 - 1 + iy, x0 - 1 + ix, padding_mode, align_corners
-            );
-        }
-    }
-    return total;
-}
 
 // 实现 `grid sample` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
@@ -1582,11 +1078,6 @@ void FUNC_NAME(const Tensor* input, Tensor* output, int axis, int select_last_in
 
 // 实现 `cumsum` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
-// 实现 `simple_lcg` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
-static uint32_t simple_lcg(uint32_t* state) {
-    *state = (*state * 1103515245 + 12345) & 0x7FFFFFFF;
-    return *state;
-}
 
 // 实现 `random uniform like` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
@@ -1744,12 +1235,6 @@ static inline uint64_t op_shift_right_u(uint64_t a, uint64_t b) { return b >= 64
 // 沿着 axis 轴进行归一化 (通常 axis=-1)
 // 实现 `layer norm` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 
-// 获取窗函数大小
-// 封装 `get_window_size` 的 Tensor ABI 读写或复制逻辑，统一 Python ctypes 与 C 后端的数据解释方式。
-static int64_t get_window_size(const Tensor* size_tensor) {
-    if (!size_tensor) return 0;
-    return get_value_as_int64(size_tensor, 0);
-}
 
 // Hann Window: 0.5 * (1 - cos(2*pi*n / (N-1)))
 // 实现 `hann window` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。

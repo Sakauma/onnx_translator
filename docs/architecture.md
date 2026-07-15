@@ -49,7 +49,8 @@ flowchart LR
 
 `tensor_ops/tensor_ops.h` 是公共 ABI，不应随意改动函数签名。内部实现拆分为：
 
-- `tensor_ops_internal.h`：共享 dtype 转换、Tensor 读写、坐标、归约和宏模板。
+- `tensor_ops_internal.h`：只保存跨算子共享的 dtype 转换、Tensor 读写、坐标、归约和宏模板。
+- `tensor_ops/internal/*.h`：保存 ROI、循环网络、谱变换、检测采样等领域专属 helper，由对应 C 分片显式包含。
 - `tensor_ops_core.c`：Tensor 创建和释放。
 - `tensor_ops_elementwise.c`：基础逐元素、比较、逻辑和基础激活。
 - `tensor_ops_activation_extra.c`：扩展激活、bitwise 和额外 unary math。
@@ -66,6 +67,6 @@ flowchart LR
 
 ## 验证链路
 
-`tools/cli.py numerical` 是数值验证入口，实际逻辑位于 `tools/numerical/`。该包负责生成随机输入、调用 CUDA verifier、运行 C 后端、比较误差，并输出统计信息。模型生成、图验证和 CUDA 编译也统一由 `tools/cli.py` 的子命令调度。
+`tools/cli.py numerical` 是数值验证入口，实际逻辑位于 `tools/numerical/`。`runner.py` 只保留单个计划的通用编排；`runner_inputs.py` 负责边界样本，`runner_config.py` 维护容差和算子族属性，`runner_cuda_inputs.py` 负责 CUDA 缓冲区转换，`runner_special_outputs.py` 处理多输出和 sidecar 协议，`runner_cuda_params.py` 负责参数块编码。模型生成、图验证和 CUDA 编译也统一由 `tools/cli.py` 的子命令延迟调度。
 
 `tests/` 已按算子域拆分。共享测试导入集中在 `operator_test_context.py`，后端屏蔽辅助函数在 `conftest.py`。

@@ -45,6 +45,15 @@ PYTHON=/home/sakauma/data/miniconda3/envs/egor/bin/python
 $PYTHON -m pip install -r requirements.txt
 ```
 
+`requirements.txt` 用于仓库完整开发和验证环境。作为包安装时，核心运行时只需要 `numpy`、`onnx` 和 `ml_dtypes`；按用途安装可选依赖：
+
+```bash
+$PYTHON -m pip install .
+$PYTHON -m pip install '.[verify]'      # PyTorch 模型生成和 numerical 绘图
+$PYTHON -m pip install '.[viz]'         # Graphviz 图可视化
+$PYTHON -m pip install '.[dev]'         # pytest、构建和发布工具
+```
+
 如果只做导入和图构建验证，可以暂时不安装 CUDA；如果要跑完整数值正确性验证，需要 WSL/Linux 中可用的 `nvcc`。
 
 ## 构建与静态检查

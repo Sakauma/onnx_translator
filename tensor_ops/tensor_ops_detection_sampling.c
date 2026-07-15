@@ -9,7 +9,7 @@
   ******************************************************************************
 */
 
-#include "tensor_ops_internal.h"
+#include "internal/detection_sampling.h"
 
 
 // 实现 `non max suppression` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。

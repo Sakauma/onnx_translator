@@ -88,6 +88,21 @@ REQUIRED_FILES = [
     "tools/release_trend_history.py",
     "tools/run_sanitized_tests.py",
     "tools/wheelhouse_smoke.py",
+    "tools/numerical/runner_config.py",
+    "tools/numerical/runner_cuda_inputs.py",
+    "tools/numerical/runner_inputs.py",
+    "tools/numerical/runner_special_outputs.py",
+    "tensor_ops/internal/detection_sampling.h",
+    "tensor_ops/internal/loss.h",
+    "tensor_ops/internal/random.h",
+    "tensor_ops/internal/recurrent.h",
+    "tensor_ops/internal/roi.h",
+    "tensor_ops/internal/sequence.h",
+    "tensor_ops/internal/sort.h",
+    "tensor_ops/internal/spatial.h",
+    "tensor_ops/internal/spectral_transform.h",
+    "tensor_ops/internal/trig.h",
+    "tensor_ops/internal/window.h",
     "tensor_ops/tensor_ops_activation_extra.c",
     "tensor_ops/tensor_ops_compare_logic.c",
     "tensor_ops/tensor_ops_conv_quant.c",
@@ -191,9 +206,20 @@ def _check_pyproject(pyproject: dict) -> list[str]:
     if not str(project.get("requires-python", "")).startswith(">="):
         failures.append("project.requires-python must declare a lower bound")
     dependencies = set(project.get("dependencies", []))
-    for dependency in ["numpy", "onnx", "onnxscript", "torch", "ml_dtypes"]:
+    for dependency in ["numpy", "onnx", "ml_dtypes"]:
         if not any(item.startswith(dependency) for item in dependencies):
             failures.append(f"project.dependencies is missing {dependency}")
+    optional_dependencies = project.get("optional-dependencies", {})
+    required_optional_dependencies = {
+        "verify": ["matplotlib", "torch"],
+        "viz": ["graphviz"],
+        "dev": ["build", "cibuildwheel", "pytest", "twine"],
+    }
+    for extra, required_dependencies in required_optional_dependencies.items():
+        declared = set(optional_dependencies.get(extra, []))
+        for dependency in required_dependencies:
+            if not any(item.startswith(dependency) for item in declared):
+                failures.append(f"project.optional-dependencies.{extra} is missing {dependency}")
     scripts = set(project.get("scripts", {}))
     missing_scripts = sorted(REQUIRED_SCRIPTS - scripts)
     if missing_scripts:

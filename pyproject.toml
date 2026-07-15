@@ -15,11 +15,6 @@ authors = [
 dependencies = [
     "numpy>=1.26",
     "onnx>=1.16",
-    "onnxscript>=0.5",
-    "matplotlib>=3.7",
-    "graphviz>=0.20",
-    "pytest>=8.0",
-    "torch>=2.3",
     "ml_dtypes>=0.5",
 ]
 classifiers = [
@@ -31,9 +26,17 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+verify = [
+    "matplotlib>=3.7",
+    "torch>=2.3",
+]
+viz = [
+    "graphviz>=0.20",
+]
 dev = [
     "build>=1.2",
     "cibuildwheel>=2.20",
+    "pytest>=8.0",
     "twine>=5.0",
 ]
 

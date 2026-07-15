@@ -11,9 +11,8 @@
 
 numpy>=1.26
 onnx>=1.16
-onnxscript>=0.5
+ml_dtypes>=0.5
 matplotlib>=3.7
 graphviz>=0.20
 pytest>=8.0
 torch>=2.3
-ml_dtypes>=0.5

@@ -21,14 +21,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.commands.create_graph_ops_model import export_graph_ops_model
-from tools.commands.create_model import export_model
-from tools.commands.graph_logic import main as graph_logic_main
-from tools.commands.verify_graph import main as verify_graph_main
-from tools.model_suite import main as model_suite_main
-from tools.numerical.cli import main as numerical_main
-
-
 # 返回仓库根目录，保证从任意当前目录调用时都能找到相对路径资源。
 def repo_root() -> Path:
     return REPO_ROOT
@@ -74,18 +66,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.command == "create-model":
+        from tools.commands.create_model import export_model
+
         export_model()
         return 0
     if args.command == "create-graph-model":
+        from tools.commands.create_graph_ops_model import export_graph_ops_model
+
         export_graph_ops_model(args.output)
         return 0
     if args.command == "graph-logic":
+        from tools.commands.graph_logic import main as graph_logic_main
+
         return graph_logic_main(args.model, args.task_name)
     if args.command == "verify-graph":
+        from tools.commands.verify_graph import main as verify_graph_main
+
         return verify_graph_main(args.args)
     if args.command == "model-smoke":
+        from tools.model_suite import main as model_suite_main
+
         return model_suite_main(args.args)
     if args.command == "numerical":
+        from tools.numerical.cli import main as numerical_main
+
         return numerical_main(args.args)
     if args.command == "compile-cuda":
         return compile_cuda_main(args.args)
