@@ -98,7 +98,7 @@ make PYTHON=$PYTHON release-check
 - `tensor_ops.h` 与 `tensor_ops_*.c` 的公共 C ABI 声明/实现必须一致。
 - `docs/abi_manifest.json` 必须与当前 `tensor_ops/tensor_ops.h` 的公开 ABI 一致。
 - CUDA verifier 数量必须与 active numerical 唯一算子覆盖一致。
-- `tensor_ops/tensor_ops_*.c` 后端 shard 单文件行数不能超过 375 行，避免重新退化成难维护的大文件。
+- `tensor_ops/tensor_ops_*.c` 后端 shard 单文件行数不能超过 350 行，避免重新退化成难维护的大文件。
 - `cibuildwheel` manylinux 配置、wheelhouse 检查入口和发布构建目标必须存在。
 - 代表性模型 smoke、性能 smoke、包安装 smoke、sanitizer 和 CUDA smoke 均有可执行入口。
 
