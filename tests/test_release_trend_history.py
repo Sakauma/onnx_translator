@@ -91,6 +91,8 @@ def test_release_trend_history_default_snapshot_is_valid():
     assert windows["release_evidence"]["successful_run_count"] == 3
     assert windows["release_evidence"]["status"] == "satisfied"
     assert windows["cuda_full"]["status"] == "insufficient_history"
+    assert windows["manylinux_full"]["successful_run_count"] == 3
+    assert windows["manylinux_full"]["status"] == "satisfied"
     assert summary["all_windows_top_tier_ready"] is False
 
 
