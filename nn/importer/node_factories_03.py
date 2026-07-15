@@ -18,6 +18,9 @@ from nn import onnx_dtype_mapping
 
 from .registry import register_factory
 
+# 工厂只负责把 NodeProto 的类型、属性和名称协议翻译到内部算子构造参数；输入
+# 数据及 initializer 缓冲区由后续图执行阶段解析，不能在注册阶段捕获临时数组。
+
 
 @register_factory("Multinomial")
 def _factory_093_multinomial(node, import_context):
@@ -638,4 +641,3 @@ def _factory_140_stringnormalizer(node, import_context):
         version="17",
     ))
     return onnx_graph_list[-1]
-

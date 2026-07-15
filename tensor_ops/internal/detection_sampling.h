@@ -2,10 +2,10 @@
   ******************************************************************************
   * @file        detection_sampling.h
   * @author      Egor Izmaylov
-  * @brief       声明对应 C 算子分片独占的内部辅助逻辑。
+  * @brief       提供 NonMaxSuppression 框转换以及 GridSample 坐标采样辅助逻辑。
   * @details     2026.07.15  V1.0.0  从 tensor_ops_internal.h 拆分
   ******************************************************************************
-  * @attention
+  * @attention   仅供 tensor_ops_detection_sampling.c 使用，不属于公共 ABI。
   ******************************************************************************
 */
 
@@ -13,6 +13,11 @@
 #define TENSOR_OPS_INTERNAL_DETECTION_SAMPLING_H
 
 #include "../tensor_ops_internal.h"
+
+/*
+ * GridSample 在连续坐标空间完成反归一化、padding 映射和插值。所有 helper 都返回
+ * double，最终写回时再按输出 Tensor dtype 量化，避免中间坐标精度依赖输入 dtype。
+ */
 
 // 实现 `nms_box_corners` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
 static void nms_box_corners(const Tensor* boxes, int batch, int box_idx, int center_point_box,

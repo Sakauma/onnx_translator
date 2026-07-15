@@ -2,10 +2,10 @@
   ******************************************************************************
   * @file        spatial.h
   * @author      Egor Izmaylov
-  * @brief       声明对应 C 算子分片独占的内部辅助逻辑。
+  * @brief       提供卷积和序列布局算子共享的 NCHW padding 读取逻辑。
   * @details     2026.07.15  V1.0.0  从 tensor_ops_internal.h 拆分
   ******************************************************************************
-  * @attention
+  * @attention   仅供 4D NCHW 路径使用，不属于公共 ABI。
   ******************************************************************************
 */
 
@@ -13,6 +13,8 @@
 #define TENSOR_OPS_INTERNAL_SPATIAL_H
 
 #include "../tensor_ops_internal.h"
+
+/* 越界坐标不访问 Tensor 缓冲区，直接返回调用方指定的 padding 值。 */
 
 // 安全获取4D张量的值
 // 封装 `get_val_4d_with_padding` 的 Tensor ABI 读写或复制逻辑，统一 Python ctypes 与 C 后端的数据解释方式。

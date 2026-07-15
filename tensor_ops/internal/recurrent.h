@@ -2,10 +2,10 @@
   ******************************************************************************
   * @file        recurrent.h
   * @author      Egor Izmaylov
-  * @brief       声明对应 C 算子分片独占的内部辅助逻辑。
+  * @brief       提供 RNN、GRU 和 LSTM 共用的激活、方向和布局索引辅助逻辑。
   * @details     2026.07.15  V1.0.0  从 tensor_ops_internal.h 拆分
   ******************************************************************************
-  * @attention
+  * @attention   仅供 tensor_ops_recurrent.c 使用，不属于公共 ABI。
   ******************************************************************************
 */
 
@@ -13,6 +13,11 @@
 #define TENSOR_OPS_INTERNAL_RECURRENT_H
 
 #include "../tensor_ops_internal.h"
+
+/*
+ * direction 编码保持 0=forward、1=reverse、2=bidirectional；layout=0 使用
+ * [seq,batch,...]，layout=1 使用 [batch,seq,...]。索引 helper 集中维护这组约定。
+ */
 
 // 实现 `recurrent_alpha` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
 static double recurrent_alpha(const float* values, int index, double default_value) {

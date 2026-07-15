@@ -12,6 +12,8 @@
 from dataclasses import dataclass
 
 
+# 这些集合描述 CUDA verifier 的数据协议，而不是 ONNX 算子分类。新增算子时应根据
+# verifier 实际读取的 dtype/shape 选择族，避免仅凭算子名称相似性加入白名单。
 OPERATOR_FAMILIES = {
     "complex_kernel": frozenset({
         "conv2d", "conv_integer", "qlinear_conv", "conv_transpose", "col2im",
@@ -54,6 +56,8 @@ OPERATOR_FAMILIES = {
 
 @dataclass(frozen=True)
 class VerificationConfig:
+    """单个验证计划解析后的比较容差和 CUDA 输入协议。"""
+
     atol: float
     rtol: float
     complex_kernel: bool
@@ -63,6 +67,11 @@ class VerificationConfig:
 
 
 def resolve_verification_config(op_name, out_dtype):
+    """根据输出 dtype 和算子协议生成不可变验证配置。
+
+    dtype 规则按从宽类型到特殊低精度依次覆盖。``bfloat16`` 包含字符串
+    ``float16``，因此其规则必须位于 float16 之后；整数输出始终使用精确比较。
+    """
     atol, rtol = 1e-4, 1e-4
     if "float16" in out_dtype:
         atol, rtol = 0.01, 0.01
@@ -77,6 +86,7 @@ def resolve_verification_config(op_name, out_dtype):
     if op_name == "einsum":
         atol, rtol = max(atol, 1e-2), max(rtol, 1e-3)
 
+    # complex_kernel 表示 verifier 自己解释原始形状，并不等同于复数 dtype。
     complex_kernel = op_name in OPERATOR_FAMILIES["complex_kernel"]
     return VerificationConfig(
         atol=atol,

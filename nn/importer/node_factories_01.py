@@ -18,6 +18,10 @@ from nn import onnx_dtype_mapping
 
 from .registry import register_factory
 
+# 节点工厂必须原样传递 node.input/node.output，包括表示可选输入缺省的空字符串；
+# 运行时按 ONNX 规定的位置解释参数。属性解析应采用对应算子版本的规范默认值，
+# 无法满足契约时抛出异常，由导入主循环统一决定严格失败或降级为 GenericNode。
+
 
 @register_factory("RELU")
 def _factory_001_relu(node, import_context):
@@ -275,6 +279,8 @@ def _factory_012_rnn_gru_lstm(node, import_context):
         elif attr.name == "activation_beta": activation_beta = list(attr.floats)
         elif attr.name == "linear_before_reset": linear_before_reset = attr.i
         elif attr.name == "input_forget": input_forget = attr.i
+    # RNN 系列允许省略任意输出，dtype 因此取第一个实际存在的输出；全部省略时
+    # 再退回输入类型，避免把空字符串当作张量名查询。
     out_name = next((name for name in node.output if name), node.input[0])
     elem_type = get_dtype(out_name)
     common = dict(
@@ -424,6 +430,8 @@ def _factory_019_quantizelinear(node, import_context):
         elif attr.name == "saturate":
             saturate = attr.i
     output_dtype = onnx_dtype_mapping.get(output_dtype_proto) if output_dtype_proto else None
+    # 量化输出类型优先由 zero_point 决定，其次采用新版本的 output_dtype 属性，
+    # 最后才使用推断出的输出类型；这是 ONNX QuantizeLinear 的类型约束顺序。
     if len(node.input) >= 3 and node.input[2]:
         zp_name = node.input[2]
         if zp_name in import_context.dtype_map:
@@ -437,6 +445,7 @@ def _factory_019_quantizelinear(node, import_context):
             target_dtype = onnx_dtype_mapping[get_dtype(node.output[0])]
         except Exception:
             target_dtype = "uint8"
+    # 仅出现 v25 扩展属性时提升内部版本，保持普通 opset 17 模型的既有路径。
     is_v25 = output_dtype is not None or block_size or precision or saturate != 1
     onnx_graph_list.append(nn.Operators.QuantizeLinear(node.input, node.output, axis=axis, dtype=target_dtype, output_dtype=output_dtype, block_size=block_size, precision=precision, saturate=saturate, version="25" if is_v25 else "17"))
     return onnx_graph_list[-1]

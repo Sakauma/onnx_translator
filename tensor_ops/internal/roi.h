@@ -2,10 +2,10 @@
   ******************************************************************************
   * @file        roi.h
   * @author      Egor Izmaylov
-  * @brief       声明对应 C 算子分片独占的内部辅助逻辑。
+  * @brief       提供 RoiAlign 双线性采样和 max 模式加权项计算。
   * @details     2026.07.15  V1.0.0  从 tensor_ops_internal.h 拆分
   ******************************************************************************
-  * @attention
+  * @attention   仅供 tensor_ops_roi.c 使用，不属于公共 ABI。
   ******************************************************************************
 */
 
@@ -13,6 +13,8 @@
 #define TENSOR_OPS_INTERNAL_ROI_H
 
 #include "../tensor_ops_internal.h"
+
+/* 采样坐标允许落在边界外一个像素；更远位置按 ONNX RoiAlign 语义返回零。 */
 
 // 实现 `roi_align_bilinear_sample` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
 static double roi_align_bilinear_sample(const Tensor* X, int batch, int channel, double y, double x) {

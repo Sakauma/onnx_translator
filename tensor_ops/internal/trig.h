@@ -2,10 +2,10 @@
   ******************************************************************************
   * @file        trig.h
   * @author      Egor Izmaylov
-  * @brief       声明对应 C 算子分片独占的内部辅助逻辑。
+  * @brief       提供 Cos 算子的线程安全余弦查找表及线性插值。
   * @details     2026.07.15  V1.0.0  从 tensor_ops_internal.h 拆分
   ******************************************************************************
-  * @attention
+  * @attention   仅供 tensor_ops_trig.c 使用，不属于公共 ABI。
   ******************************************************************************
 */
 
@@ -14,6 +14,8 @@
 
 #include "../tensor_ops_internal.h"
 #include <pthread.h>
+
+/* LUT 状态保持在 trig translation unit 内；首次初始化由互斥锁保护。 */
 
 // 余弦查找表大小
 #define COS_LUT_SIZE 4096

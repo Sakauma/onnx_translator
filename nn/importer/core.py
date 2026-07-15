@@ -16,6 +16,7 @@ import nn.Operators
 from nn import onnx_dtype_mapping, Tensor_
 from .context import GenericNode, ImportContext
 from .registry import OP_FACTORY_REGISTRY
+# 这些导入会执行 @register_factory 装饰器，是构建节点工厂注册表所必需的副作用。
 from . import node_factories_01  # noqa: F401
 from . import node_factories_02  # noqa: F401
 from . import node_factories_03  # noqa: F401
@@ -23,15 +24,17 @@ from . import node_factories_04  # noqa: F401
 from onnx import shape_inference
 import traceback
 
-# 实现 `ONNXImport` 步骤，规范化输入并返回下游期望的数据或元信息。
 def ONNXImport(file_path, strict=False):
-    """
-    [Optimized] 从ONNX模型文件导入计算图节点
+    """按 ONNX 图顺序将模型转换为内部算子列表。
 
     Args:
         file_path: ONNX 模型路径。
         strict: 为 True 时，任何不支持或解析失败的节点都会直接抛错；
             为 False 时保留 GenericNode 占位，但会记录错误原因。
+
+    Returns:
+        由 initializer 对应的 ``Constant`` 和图节点对应的内部算子组成的列表。
+        列表顺序也是后续图构建阶段解析数据依赖时使用的稳定顺序。
     """
     onnx_graph_list = []
     generic_nodes = []
@@ -62,15 +65,14 @@ def ONNXImport(file_path, strict=False):
     dtype_map = {}
     graph = inferred_model.graph
     
-    # 收集所有来源的 dtype 信息
-    # 优先级: Initializer -> ValueInfo -> Input -> Output
+    # 同名条目以后写入者为准。推断得到的 value_info 最后写入，使中间张量类型
+    # 优先采用 shape_inference 的结果；缺失条目仍由各工厂的 ONNX 默认类型兜底。
     for t in graph.initializer: dtype_map[t.name] = t.data_type
     for t in graph.input: dtype_map[t.name] = t.type.tensor_type.elem_type
     for t in graph.output: dtype_map[t.name] = t.type.tensor_type.elem_type
     for t in graph.value_info: dtype_map[t.name] = t.type.tensor_type.elem_type
 
-    # 内部辅助函数：获取 dtype
-    # 实现 `get_dtype` 步骤，规范化输入并返回下游期望的数据或元信息。
+    # 将映射交给上下文后，所有工厂共享同一份类型快照，避免节点间推断行为漂移。
     import_context.dtype_map = dtype_map
 
     def get_dtype(name, default=onnx.TensorProto.FLOAT):
@@ -105,6 +107,7 @@ def ONNXImport(file_path, strict=False):
             print(f"      -> Processed {i}/{total_nodes} nodes...")
 
         try:
+            # 工厂负责属性默认值和版本选择；主循环只处理统一分派与错误策略。
             factory = OP_FACTORY_REGISTRY.get(node.op_type) or OP_FACTORY_REGISTRY.get(node.op_type.upper())
             if factory is None:
                 raise NotImplementedError(f"Operator {node.op_type} is not implemented.")
@@ -117,6 +120,7 @@ def ONNXImport(file_path, strict=False):
                     f"Failed to import node #{i} ({node.op_type}, name={node.name or '<unnamed>'})"
                 ) from e
 
+            # 降级节点只保留适合诊断和可视化的轻量属性；Graph/Tensor 大对象不复制。
             attrs = {}
             for attr in node.attribute:
                 try:

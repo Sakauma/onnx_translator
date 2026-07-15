@@ -18,6 +18,9 @@ from nn import onnx_dtype_mapping
 
 from .registry import register_factory
 
+# 本文件中的工厂与其余分片共享同一协议：不压缩可选输入槽位，只把 ONNX 属性
+# 转成内部构造参数，并将无法解析的节点交回主导入循环执行统一错误策略。
+
 
 @register_factory("MeanVarianceNormalization")
 def _factory_048_meanvariancenormalization(node, import_context):
@@ -428,6 +431,8 @@ def _factory_076_if(node, import_context):
     for attr in node.attribute:
         if attr.name == "then_branch": then_branch = attr.g
         elif attr.name == "else_branch": else_branch = attr.g
+    # 子图保持为原始 GraphProto，实际递归执行和作用域绑定由控制流算子负责；
+    # 导入阶段只验证 ONNX 规定的必需图属性是否存在。
     if then_branch is None or else_branch is None:
         raise ValueError("If requires then_branch and else_branch graphs")
     onnx_graph_list.append(nn.Operators.If(node.input, node.output, then_branch=then_branch, else_branch=else_branch, version="17"))
@@ -441,6 +446,7 @@ def _factory_077_loop(node, import_context):
     body = None
     for attr in node.attribute:
         if attr.name == "body": body = attr.g
+    # body 的循环携带值、条件和扫描输出均具有位置语义，因此不在此处展开子图。
     if body is None:
         raise ValueError("Loop requires body graph")
     onnx_graph_list.append(nn.Operators.Loop(node.input, node.output, body=body, version="17"))
@@ -460,6 +466,7 @@ def _factory_078_scan(node, import_context):
         elif attr.name == "scan_input_directions": scan_input_directions = list(attr.ints)
         elif attr.name == "scan_output_axes": scan_output_axes = list(attr.ints)
         elif attr.name == "scan_output_directions": scan_output_directions = list(attr.ints)
+    # 各 axes/directions 为 None 时由算子应用 ONNX 默认值；空列表与缺省含义不同。
     if body is None or num_scan_inputs is None:
         raise ValueError("Scan requires body graph and num_scan_inputs")
     onnx_graph_list.append(nn.Operators.Scan(

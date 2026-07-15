@@ -2,10 +2,10 @@
   ******************************************************************************
   * @file        random.h
   * @author      Egor Izmaylov
-  * @brief       声明对应 C 算子分片独占的内部辅助逻辑。
+  * @brief       提供随机算子共用的确定性线性同余发生器。
   * @details     2026.07.15  V1.0.0  从 tensor_ops_internal.h 拆分
   ******************************************************************************
-  * @attention
+  * @attention   仅供 tensor_ops_random.c 使用，不属于公共 ABI。
   ******************************************************************************
 */
 
@@ -13,6 +13,8 @@
 #define TENSOR_OPS_INTERNAL_RANDOM_H
 
 #include "../tensor_ops_internal.h"
+
+/* simple_lcg 用于数值验证可复现性，不提供密码学随机性，也不维护全局状态。 */
 
 static uint32_t simple_lcg(uint32_t* state);
 

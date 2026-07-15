@@ -18,12 +18,19 @@ from .dtype import from_float32, to_float32
 
 
 def prepare_input_samples(op_name, shapes, dtypes, init_args):
-    # 1. 生成数据
+    """生成一轮输入，并用算子专属样本覆盖不稳定的随机默认值。
+
+    返回列表严格保留 ONNX 输入位置，包括值为 ``None`` 的可选输入。专属策略
+    主要用于规避随机 NaN、越界索引、重复 scatter 目标等会遮蔽主语义的问题，
+    同时为低精度计划提供量化后仍可区分的边界样本。
+    """
+    # 先为所有实参建立通用随机基线，后续策略只覆盖本算子需要约束的位置。
     inputs_np = []
     for s, d in zip(shapes, dtypes):
         if s is None: inputs_np.append(None)
         else: inputs_np.append(generate_random_data(s, d))
 
+    # 基础逐元素、比较与位运算：控制定义域并保留可观察的边界关系。
     if op_name == "clip":
         inputs_np[1] = from_float32(np.full(shapes[1], -1.0, dtype=np.float32), dtypes[1])
         inputs_np[2] = from_float32(np.full(shapes[2], 1.0, dtype=np.float32), dtypes[2])
@@ -94,6 +101,7 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
                 ).reshape(shapes[1])
                 inputs_np[1] = rhs
 
+    # 索引、量化与 scatter：显式约束索引范围、唯一性和量化参数。
     if op_name == "gather":
         M, N = shapes[0]      # data shape (M,N)
         idx_shape = shapes[1] # indices shape (I,)
@@ -169,6 +177,7 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
         rows = np.random.randint(0, M, size=I, dtype=np.int64)
         cols = np.random.randint(0, N, size=I, dtype=np.int64)
         inputs_np[1] = np.stack([rows, cols], axis=1).astype(np.int64)
+    # 归约、索引输出与几何采样：避免溢出，并构造确定的轴/坐标输入。
     if op_name == "reduce_prod":
         inputs_np[0] = from_float32(np.clip(to_float32(inputs_np[0], dtypes[0]), -1.1, 1.1), dtypes[0])
 
@@ -277,6 +286,7 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
         values = np.linspace(-1.2, 1.3, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
         inputs_np[0] = from_float32(values, dtypes[0])
 
+    # Shape、布局和序列算子：shape 类输入必须使用整数协议，不能沿用随机浮点值。
     if op_name in {"expand", "flatten", "reshape", "squeeze", "unsqueeze", "transpose", "pad", "center_crop_pad", "depth_to_space", "space_to_depth"}:
         # 形状变换类算子使用有限且可量化的固定样本，避免随机 float8 NaN 干扰位模式验证。
         total = int(np.prod(shapes[0]))
@@ -348,6 +358,7 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
         raw = ((np.arange(int(np.prod(shapes[0])) * elem_size, dtype=np.uint16) * 37 + 11) & 0xFF).astype(np.uint8)
         inputs_np[0] = raw.view(input_dtype).reshape(shapes[0]).copy()
 
+    # 归一化、卷积和注意力：使用数值稳定且能覆盖可选参数的结构化样本。
     if op_name == "rms_normalization":
         # RMSNormalization 使用稳定有限样本，覆盖 scale 单向广播和低精度 stash_type=FLOAT 主路径。
         total = int(np.prod(shapes[0]))
@@ -481,6 +492,7 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
                         flat[-1] = -0.75
                 inputs_np[3] = from_float32(mask_values, dtypes[3])
 
+    # 激活和普通 shape 参数：限制数学定义域，并将属性对应的输入槽显式物化。
     if op_name in {"softmax", "hardmax", "log_softmax"}:
         # Softmax 族算子使用有限样本，覆盖 axis 分段并避免低精度随机 NaN 干扰验证。
         total = int(np.prod(shapes[0]))
@@ -609,6 +621,7 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
         eps = (np.arange(x.size, dtype=np.float32).reshape(x.shape) * 1e-6)
         inputs_np[0] = from_float32(x + eps, dtypes[0])
 
+    # Pooling、ROI、谱变换和循环网络：构造与 sidecar/参数协议一致的组合输入。
     if op_name == "max_unpool":
         inputs_np[1] = np.array([[[[5, 7], [13, 15]]]], dtype=np.int64)
 
@@ -726,6 +739,7 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
             inputs_np[6] = from_float32(init_c_values, dtypes[6])
             inputs_np[7] = from_float32(peephole_values, dtypes[7])
 
+    # 量化矩阵、随机、损失与多输出算子：固定随机种子或标签，保证结果可复现。
     if op_name == "qlinear_conv":
         out_channels = shapes[3][0]
         inputs_np[0] = np.random.randint(0, 32, size=shapes[0]).astype(np.uint8)

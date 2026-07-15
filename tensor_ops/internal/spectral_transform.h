@@ -2,10 +2,10 @@
   ******************************************************************************
   * @file        spectral_transform.h
   * @author      Egor Izmaylov
-  * @brief       声明对应 C 算子分片独占的内部辅助逻辑。
+  * @brief       提供 DFT/STFT 复数尾维索引和实虚部读取辅助逻辑。
   * @details     2026.07.15  V1.0.0  从 tensor_ops_internal.h 拆分
   ******************************************************************************
-  * @attention
+  * @attention   仅供 tensor_ops_spectral_transform.c 使用，不属于公共 ABI。
   ******************************************************************************
 */
 
@@ -13,6 +13,8 @@
 #define TENSOR_OPS_INTERNAL_SPECTRAL_TRANSFORM_H
 
 #include "../tensor_ops_internal.h"
+
+/* 复数使用最后一维长度 1/2 表示实数或实虚对；该尾维不计入 complex_rank。 */
 
 // 实现 `complex_tensor_index` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
 static size_t complex_tensor_index(const Tensor* tensor, const int* coords, int component) {

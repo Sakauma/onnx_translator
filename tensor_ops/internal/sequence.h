@@ -2,10 +2,10 @@
   ******************************************************************************
   * @file        sequence.h
   * @author      Egor Izmaylov
-  * @brief       声明对应 C 算子分片独占的内部辅助逻辑。
+  * @brief       提供 Unique 稳定比较与 Mel 频率刻度转换辅助逻辑。
   * @details     2026.07.15  V1.0.0  从 tensor_ops_internal.h 拆分
   ******************************************************************************
-  * @attention
+  * @attention   仅供 tensor_ops_spectral_recurrent.c 使用，不属于公共 ABI。
   ******************************************************************************
 */
 
@@ -13,6 +13,8 @@
 #define TENSOR_OPS_INTERNAL_SEQUENCE_H
 
 #include "../tensor_ops_internal.h"
+
+/* 浮点排序将 NaN 放在有限值之后，并把两个 NaN 视为相等，以保持索引顺序稳定。 */
 
 // 实现 `tensor_scalar_equal` 共享辅助逻辑，集中处理索引、形状、随机数、归约或数学细节。
 static int tensor_scalar_equal(const Tensor* tensor, size_t lhs, size_t rhs) {

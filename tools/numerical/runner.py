@@ -32,17 +32,28 @@ from .runner_special_outputs import (
 
 
 def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterations=5):
+    """执行一个算子验证计划，并汇总 C 后端与 CUDA 参考实现的误差。
+
+    ``shapes``、``dtypes`` 与算子输入位置一一对应；可选输入使用 ``None``
+    保留位置。函数每轮重新生成样本，先执行 Python/C runtime，再使用相同样本
+    调用 CUDA verifier。返回值依次为绝对误差样本、相对误差样本和整项是否通过。
+
+    多输出算子会委托给 ``handle_special_output``，普通单输出算子继续走本函数
+    的统一转换和比较路径。任何一轮失败都会停止当前计划，避免后续样本掩盖首个错误。
+    """
     init_args = init_args or {}
     print(f"🧪 Testing {op_name.upper()}: {dtypes} -> {out_dtype}")
-    
+
+    # 容差和 CUDA 数据通路按算子族集中解析，调用方不应再维护平行白名单。
     verification_config = resolve_verification_config(op_name, out_dtype)
     atol, rtol = verification_config.atol, verification_config.rtol
 
     pass_cnt = 0
     stats_abs = []
     stats_rel = []
-    
+
     for i in range(iterations):
+        # 每轮都重新生成样本，保证 iterations 真正覆盖不同输入，而非重复比较同一缓冲区。
         inputs_np = prepare_input_samples(op_name, shapes, dtypes, init_args)
         inputs_tensor = []
         for data, d in zip(inputs_np, dtypes):
@@ -58,8 +69,10 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             traceback.print_exc()
             continue
             
+        # params.bin 是 CUDA verifier 的稳定参数协议，必须基于本轮实际输入和 C 输出构造。
         params_bin = build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, nps_out)
 
+        # 多输出和 sidecar 协议在这里截获；NOT_HANDLED 才进入普通单输出路径。
         special_state = SpecialOutputState(
             op_cls=op_cls,
             op_name=op_name,
@@ -83,7 +96,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if special_action is SpecialOutputAction.CONTINUE:
             continue
 
-        # 4. 数据转换与广播处理
+        # 标量统一物化成单元素数组，因为 CUDA 文件协议只传输张量缓冲区。
         expected_shape = nps_out.shape
         if expected_shape == ():
             expected_shape = (1,)  # 统一当成 1 元素张量来跑 CUDA/读写 bin
@@ -109,6 +122,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if cuda_out is None:
             continue
 
+        # TopK 的 values 走主输出文件，indices 由 verifier 写入独立 sidecar。
         if op_name == "topk":
             idx_path = "tmp_out_idx.bin"
             if not os.path.exists(idx_path):
@@ -146,9 +160,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if out_dtype == "bool":
             cuda_out = cuda_out.astype(np.float32)   
 
-        # 6. 对比
-        # nps_f32 = to_float32(nps_out, out_dtype)
-        # is_ok, max_abs, max_rel, fail_mask = check_accuracy(nps_f32, cuda_out, atol, rtol, out_dtype)
+        # BitCast 比较原始字节，整数比较精确值，其余 dtype 量化回声明精度后比较数值误差。
         if op_name == "bitcast":
             nps_raw = np.ascontiguousarray(nps_out).view(np.uint8)
             cuda_raw = np.ascontiguousarray(cuda_out).view(np.uint8)
@@ -190,7 +202,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 print(f"     🔍 Debug Sample at {idx}:")
                 print(f"        GT (CUDA) = {cuda_out[idx]}")
                 print(f"        NPS (C)   = {nps_f32[idx]}")
-                # 显示原始输入值
+                # 只对普通逐元素广播算子反查同坐标输入；复杂 kernel 的坐标映射并非一一对应。
                 for k, inp_arr in enumerate(inputs_np):
                     val_disp = ""
                     if inp_arr is None: val_disp = "None"

@@ -23,13 +23,24 @@ from .dtype import quantize_to_dtype_float32, to_float32
 
 
 class SpecialOutputAction(Enum):
+    """告知通用调度器当前迭代是否已被特殊协议消费。"""
+
+    # 未命中特殊协议，继续执行 runner.py 的普通单输出路径。
     NOT_HANDLED = auto()
+    # 本轮已完成或 CUDA 无输出，跳到下一轮。
     CONTINUE = auto()
+    # 已发现确定失败，停止当前算子的剩余迭代。
     STOP = auto()
 
 
 @dataclass
 class SpecialOutputState:
+    """特殊输出处理器共享的本轮上下文和累计统计状态。
+
+    ``pass_count`` 会由处理器原地更新；误差列表与调用方共享，避免每个多输出
+    协议重复封装统计返回值。其余字段视为只读。
+    """
+
     op_cls: type
     op_name: str
     inputs_np: list
@@ -47,6 +58,11 @@ class SpecialOutputState:
 
 
 def handle_special_output(state):
+    """执行多输出或 sidecar 算子的专用 CUDA 比较协议。
+
+    返回 ``NOT_HANDLED`` 时不得修改累计状态。命中协议后必须返回 ``CONTINUE``
+    或 ``STOP``，确保主调度器不会再次把列表输出当作普通 ndarray 处理。
+    """
     op_cls = state.op_cls
     op_name = state.op_name
     inputs_np = state.inputs_np
@@ -59,6 +75,7 @@ def handle_special_output(state):
     rtol = state.rtol
     i = state.iteration
 
+    # 循环网络：主文件保存 Y，隐藏态和 cell state 通过 sidecar 返回。
     if op_name in {"rnn", "gru", "lstm"}:
         recurrent_outputs = [np.asarray(out) for out in nps_out]
         y_np = recurrent_outputs[0]
@@ -133,6 +150,7 @@ def handle_special_output(state):
             return SpecialOutputAction.STOP
         return SpecialOutputAction.CONTINUE
 
+    # Dropout 同时比较数值输出和 bool mask；仅比较 Y 会漏掉随机掩码协议错误。
     if op_name == "dropout":
         y_np, mask_np = [np.asarray(out) for out in nps_out]
         cuda_inputs = [
@@ -174,6 +192,7 @@ def handle_special_output(state):
             return SpecialOutputAction.STOP
         return SpecialOutputAction.CONTINUE
 
+    # 训练模式额外返回更新后的 running mean/variance，推理模式仍走普通路径。
     if op_name == "batch_normalization" and int(init_args.get("training_mode", 0)):
         y_np, running_mean_np, running_var_np = [np.asarray(out) for out in nps_out]
         cuda_inputs = [
@@ -239,6 +258,7 @@ def handle_special_output(state):
             return SpecialOutputAction.STOP
         return SpecialOutputAction.CONTINUE
 
+    # emit_stats 输出使用 stash_type 精度，不能统一按主输出 dtype 量化。
     if op_name == "layer_normalization" and int(init_args.get("emit_stats", 0)):
         y_np, mean_np, inv_std_np = [np.asarray(out) for out in nps_out]
         cuda_inputs = [
@@ -305,6 +325,7 @@ def handle_special_output(state):
             return SpecialOutputAction.STOP
         return SpecialOutputAction.CONTINUE
 
+    # log_prob 是可选输出；存在时由固定 sidecar 返回并与 loss 分别比较。
     if op_name == "softmax_cross_entropy_loss":
         if isinstance(nps_out, list):
             loss_np = np.asarray(nps_out[0])
@@ -363,6 +384,7 @@ def handle_special_output(state):
             return SpecialOutputAction.STOP
         return SpecialOutputAction.CONTINUE
 
+    # CUDA 将 y、scale、zero_point 打包进一个 float32 文件，读取后需按段恢复类型。
     if op_name == "dynamic_quantize_linear":
         y_np, scale_np, zp_np = nps_out
         y_np = np.asarray(y_np, dtype=np.uint8)
@@ -412,6 +434,7 @@ def handle_special_output(state):
             return SpecialOutputAction.STOP
         return SpecialOutputAction.CONTINUE
 
+    # Split 将可变数量输出顺序拼接，按 C 输出 shape 切片还原后逐块比较。
     if op_name == "split":
         flat_outputs = [np.asarray(out) for out in nps_out]
         flat_len = int(sum(out.size for out in flat_outputs))
@@ -462,6 +485,7 @@ def handle_special_output(state):
             return SpecialOutputAction.STOP
         return SpecialOutputAction.CONTINUE
 
+    # Unique 主文件保存 values，其余三个 int64 输出使用独立 sidecar。
     if op_name == "unique":
         values_np, indices_np, inverse_np, counts_np = [np.asarray(out) for out in nps_out]
         input_arr = inputs_np[0]
