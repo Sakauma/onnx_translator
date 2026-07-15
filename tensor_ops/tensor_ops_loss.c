@@ -9,7 +9,7 @@
   ******************************************************************************
 */
 
-#include "tensor_ops_internal.h"
+#include "internal/loss.h"
 
 // 实现 `negative log likelihood loss` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void negative_log_likelihood_loss_forward(const Tensor* input, const Tensor* target, const Tensor* weight,

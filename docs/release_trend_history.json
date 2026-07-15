@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-06-28T05:21:06Z",
+  "captured_at": "2026-07-15T10:08:40Z",
   "repository": "Sakauma/onnx_translator",
   "source": "GitHub Actions REST API",
   "minimum_history_for_top_tier_release": 3,
@@ -114,71 +114,118 @@
     },
     {
       "id": "manylinux_full",
-      "related_smoke_runs": [
+      "status": "satisfied",
+      "minimum_required": 3,
+      "successful_run_count": 3,
+      "top_tier_ready": true,
+      "successful_runs": [
         {
-          "run_id": 28311668738,
-          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28311668738",
-          "event": "push",
+          "run_id": 29287935895,
+          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/29287935895",
+          "event": "schedule",
           "branch": "main",
-          "head_sha": "33e522109947fd63170cd855267e399777a52687",
-          "created_at": "2026-06-28T04:45:17Z",
+          "head_sha": "5333f036b4df147bda927992864c998533275b88",
+          "created_at": "2026-07-13T21:52:29Z",
           "conclusion": "success",
           "artifacts": [
             {
-              "artifact_id": 7931148472,
-              "name": "manylinux-smoke-28311668738",
-              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7931148472",
-              "digest": "sha256:d13dabe085f30983d133fd09b8c18ddadb679768aabb382cde30afc196660453",
-              "expires_at": "2026-09-26T04:45:17Z",
+              "artifact_id": 8293937995,
+              "name": "manylinux-cp310-manylinux_x86_64-29287935895",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/8293937995",
+              "digest": "sha256:00042c3ecbd92d24567f9075ba58ad6312ecce2d85b7e4a6b92bc0cd3b7b28e0",
+              "expires_at": "2026-10-11T21:52:30Z",
+              "expired": false
+            },
+            {
+              "artifact_id": 8293949104,
+              "name": "manylinux-cp311-manylinux_x86_64-29287935895",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/8293949104",
+              "digest": "sha256:28f6da8775f647da3f3bdc589f5f58ce824344ed40b12e9ed28db5c01538d670",
+              "expires_at": "2026-10-11T21:52:30Z",
+              "expired": false
+            },
+            {
+              "artifact_id": 8293943416,
+              "name": "manylinux-cp312-manylinux_x86_64-29287935895",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/8293943416",
+              "digest": "sha256:176474144b1a70386567f57e899000f3afa759e377ec1604a504afac032399bd",
+              "expires_at": "2026-10-11T21:52:30Z",
               "expired": false
             }
           ]
         },
         {
-          "run_id": 28311581049,
-          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28311581049",
-          "event": "pull_request",
-          "branch": "codex/thin-c-shards-800",
-          "head_sha": "b7e766b7831fffc1da96aa6805286084f33199de",
-          "created_at": "2026-06-28T04:40:56Z",
+          "run_id": 28826724422,
+          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28826724422",
+          "event": "schedule",
+          "branch": "main",
+          "head_sha": "5333f036b4df147bda927992864c998533275b88",
+          "created_at": "2026-07-06T22:10:33Z",
           "conclusion": "success",
           "artifacts": [
             {
-              "artifact_id": 7931123490,
-              "name": "manylinux-smoke-28311581049",
-              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7931123490",
-              "digest": "sha256:4ac7409105fb78457a83b6afa55ca57ffe1c3fc94ac4244fedc26f9eb7d96cc7",
-              "expires_at": "2026-09-26T04:40:56Z",
+              "artifact_id": 8122910679,
+              "name": "manylinux-cp310-manylinux_x86_64-28826724422",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/8122910679",
+              "digest": "sha256:7e505905544144f261173b8fb7457c6b68c40aebaf4e1e795b67ffc589df53c0",
+              "expires_at": "2026-10-04T22:10:33Z",
+              "expired": false
+            },
+            {
+              "artifact_id": 8122906683,
+              "name": "manylinux-cp311-manylinux_x86_64-28826724422",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/8122906683",
+              "digest": "sha256:b721c4622cff419525d93a9f732e8f68e294831c66eecc2f8f017c9408fe3dbb",
+              "expires_at": "2026-10-04T22:10:33Z",
+              "expired": false
+            },
+            {
+              "artifact_id": 8122906002,
+              "name": "manylinux-cp312-manylinux_x86_64-28826724422",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/8122906002",
+              "digest": "sha256:9775395d059503393d13b910cf5841411a43c348bb1c8320ad97bbf3562a164d",
+              "expires_at": "2026-10-04T22:10:33Z",
               "expired": false
             }
           ]
         },
         {
-          "run_id": 28311113306,
-          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28311113306",
-          "event": "push",
+          "run_id": 28405830824,
+          "run_url": "https://github.com/Sakauma/onnx_translator/actions/runs/28405830824",
+          "event": "schedule",
           "branch": "main",
-          "head_sha": "6cb65795e0b31ae94259df20f92251dfe3259692",
-          "created_at": "2026-06-28T04:18:32Z",
+          "head_sha": "5333f036b4df147bda927992864c998533275b88",
+          "created_at": "2026-06-29T22:06:47Z",
           "conclusion": "success",
           "artifacts": [
             {
-              "artifact_id": 7930983055,
-              "name": "manylinux-smoke-28311113306",
-              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7930983055",
-              "digest": "sha256:70a89a8ee8bf58096682f354db3f94411d94258467a69ff3a0e76a91cff8734e",
-              "expires_at": "2026-09-26T04:18:32Z",
+              "artifact_id": 7965801825,
+              "name": "manylinux-cp310-manylinux_x86_64-28405830824",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7965801825",
+              "digest": "sha256:d03c016ed5f15249716b9aa0329df01fad52ac65089cdf0d16efcbe2beff7bf3",
+              "expires_at": "2026-09-27T22:06:47Z",
+              "expired": false
+            },
+            {
+              "artifact_id": 7965798856,
+              "name": "manylinux-cp311-manylinux_x86_64-28405830824",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7965798856",
+              "digest": "sha256:b207e8a6644dd5dca8e9d2e98ad1c227295c1d6afc2757f1ab1ead3cca90ee60",
+              "expires_at": "2026-09-27T22:06:47Z",
+              "expired": false
+            },
+            {
+              "artifact_id": 7965797341,
+              "name": "manylinux-cp312-manylinux_x86_64-28405830824",
+              "url": "https://api.github.com/repos/Sakauma/onnx_translator/actions/artifacts/7965797341",
+              "digest": "sha256:1eab2433284e36e5ea9a9ebc6751c339e361d3de63ec4a25df925d77cfb46a36",
+              "expires_at": "2026-09-27T22:06:47Z",
               "expired": false
             }
           ]
         }
       ],
-      "status": "insufficient_history",
-      "minimum_required": 3,
-      "successful_run_count": 0,
-      "top_tier_ready": false,
-      "successful_runs": [],
-      "next_action": "Run Wheels by weekly schedule or workflow_dispatch so the manylinux-full matrix produces cp310, cp311, and cp312 artifacts for three retained cycles."
+      "next_action": "Continue retaining one complete cp310/cp311/cp312 manylinux artifact matrix per weekly cycle."
     }
   ]
 }

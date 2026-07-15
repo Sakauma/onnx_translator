@@ -18,6 +18,9 @@ from typing import List, Union
 import os
 import unicodedata
 
+# 低精度逻辑类型在 Tensor.data 中保存编码位，而不是 NumPy 可直接计算的实数。
+# 本组转换函数是 Python fallback 的统一数值边界，并与 C 后端的舍入约定保持一致。
+
 
 def _float32_to_bfloat16_bits(values):
     data = np.asarray(values, dtype=np.float32)
@@ -89,6 +92,7 @@ def _float32_to_float8_e8m0_bits(values):
 
 
 def _tensor_data_as_numeric(tensor):
+    """将按位存储的低精度 Tensor 解码为可参与 NumPy 运算的数值数组。"""
     if getattr(tensor, "dtype", None) == "bfloat16":
         return _bfloat16_bits_to_float32(tensor.data)
     if getattr(tensor, "dtype", None) == "float4_e2m1":
@@ -99,6 +103,7 @@ def _tensor_data_as_numeric(tensor):
 
 
 def _cast_numeric_to_dtype(values, dtype):
+    """把计算结果编码为目标逻辑 dtype 对应的 NumPy 存储表示。"""
     if dtype == "bfloat16":
         return _float32_to_bfloat16_bits(values)
     if dtype == "float4_e2m1":
@@ -109,6 +114,7 @@ def _cast_numeric_to_dtype(values, dtype):
 
 
 def _conv_attr(values, spatial_rank, default):
+    # 卷积属性按空间维排列；缺省值可扩展，但显式列表必须与空间 rank 精确匹配。
     if values is None:
         return [default] * spatial_rank
     values = list(values)
@@ -120,6 +126,7 @@ def _conv_effective_kernel(kernel_shape, dilations):
     return [dilations[i] * (kernel_shape[i] - 1) + 1 for i in range(len(kernel_shape))]
 
 def _conv_resolve_pads(input_spatial, kernel_shape, pads, strides, dilations, auto_pad="NOTSET"):
+    """将 auto_pad 解析为 ``[begin..., end...]``，供 C 与 NumPy 路径共享。"""
     spatial_rank = len(input_spatial)
     auto_pad = auto_pad or "NOTSET"
     if auto_pad == "VALID":
@@ -251,6 +258,7 @@ def _dtype_bounds(dtype):
     return None, None
 
 def _normalize_pool_params(input_shape, kernel_shape, pads, strides, dilations, auto_pad="NOTSET"):
+    # 池化沿用卷积的 N/C + spatial 布局和 begin/end padding 顺序。
     spatial_rank = len(input_shape) - 2
     if spatial_rank < 1:
         raise ValueError("Pool operators expect input rank >= 3")
@@ -530,6 +538,7 @@ def _sequence_mask(sequence_lens, t, batch_size):
     return (np.asarray(sequence_lens.data).reshape(-1) > t).reshape(batch_size, 1)
 
 def _matmul_output_shape(shape_a, shape_b):
+    """按 ONNX MatMul 规则计算广播批次与一维输入升维后的最终输出形状。"""
     shape_a = list(shape_a)
     shape_b = list(shape_b)
     if len(shape_a) == 0 or len(shape_b) == 0:
@@ -551,6 +560,7 @@ def _matmul_output_shape(shape_a, shape_b):
     return tuple(out_shape)
 
 def _prepare_matmul_c_shapes(input_a: Tensor, input_b: Tensor):
+    """把一维 MatMul 输入临时升为矩阵，同时保留 C 形状和规范要求的最终形状。"""
     data_a = np.asarray(input_a.data)
     data_b = np.asarray(input_b.data)
     is_a_1d = data_a.ndim == 1
@@ -576,6 +586,7 @@ def _prepare_matmul_c_shapes(input_a: Tensor, input_b: Tensor):
     return data_a, data_b, out_shape_for_c, tuple(final_shape)
 
 def _broadcast_matmul_param(param, target_shape, dtype, role, numeric_dtype=None):
+    # row/column 参数分别对齐倒数第二/第一维；返回副本以满足 C 后端连续缓冲区要求。
     np_dtype = numeric_dtype if numeric_dtype is not None else nn.DTYPE_TO_NUMPY[dtype]
     if param is None:
         return np.zeros(target_shape, dtype=np_dtype)
@@ -683,6 +694,7 @@ def _window_values(size, periodic, dtype, kind):
     return _cast_window_output(values, dtype)
 
 def _window_values_c_first(op, size, c_func_name, kind):
+    """可用时走 C ABI，否则用同语义 NumPy 实现；两条路径都返回 Python 所有的数据。"""
     length = int(np.asarray(size.data).item())
     if length < 0:
         raise ValueError(f"Window size must be non-negative, got {length}")
@@ -707,6 +719,7 @@ def _tensor_from_numpy(array):
     return Tensor(*array.shape, dtype=dtype, data=array)
 
 def _tensor_to_numpy(value):
+    # Tensor_ 没有数据；参考执行只需要形状占位，因此构造零值而不声称其代表真实输入。
     if isinstance(value, Tensor):
         return value.data
     if isinstance(value, Tensor_):
@@ -719,12 +732,14 @@ def _reference_feed_value(value):
     return _tensor_to_numpy(value)
 
 def _graph_local_value_names(graph_proto):
+    """收集由子图自身声明或产生的名称，用于区分外层词法捕获。"""
     names = {value.name for value in graph_proto.input if value.name}
     names.update(value.name for value in graph_proto.initializer if value.name)
     names.update(value for node in graph_proto.node for value in node.output if value)
     return names
 
 def _graph_external_names(graph_proto):
+    """递归计算控制流子图从外层作用域捕获的自由变量名称。"""
     local_names = _graph_local_value_names(graph_proto)
     used_names = {value for node in graph_proto.node for value in node.input if value}
     used_names.update(value.name for value in graph_proto.output if value.name)
@@ -741,6 +756,7 @@ def _graph_external_names(graph_proto):
     return {name for name in used_names if name not in local_names}
 
 def _graph_value_shape(value_info):
+    # ReferenceEvaluator 不能从纯符号元数据获得具体长度；占位推断统一把未知维降为 1。
     tensor_type = value_info.type.tensor_type
     dtype = nn.onnx_dtype_mapping.get(tensor_type.elem_type, "float32")
     dims = []
@@ -749,6 +765,11 @@ def _graph_value_shape(value_info):
     return Tensor_(*dims, dtype=dtype)
 
 def _run_graph_proto(graph_proto, feeds, outer_scope=None):
+    """使用 ONNX 参考执行器运行嵌套 GraphProto，并实现词法作用域输入绑定。
+
+    只向子图传递其声明输入或自由变量；局部 ``feeds`` 后写入，因此会覆盖同名的
+    外层捕获值，符合控制流算子对迭代变量和分支输入的绑定规则。
+    """
     from onnx import helper
     from onnx.reference import ReferenceEvaluator
 

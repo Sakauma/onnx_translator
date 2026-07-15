@@ -9,7 +9,7 @@
   ******************************************************************************
 */
 
-#include "tensor_ops_internal.h"
+#include "internal/spatial.h"
 
 
 // OneHot

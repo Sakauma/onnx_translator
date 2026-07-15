@@ -9,6 +9,8 @@
 #   ******************************************************************************
 # */
 
+import tomllib
+
 from tools.release_check import (
     C_BACKEND_MAX_SHARD_LINES,
     REQUIRED_FILES,
@@ -17,11 +19,19 @@ from tools.release_check import (
     _check_c_backend_shard_budgets,
     _check_cibuildwheel_config,
     _check_heavy_gate_artifact_retention,
+    _check_pyproject,
     _check_release_evidence_checklist,
     _check_release_evidence_workflow,
     _check_release_trend_history,
     _check_release_trend_manifest,
 )
+
+
+def test_release_check_accepts_core_and_optional_dependency_split():
+    with open("pyproject.toml", "rb") as handle:
+        pyproject = tomllib.load(handle)
+
+    assert _check_pyproject(pyproject) == []
 
 
 def _pyproject_with_cibuildwheel():
@@ -126,7 +136,7 @@ def test_release_check_requires_split_dtype_header():
 
 
 def test_release_check_requires_c_backend_shard_budget():
-    assert C_BACKEND_MAX_SHARD_LINES == 400
+    assert C_BACKEND_MAX_SHARD_LINES == 325
     for path in [
         "tensor_ops/tensor_ops_activation_extra.c",
         "tensor_ops/tensor_ops_compare_logic.c",

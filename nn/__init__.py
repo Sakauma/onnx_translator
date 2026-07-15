@@ -18,6 +18,7 @@ from pathlib import Path
 import nn
 
 def _default_tensor_ops_lib_path():
+    """优先解析已安装包内的后端，源码树运行时再回退到仓库构建产物。"""
     package_lib = Path(__file__).resolve().with_name("tensor_ops.so")
     repo_lib = Path(__file__).resolve().parent.parent / "tensor_ops.so"
     for candidate in (package_lib, repo_lib):
@@ -31,7 +32,11 @@ TENSOR_OPS_LIB_PATH = os.environ.get("TENSOR_OPS_LIB", _default_tensor_ops_lib_p
 # 默认路径优先使用 wheel 内的 nn/tensor_ops.so，开发环境回退到仓库根目录 tensor_ops.so。
 
 class CTensor(ctypes.Structure):
-    """C张量结构体，用于与C库交互"""
+    """``tensor_ops.h::Tensor`` 的 ctypes ABI 镜像。
+
+    该结构及其 ``shape``、``data`` 缓冲区均由 C 端 ``create_tensor`` 分配，
+    Python 只在指针有效期内读写内容，并负责最终调用 ``free_tensor``。
+    """
     _fields_ = [
         ("data", ctypes.c_void_p),                # 数据指针
         ("shape", ctypes.POINTER(ctypes.c_int)),  # 形状数组指针
@@ -71,7 +76,8 @@ DTYPE_MAP = {
     "float8_e8m0": 24,
 }
 
-# 数据类型映射到NumPy类型
+# 低位宽浮点和整数在 NumPy 中没有等价 dtype，因此数组保存的是未打包的原始编码位；
+# 进行数值计算前必须由算子辅助函数显式解码，不能把这些 uint8/int8 当作真实数值。
 DTYPE_TO_NUMPY = {
     "float8_e4m3": np.uint8, 
     "float8_e5m2": np.uint8,
@@ -101,7 +107,8 @@ DTYPE_TO_NUMPY = {
     "complex128": np.complex128,
 }
 
-# NumPy 类型到 NPS 字符串类型的反向映射
+# 反向映射只适用于存储类型唯一的常规 dtype。bfloat16 与 uint16 共用 NumPy
+# 存储类型，低位宽类型也共用 uint8/int8，因此这些逻辑类型必须由调用方显式指定。
 NUMPY_TO_DTYPE = {
     np.float16: "float16",
     np.uint16: "bfloat16",
@@ -162,17 +169,19 @@ onnx_dtype_mapping = {
 }
 
 class Tensor:
-    """张量类，用于存储和操作多维数组数据"""
+    """执行阶段使用的张量值，由逻辑 dtype、形状和 NumPy 数据共同组成。
+
+    传入 ``data`` 时构造器不会复制、重排或校验其形状和存储 dtype，调用方必须
+    保证它与 ``size``/``dtype`` 一致；跨 C ABI 前会由算子路径建立连续副本。
+    """
     
-    # 初始化 `Tensor` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, *size, dtype="float32", data=None):
-        """
-        初始化张量
-        
+        """创建张量值。
+
         Args:
-            *size: 张量的维度大小
-            dtype: 数据类型
-            data: 初始化数据，如果为None则初始化为零矩阵
+            *size: 张量形状；单个 list 与逐维位置参数等价。
+            dtype: 项目内部逻辑 dtype 名称。
+            data: 可选的已有数据；缺省时按逻辑 dtype 创建全零数组。
         """
         # self.size = size[0] if (isinstance(size[0], list) and len(size) == 1) else size
         # self.data_size = 1
@@ -203,16 +212,14 @@ class Tensor:
             self.data = np.zeros(self.size, dtype=np_dtype)# 创建一个全0的矩阵
 
 class Tensor_:
-    """张量占位符类，用于图构建阶段"""
+    """图构建和形状推断阶段使用的纯元数据张量，不分配数值缓冲区。"""
     
-    # 初始化 `Tensor_` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, *size, dtype="float32"):
-        """
-        初始化张量占位符
-        
+        """记录占位形状和逻辑 dtype，形状参数规则与 :class:`Tensor` 一致。
+
         Args:
-            *size: 张量的维度大小
-            dtype: 数据类型
+            *size: 张量的维度大小。
+            dtype: 项目内部逻辑 dtype 名称。
         """
         # self.size = size[0] if (isinstance(size[0], list) and len(size) == 1) else size
         # self.data_size = 1
@@ -230,18 +237,23 @@ class Tensor_:
         self.dtype = dtype
 
 class Ops:
-    """操作基类，所有计算操作的父类"""
+    """内部算子的公共基类，统一 C 后端加载和张量桥接协议。
+
+    子类的 ``forward`` 处理真实 :class:`Tensor`，``forward_`` 只传播
+    :class:`Tensor_` 元数据。两条路径都由 :class:`Graph` 负责按 ONNX 边名接线。
+    """
     _lib = None
     _lib_initialized = False
 
-    # 封装 `_get_lib` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @classmethod
     def _get_lib(cls):
-        """
-        获取C库实例，确保只初始化一次
-        
+        """加载进程级 C 后端并声明 ctypes 签名。
+
+        ``CDLL`` 缓存在基类上，余弦查找表也只初始化一次。声明 ``argtypes``
+        是 ABI 边界的一部分，可避免 Python 整数或指针被 ctypes 错误截断。
+
         Returns:
-            ctypes.CDLL: C库实例
+            ctypes.CDLL: 已初始化的 C 库实例。
         """
         if cls._lib is None:
             # 加载C库
@@ -251,10 +263,10 @@ class Ops:
                 )
             cls._lib = ctypes.CDLL(TENSOR_OPS_LIB_PATH)
             
-            # 设置函数返回类型
+            # create_tensor 返回 C 拥有的指针；缺少 restype 时 ctypes 会按 int 截断地址。
             cls._lib.create_tensor.restype = ctypes.POINTER(CTensor)
             
-            # 设置函数参数类型
+            # 基础 ABI 是所有构建版本共有的；后面的扩展量化符号允许旧库缺省。
             cls._lib.create_tensor.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int]
             cls._lib.free_tensor.argtypes = [ctypes.POINTER(CTensor)]
             cls._lib.relu_forward.argtypes = [ctypes.POINTER(CTensor), ctypes.POINTER(CTensor)]
@@ -282,7 +294,6 @@ class Ops:
             
         return cls._lib
 
-    # 初始化 `Ops` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs):
         """
         初始化操作
@@ -297,10 +308,9 @@ class Ops:
         self.name = None
         self.lib = self._get_lib()
     
-    # 封装 `_execute_unary` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _execute_unary(self, input_tensor, c_func_name):
-        """通用一元算子执行模板"""
-        # 1. 准备连续内存输入
+        """执行形状不变的一元 C 算子，并将 C 输出复制回 Python 所有权。"""
+        # C 张量拥有独立缓冲区；连续化后再复制可避免把带 stride 的 NumPy 视图误传给 C。
         in_data = np.ascontiguousarray(input_tensor.data)# 确保数据连续
         input_c = self._numpy_to_ctensor(in_data, input_tensor.dtype)
         
@@ -312,16 +322,15 @@ class Ops:
         # 3. 动态调用 C 函数
         getattr(self.lib, c_func_name)(input_c, output_c)
         
-        # 4. 转换结果并释放
+        # _ctensor_to_numpy 返回独立副本，所以随后释放 input_c/output_c 不会悬空。
         out_data = self._ctensor_to_numpy(output_c, out_dtype)
         self.lib.free_tensor(input_c)# 调用C函数释放内存
         self.lib.free_tensor(output_c)
         
         return Tensor(*input_tensor.size, dtype=out_dtype, data=out_data)
     
-    # 封装 `_execute_binary` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _execute_binary(self, input_a, input_b, c_func_name):
-        """通用二元算子执行模板 (含广播逻辑)"""
+        """先在 Python 侧实现 ONNX 广播，再调用要求同形输入的二元 C 算子。"""
         # 1. 广播处理
         try:
             a_bcast, b_bcast = np.broadcast_arrays(input_a.data, input_b.data)
@@ -360,9 +369,8 @@ class Ops:
 
         return Tensor(*out_shape, dtype=out_dtype, data=out_data)
     
-    # 封装 `_execute_ternary` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _execute_ternary(self, in_a, in_b, in_c, c_func_name, extra_int_arg=None):
-        """通用三元算子执行模板 (含广播逻辑，用于 QDQ)"""
+        """执行带三路广播输入的 C 算子，主要服务量化/反量化路径。"""
         try:
             a_bc, b_bc, c_bc = np.broadcast_arrays(in_a.data, in_b.data, in_c.data)
         except ValueError as e:
@@ -371,7 +379,7 @@ class Ops:
             
         out_shape = a_bc.shape
         out_dtype = self.dtype if self.dtype else "float32"
-        # 实现 `prep_ctensor` 步骤，规范化输入并返回下游期望的数据或元信息。
+        # 广播视图通常不连续，且逻辑 dtype 可能不同；逐路恢复存储 dtype 后再复制到 C。
         def prep_ctensor(arr_bcast, original_tensor):
             np_dtype = nn.DTYPE_TO_NUMPY[original_tensor.dtype]
             arr_safe = arr_bcast.astype(np_dtype, copy=False)
@@ -397,45 +405,28 @@ class Ops:
 
         return Tensor(*out_shape, dtype=out_dtype, data=out_data)
 
-    # 执行 `Ops` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input):
-        """
-        前向传播方法（使用真实数据计算）
-        
-        Args:
-            input: 输入数据
-            
-        Returns:
-            计算结果
-        """
+        """真实张量执行入口，由具体算子覆盖。"""
         pass
 
-    # 执行 `Ops` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
-        """
-        前向传播方法（不使用真实数据计算，用于图构建）
-        
-        Args:
-            input: 输入数据占位符
-            
-        Returns:
-            计算结果占位符
-        """
+        """元数据推断入口，由具体算子覆盖且不得读取真实数值缓冲区。"""
         pass
 
-    # 封装 `_numpy_to_ctensor` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _numpy_to_ctensor(self, arr: np.ndarray, dtype: str) -> ctypes.POINTER(CTensor):
-        """
-        将NumPy数组转换为C张量
-        
+        """把 NumPy 内容复制到新分配的 C 张量。
+
+        返回值及其 shape/data 缓冲区归调用方所有，必须且只能调用一次
+        ``free_tensor``；本函数不会让 C 张量借用 ``arr`` 的生命周期。
+
         Args:
-            arr: NumPy数组
-            dtype: 数据类型
+            arr: 与 ``dtype`` 存储宽度一致的连续 NumPy 数组。
+            dtype: 项目内部逻辑 dtype 名称。
             
         Returns:
             ctypes.POINTER(CTensor): C张量指针
         """
-        # 创建形状数组
+        # create_tensor 会复制 shape，因此局部 ctypes 数组在返回后无需继续存活。
         shape = (ctypes.c_int * len(arr.shape))(*arr.shape)
         # 创建C张量
         c_tensor = self.lib.create_tensor(shape, len(arr.shape), DTYPE_MAP[dtype])
@@ -444,14 +435,15 @@ class Ops:
         ctypes.memmove(c_tensor.contents.data, arr.ctypes.data, data_size)
         return c_tensor
 
-    # 封装 `_ctensor_to_numpy` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _ctensor_to_numpy(self, c_tensor: ctypes.POINTER(CTensor), dtype: str) -> np.ndarray:
-        """
-        将C张量转换为NumPy数组
-        
+        """复制 C 张量内容为独立 NumPy 数组。
+
+        中间的 ``frombuffer`` 视图借用 C 内存，返回前的 ``copy`` 是所有权边界；
+        调用方可在本函数返回后立即释放 ``c_tensor``。
+
         Args:
-            c_tensor: C张量指针
-            dtype: 数据类型
+            c_tensor: 仍然有效的 C 张量指针。
+            dtype: 用于解释缓冲区元素宽度的逻辑 dtype。
             
         Returns:
             np.ndarray: NumPy数组
@@ -469,7 +461,11 @@ class Ops:
         return arr.copy()
 
 class Graph:
-    """计算图类，用于管理操作节点和数据流"""
+    """按拓扑顺序执行内部算子，并以 ONNX 边名管理中间结果生命周期。
+
+    ``ops`` 必须已经拓扑排序。图不会重新排序节点，而是用消费者计数在最后一次
+    使用后释放 Python 边引用；显式图输出始终保留到本次执行结束。
+    """
     
     # 初始化 `Graph` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, ops, input_name, output_name=None, model_name=None):
@@ -494,13 +490,11 @@ class Graph:
         self.update(ops)
         self.model_name = model_name
 
-    # 实现 `update` 步骤，规范化输入并返回下游期望的数据或元信息。
     def update(self, ops):
-        """
-        更新计算图中的操作节点
+        """重建算子顺序、唯一名称和每条边的消费者计数。
 
         Args:
-            ops: 操作节点列表
+            ops: 已按依赖拓扑排序的操作节点列表。
         """
         name_dict = {}
         self.ops = OrderedDict()
@@ -526,7 +520,7 @@ class Graph:
             op.name = op_name
             self.ops[op.name] = op
 
-            # 更新输入输出节点的入度
+            # output_in_degree 实际保存“剩余消费者数”，同时计入控制流捕获的外层边。
             for i in self._op_consumed_edges(op):
                 if i and i in self.output_in_degree:
                     self.output_in_degree[i] += 1
@@ -547,26 +541,26 @@ class Graph:
                 if self.output_in_degree.get(edge, 0) == 0
             ]
 
-    # 封装 `_init_edge_data` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _init_edge_data(self, inputs):
+        """按声明顺序绑定图输入；位置和数量都是公开调用契约。"""
         if len(inputs) != len(self.input_name):
             raise ValueError(
                 f"Graph expects {len(self.input_name)} inputs, got {len(inputs)}"
             )
         return {na: inputs[idx] for idx, na in enumerate(self.input_name)}
 
-    # 封装 `_extract_tensor_result` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _extract_tensor_result(outputs):
+        """兼容算子直接返回张量或返回包含 ``tensor`` 的扩展结果字典。"""
         if isinstance(outputs, dict):
             if "tensor" in outputs:
                 return outputs["tensor"]
             raise KeyError("operator result dict does not contain 'tensor'")
         return outputs
 
-    # 封装 `_normalize_multi_output` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _normalize_multi_output(outputs, idx):
+        """按 ONNX 输出槽位提取多输出结果，并拒绝静默丢失必需输出。"""
         if isinstance(outputs, (list, tuple)):
             if idx < len(outputs):
                 return outputs[idx]
@@ -575,17 +569,17 @@ class Graph:
             return outputs
         raise TypeError(f"operator should return a list/tuple for multiple outputs, got {type(outputs)}")
 
-    # 封装 `_op_consumed_edges` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     @staticmethod
     def _op_consumed_edges(op):
+        """返回显式输入和控制流子图捕获的外层边，去除空槽位与重复名称。"""
         names = []
         for name in list(op.inputs) + list(getattr(op, "outer_scope_names", [])):
             if name and name not in names:
                 names.append(name)
         return names
 
-    # 封装 `_collect_graph_outputs` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _collect_graph_outputs(self, edge_data_buffer):
+        """按声明顺序收集输出；单输出保持历史上的标量式返回协议。"""
         missing = [name for name in self.output_name if name not in edge_data_buffer]
         if missing:
             raise KeyError(f"Graph output(s) not produced: {missing}")
@@ -594,16 +588,11 @@ class Graph:
             return outputs[0]
         return tuple(outputs)
 
-    # 执行 `Graph` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs):
-        """
-        执行前向传播计算（使用真实数据）
+        """执行真实张量路径。
 
-        Args:
-            *inputs: 输入数据
-
-        Returns:
-            计算结果
+        ONNX 用空字符串保留缺省可选输入的位置，此处将其转换为 ``None``，但不
+        改变后续参数索引。多输出结果同样按原始输出槽位分配，空输出名只跳过存储。
         """
         # 初始化边数据缓冲区。每次执行都复制使用计数，避免污染图对象。
         edge_data_buffer = self._init_edge_data(inputs)
@@ -636,17 +625,18 @@ class Graph:
                     else self._normalize_multi_output(outputs, idx)
                 )
 
-            # 清理无用的边数据
+            # 删除的是 Python 引用；C 输出已在算子返回前复制，不依赖已释放的 C 缓冲区。
             for na in list(edge_data_buffer.keys()):
                 if edge_usage.get(na, 0) == 0 and na not in protected_outputs:
                     edge_data_buffer.pop(na)
 
         return self._collect_graph_outputs(edge_data_buffer)
 
-    # 执行 `Graph` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, *inputs):
-        """
-        执行前向传播计算（不使用真实数据，用于图构建）
+        """执行只传播 :class:`Tensor_` 的形状推断路径。
+
+        该路径保留较宽松的历史多输出兼容行为，最终仍由 ``_collect_graph_outputs``
+        检查所有声明的图输出是否实际生成。
         """
         # 初始化边数据缓冲区。每次执行都复制使用计数，避免污染图对象。
         edge_data_buffer = self._init_edge_data(inputs)

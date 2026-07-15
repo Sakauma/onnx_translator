@@ -18,6 +18,9 @@ from nn import onnx_dtype_mapping
 
 from .registry import register_factory
 
+# 该分片包含较新 opset 与扩展算子。每个工厂显式传入其实现所对应的版本，避免
+# 仅凭模型全局 opset 推断出内部实现尚未支持的属性或输出协议。
+
 
 @register_factory("TfIdfVectorizer")
 def _factory_141_tfidfvectorizer(node, import_context):

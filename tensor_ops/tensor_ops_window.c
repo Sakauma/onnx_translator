@@ -9,7 +9,7 @@
   ******************************************************************************
 */
 
-#include "tensor_ops_internal.h"
+#include "internal/window.h"
 
 
 // Hann Window: 0.5 * (1 - cos(2*pi*n / (N-1)))

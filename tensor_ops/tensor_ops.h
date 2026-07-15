@@ -16,7 +16,21 @@
 #include <string.h>
 
 /**
- * 数据类型枚举定义
+ * 公共 ABI 约定：
+ *
+ * - 除 create_tensor/free_tensor 外，所有 Tensor 和参数数组均由调用方持有，函数只在
+ *   调用期间借用指针，不保存地址，也不释放传入内存。
+ * - 输出 Tensor 必须由调用方按最终 shape、dtype 和容量预先分配；forward 接口只写
+ *   data，不调整 shape、ndim、size 或 dtype。
+ * - 只有本头文件明确标注“可为 NULL”的指针才允许缺省。其余接口通常以静默返回处理
+ *   无效输入，因此 Python/ctypes 边界必须先完成形状、类型和必需参数校验。
+ * - 多字节元素使用宿主机本地字节序。int2/int4/uint2/uint4 当前每个逻辑元素占一个
+ *   字节，未做位打包；低精度浮点同样按各自编码位存储。
+ */
+
+/**
+ * Python 的 DTYPE_MAP 直接依赖这些序号。已有枚举值不得重排或插入，新类型只能追加，
+ * 否则 ctypes 会用错误的元素宽度解释同一缓冲区。
  */
 typedef enum {
     DTYPE_FLOAT8_E4M3, // 8位浮点数，适合推理
@@ -47,7 +61,10 @@ typedef enum {
 } DataType;
 
 /**
- * 张量结构体定义
+ * C 后端的拥有型连续张量描述符。
+ *
+ * create_tensor 创建的实例同时拥有 data 和 shape；size 等于各维长度之积，标量
+ * (ndim == 0) 的 size 为 1。该字段布局必须与 nn.CTensor 完全一致。
  */
 typedef struct {
     void* data;      // 数据指针
@@ -58,7 +75,7 @@ typedef struct {
 } Tensor;
 
 /**
- * 卷积参数结构体定义
+ * 2D 卷积参数视图。三个数组均由调用方持有，并在 forward 返回前保持有效。
  */
 typedef struct {
     int* pads;      // [top, left, bottom, right]
@@ -68,7 +85,7 @@ typedef struct {
 } ConvParams;
 
 /**
- * 池化参数结构体定义
+ * 2D 池化参数视图。pads 顺序为 [top, left, bottom, right]，其余数组长度为 2。
  */
 typedef struct {
     int* pads;         // [top, left, bottom, right]
@@ -77,6 +94,9 @@ typedef struct {
     int* kernel_shape; // [h, w]
 } PoolParams;
 
+/**
+ * 归约参数视图。axes 由调用方持有，长度为 num_axes；轴值按具体算子约定解释。
+ */
 typedef struct {
     int* axes;       // 要归约的轴数组
     int num_axes;    // 轴的数量
@@ -84,19 +104,18 @@ typedef struct {
 } ReduceParams;
 
 /**
- * 创建张量
- * 
- * @param shape 张量形状数组
- * @param ndim 张量维度数
- * @param dtype 数据类型
- * @return 创建的张量指针
+ * 创建零初始化的拥有型张量，并复制 shape 数组。
+ *
+ * @param shape 长度为 ndim 的形状数组；仅 ndim == 0 时可为 NULL。
+ * @param ndim 非负维数；任一维也必须非负。
+ * @param dtype 逻辑数据类型。
+ * @return 成功时返回新张量；参数非法或任一步分配失败时返回 NULL。
  */
 Tensor* create_tensor(int* shape, int ndim, DataType dtype);
 
 /**
- * 释放张量内存
- * 
- * @param tensor 要释放的张量指针
+ * 释放 create_tensor 创建的 data、shape 和描述符；传入 NULL 是安全的。
+ * 调用后 tensor 及其所有字段地址均失效，不能用于释放借用或栈上构造的 Tensor。
  */
 void free_tensor(Tensor* tensor);
 
@@ -169,6 +188,8 @@ void div_forward(const Tensor* A, const Tensor* B, Tensor* O);
 /**
  * QuantizeLinear 前向传播 (FP32 -> INT8/UINT8 等)
  * 公式: y = saturate(round(x / scale) + zero_point)
+ * X/Scale/ZeroPoint 必须已广播到 Y 的元素布局；即使 ONNX 省略 zero_point，调用层
+ * 也要传入同目标 dtype 的零值 Tensor，不能传 NULL。
  */
 void quantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y);
 
@@ -187,15 +208,18 @@ void quantize_linear_forward_precision_saturate(const Tensor* X, const Tensor* S
 /**
  * DequantizeLinear 前向传播 (INT8/UINT8 -> FP32 等)
  * 公式: y = (x - zero_point) * scale
+ * X/Scale/ZeroPoint 必须已广播到 Y 的元素布局，ZeroPoint 不接受 NULL。
  */
 void dequantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y);
 
 /**
  * Conv2D 前向传播
  * 公式: Y = Sum(X * W) + B
+ * X/W/Y 采用 NCHW 布局；B 可为 NULL，params 及其数组在调用期间只读借用。
  */
 void conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params);
 
+/** ConvTranspose 采用 NCHW；B 可为 NULL，输出形状由调用方预先解析。 */
 void conv_transpose2d_forward(const Tensor* X, const Tensor* W, const Tensor* B, Tensor* Y, ConvParams* params);
 
 // Col2Im
@@ -204,22 +228,25 @@ void col2im_forward(const Tensor* input, const Tensor* image_shape, const Tensor
                     Tensor* output, ConvParams* params);
 
 // DeformConv
-// 按 offset 和可选 mask 对输入做双线性采样后执行 2D deformable convolution。
+// 按 offset 和可选 mask 对输入做双线性采样后执行 2D deformable convolution；B/mask 可为 NULL。
 void deform_conv2d_forward(const Tensor* X, const Tensor* W, const Tensor* offset,
                            const Tensor* B, const Tensor* mask, Tensor* Y,
                            ConvParams* params, int offset_group);
 
+// XZeroPoint/WZeroPoint 可为 NULL，分别表示对应输入使用数值零作为零点。
 void conv_integer_forward(const Tensor* X, const Tensor* W,
                           const Tensor* XZeroPoint, const Tensor* WZeroPoint,
                           Tensor* Y, ConvParams* params);
 
+// XZeroPoint/WZeroPoint/Bias 可为 NULL；YScale/YZeroPoint 为必需张量。
 void qlinear_conv_forward(const Tensor* X, const Tensor* XScale, const Tensor* XZeroPoint,
                           const Tensor* W, const Tensor* WScale, const Tensor* WZeroPoint,
                           const Tensor* YScale, const Tensor* YZeroPoint,
                           const Tensor* Bias, Tensor* Y, ConvParams* params);
 
 // Attention
-// 执行 4D scaled dot-product attention 主路径，支持 MHA/GQA、mask、causal 和 softcap。
+// Q/K/V/Y 均为 [batch, heads, sequence, head_size]；attn_mask 可为 NULL，并按最多 4D 广播。
+// scale < 0 表示使用 1/sqrt(head_size)，softcap <= 0 表示禁用软截断。
 void attention_forward(const Tensor* Q, const Tensor* K, const Tensor* V,
                        const Tensor* attn_mask, Tensor* Y,
                        int q_num_heads, int kv_num_heads,
@@ -251,6 +278,7 @@ void roi_align_forward(const Tensor* X, const Tensor* rois, const Tensor* batch_
  * Gemm (General Matrix Multiply) 前向传播
  * 公式: Y = alpha * A' * B' + beta * C
  * transA/transB: 0=不转置, 1=转置
+ * A/B 必须为 2D；C 可为 NULL，并支持标量、行/列向量及末两维广播。
  */
 void gemm_forward(const Tensor* A, const Tensor* B, const Tensor* C, Tensor* Y, 
                   float alpha, float beta, int transA, int transB);
@@ -325,7 +353,7 @@ void min_forward(const Tensor* A, const Tensor* B, Tensor* O);
 
 /**
  * Concat 拼接算子前向传播
- * @param inputs 输入张量指针数组
+ * @param inputs 长度为 num_inputs 的借用指针数组；元素均不可为 NULL。
  * @param num_inputs 输入张量的数量
  * @param output 输出张量
  * @param axis 拼接的维度轴
@@ -353,7 +381,7 @@ void reciprocal_forward(const Tensor* input, Tensor* output);
 
 /**
  * Clip 数值截断
- * min_val/max_val 为标量指针，如果为 NULL 表示无下界/无上界
+ * min/max 为标量 Tensor；各自可为 NULL，分别表示不设置下界或上界。
  */
 void clip_forward(const Tensor* input, Tensor* output, const Tensor* min, const Tensor* max);
 
@@ -388,7 +416,8 @@ void det_forward(const Tensor* input, Tensor* output);
 
 /**
  * Flat Unique over all input elements.
- * Returns the number of unique values written to values/indices/counts.
+ * values/indices/counts 至少预留 input->size 个元素，inverse 至少预留 input->size；
+ * 返回唯一值数量，只有各输出的 [0, return_value) 前缀有效（inverse 全长有效）。
  */
 int unique_forward(const Tensor* input, Tensor* values, Tensor* indices, Tensor* inverse, Tensor* counts, int sorted);
 
@@ -417,6 +446,8 @@ void stft_forward(const Tensor* signal, const Tensor* window, Tensor* output,
  * activation codes: 0=Tanh, 1=Sigmoid, 2=Relu, 3=Affine, 4=LeakyRelu,
  * 5=ThresholdedRelu, 6=ScaledTanh, 7=HardSigmoid, 8=Elu, 9=Softsign,
  * 10=Softplus. Missing alpha/beta values should be NaN.
+ * B、sequence_lens、initial_h、initial_c、P 可按各算子 ONNX 定义传 NULL；Y 为必需，
+ * Y_h/Y_c 可为 NULL。activations/alpha/beta 可为 NULL，此时内部采用规范默认激活。
  */
 void rnn_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tensor* B,
                  const Tensor* sequence_lens, const Tensor* initial_h,
@@ -447,8 +478,8 @@ void lstm_forward(const Tensor* X, const Tensor* W, const Tensor* R, const Tenso
 void multinomial_forward(const Tensor* input, Tensor* output, int sample_size, uint32_t seed);
 
 /**
- * NegativeLogLikelihoodLoss and SoftmaxCrossEntropyLoss.
- * reduction: 0=none, 1=mean, 2=sum.
+ * NegativeLogLikelihoodLoss 和 SoftmaxCrossEntropyLoss。
+ * reduction: 0=none, 1=mean, 2=sum；weight/weights 可为 NULL，log_prob_output 也可省略。
  */
 void negative_log_likelihood_loss_forward(const Tensor* input, const Tensor* target, const Tensor* weight,
                                           Tensor* output, int reduction, int has_ignore_index, int64_t ignore_index);
@@ -457,8 +488,8 @@ void softmax_cross_entropy_loss_forward(const Tensor* scores, const Tensor* labe
                                         int reduction, int has_ignore_index, int64_t ignore_index);
 
 /**
- * NonMaxSuppression.
- * Returns the number of selected [batch, class, box] rows written to output.
+ * NonMaxSuppression 将 [batch, class, box] 三元组写入 output。
+ * 返回选中行数；调用方应按最坏情况预留容量，并只读取返回行数对应的前缀。
  */
 int non_max_suppression_forward(const Tensor* boxes, const Tensor* scores, Tensor* output,
                                 int max_output_boxes_per_class, float iou_threshold,
@@ -503,6 +534,7 @@ void floor_forward(const Tensor* input, Tensor* output);
  */
 void matmul_forward(const Tensor* A, const Tensor* B, Tensor* Y);
 
+/** AZeroPoint/BZeroPoint 可为 NULL，表示使用整数零点 0。 */
 void matmul_integer_forward(const Tensor* A, const Tensor* B,
                             const Tensor* AZeroPoint, const Tensor* BZeroPoint,
                             Tensor* Y);
@@ -570,8 +602,7 @@ void mod_forward(const Tensor* A, const Tensor* B, Tensor* O, int fmod_mode);
 
 void where_forward(const Tensor* Cond, const Tensor* X, const Tensor* Y, Tensor* O);
 
-// ConstantOfShape
-// 根据 shape 张量生成全值张量。value 也是一个单元素张量
+// ConstantOfShape: output 形状已由调用方建立；value 为单元素张量且不可为 NULL。
 void constant_of_shape_forward(Tensor* output, const Tensor* value);
 
 // Range
@@ -582,8 +613,7 @@ void range_forward(const Tensor* start, const Tensor* limit, const Tensor* delta
 // 沿各维度复制
 void tile_forward(const Tensor* input, Tensor* output);
 
-// Pad
-// mode: 0=constant, 1=reflect, 2=edge
+// Pad: mode 0=constant, 1=reflect, 2=edge；constant_value 可为 NULL，此时填充值为 0。
 void pad_forward(const Tensor* data, Tensor* output, const Tensor* pads, const Tensor* constant_value, int mode);
 
 // CenterCropPad
@@ -606,8 +636,7 @@ void argmax_forward(const Tensor* input, Tensor* output, int axis, int select_la
 
 void argmin_forward(const Tensor* input, Tensor* output, int axis, int select_last_index);
 
-// ScatterND
-// reduction: 0=none(assignment), 1=add, 2=mul
+// ScatterND 原地修改 data，不生成独立输出；reduction: 0=assignment, 1=add, 2=mul。
 void scatter_nd_forward(Tensor* data, const Tensor* indices, const Tensor* updates, int reduction);
 
 // TensorScatter
@@ -620,13 +649,11 @@ void gather_nd_forward(const Tensor* data, const Tensor* indices, Tensor* output
 // GatherElements
 void gather_elements_forward(const Tensor* data, const Tensor* indices, Tensor* output, int axis);
 
-// NonZero
-// Output shape: [ndim, num_non_zero]
-// 偷懒，计算在python
+// NonZero: output 必须是精确预分配的 int64 [input.ndim, num_non_zero]。
 void nonzero_forward(const Tensor* input, Tensor* output);
 
-// Resize (Nearest Neighbor)
-// scales: 缩放比例数组 [scale_dim0, scale_dim1, ...]
+// Resize
+// scales 是长度为 input.ndim 的借用数组，输出 shape 已由调用方据此计算。
 // mode: 0=nearest, 1=linear
 // coord_mode: 0=half_pixel, 1=asymmetric, 2=pytorch_half_pixel, 3=tf_half_pixel_for_nn, 4=align_corners, 5=half_pixel_symmetric
 void resize_forward(const Tensor* input, Tensor* output, float* scales, int coord_mode, int mode, int nearest_mode);
@@ -635,8 +662,7 @@ void resize_forward(const Tensor* input, Tensor* output, float* scales, int coor
 // 根据 theta 和 size 生成 2D/3D 规范化采样网格
 void affine_grid_forward(const Tensor* theta, const Tensor* size, Tensor* output, int align_corners);
 
-// TopK
-// sorted: 1=True
+// TopK: values/indices 的形状相同且由调用方预分配；indices 必须为 int64，sorted=1 表示排序。
 void topk_forward(const Tensor* input, Tensor* values, Tensor* indices, int axis, int largest, int sorted, int K);
 
 // CumSum
@@ -653,8 +679,7 @@ void cumprod_forward(const Tensor* input, Tensor* output, int axis, int exclusiv
 // 生成均匀分布 [low, high)
 void random_uniform_like_forward(Tensor* output, float low, float high, float seed);
 
-// Einsum (广义爱因斯坦求和)
-// 这是一个通用求解器，通过 "Loop Strides" 来实现任意维度的缩并
+// Einsum (广义爱因斯坦求和) 使用调用方预编译的循环步长表执行任意维度缩并。
 // iter_dims: 循环的总维度数 (即方程中唯一标签的数量)
 // loop_limits: 每个循环维度的上限 [dim0, dim1, ...]
 // input_strides: 展平后的输入步长表。大小 = num_inputs * iter_dims
@@ -663,7 +688,7 @@ void einsum_forward(const Tensor** inputs, int num_inputs, Tensor* output,
                     int iter_dims, int* loop_limits, 
                     int* input_strides, int* output_strides);
 
-// 太好了可以开始灌水了，下面的都不写注释
+// 以下逐元素激活函数均保持元素数量，output 的 shape/dtype 由调用方预先确定。
 void elu_forward(const Tensor* input, Tensor* output, float alpha);
 void selu_forward(const Tensor* input, Tensor* output, float alpha, float gamma);
 void leaky_relu_forward(const Tensor* input, Tensor* output, float alpha);
@@ -686,7 +711,7 @@ void atanh_forward(const Tensor* input, Tensor* output);
 void bitwise_or_forward(const Tensor* A, const Tensor* B, Tensor* O);
 void bitwise_xor_forward(const Tensor* A, const Tensor* B, Tensor* O);
 void bitwise_not_forward(const Tensor* input, Tensor* output);
-// direction: 0 = LEFT, 1 = RIGHT
+// 位运算要求输入/输出为兼容整数 dtype；direction: 0=LEFT, 1=RIGHT。
 void bit_shift_forward(const Tensor* A, const Tensor* B, Tensor* O, int direction);
 void reduce_l1_forward(const Tensor* input, Tensor* output, ReduceParams* params);
 void reduce_l2_forward(const Tensor* input, Tensor* output, ReduceParams* params);
@@ -704,7 +729,7 @@ void isinf_forward(const Tensor* input, Tensor* output, int detect_pos, int dete
 void one_hot_forward(const Tensor* indices, const Tensor* values, Tensor* output, int axis);
 void triangular_forward(const Tensor* input, Tensor* output, int k, int upper);
 
-// BatchNormalization (Inference)
+// BatchNormalization: 推理入口只写 output；训练入口额外写 running_mean/running_var。
 void batch_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                         const Tensor* mean, const Tensor* var, Tensor* output, float epsilon);
 void batch_norm_training_forward(const Tensor* input, const Tensor* scale, const Tensor* B,
@@ -716,8 +741,8 @@ void batch_norm_training_forward(const Tensor* input, const Tensor* scale, const
 void instance_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                            Tensor* output, float epsilon);
 
-// LayerNormalization
-// axis: 归一化的轴（通常是最后一维 -1）
+// LayerNormalization: axis 之前为外层维，axis 到末维参与归一化；scale/B 可为 NULL。
+// 多输出入口的 mean_output/inv_std_output 为调用方预分配的统计量缓冲区。
 void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* B, 
                         Tensor* output, int axis, float epsilon);
 void layer_norm_multi_output_forward(const Tensor* input, const Tensor* scale, const Tensor* B,
@@ -745,12 +770,12 @@ void hann_window_forward(const Tensor* size_tensor, Tensor* output, int periodic
 void hamming_window_forward(const Tensor* size_tensor, Tensor* output, int periodic);
 void blackman_window_forward(const Tensor* size_tensor, Tensor* output, int periodic);
 
-// 随机生成器
+// 随机生成器只写预分配 output；seed 以数值形式传入，由各实现转换为内部状态。
 void random_normal_forward(Tensor* output, float mean, float scale, float seed);
 void bernoulli_forward(const Tensor* input, Tensor* output, float seed); 
 
-// ratio: 0.0 ~ 1.0 (probability of zeroing)
-// training_mode: 1=True, 0=False.目前只推理模式的逻辑
+// Dropout: ratio 为置零概率；training_mode=0 直接复制，=1 时随机置零并除以 (1-ratio)。
+// 该 C 入口只产生数据输出，不产生 ONNX 的可选 mask 输出。
 void dropout_forward(const Tensor* input, Tensor* output, float ratio, int training_mode);
 
 // Gelu 精确公式：0.5 * x * (1 + erf(x / sqrt(2)))
@@ -782,10 +807,10 @@ void space_to_depth_forward(const Tensor* input, Tensor* output, int blocksize);
 // ReverseSequence
 void reverse_sequence_forward(const Tensor* input, const Tensor* sequence_lens, Tensor* output, int time_axis, int batch_axis);
 
-// Compress
+// Compress: output 必须按 condition 筛选后的精确形状预分配。
 void compress_forward(const Tensor* input, const Tensor* condition, Tensor* output, int axis);
 
-// ScatterElements
+// ScatterElements 原地修改 data；reduction 编码与 ScatterND 相同。
 void scatter_elements_forward(Tensor* data, const Tensor* indices, const Tensor* updates, int axis, int reduction);
 
 // GroupNormalization
@@ -796,7 +821,7 @@ void group_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
 // val > threshold ? 1 : 0
 void binarizer_forward(const Tensor* input, Tensor* output, float threshold);
 
-// DynamicQuantizeLinear
+// DynamicQuantizeLinear 同时写 y、标量 y_scale 和标量 y_zp，三者均由调用方预分配。
 void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale, Tensor* y_zp);
 
 #endif
