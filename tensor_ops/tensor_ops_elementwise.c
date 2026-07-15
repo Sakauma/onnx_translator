@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file        tensor_ops_elementwise.c
   * @author      Egor Izmaylov
-  * @brief       实现逐元素算术和基础激活类 C 后端算子。
+  * @brief       实现逐元素二元算术类 C 后端算子。
   * @details     2026.06.02  V1.0.0  创建
   ******************************************************************************
   * @attention
@@ -10,68 +10,6 @@
 */
 
 #include "tensor_ops_internal.h"
-
-
-/**
- * ReLU激活函数前向传播实现
- * 
- * @param input 输入张量
- * @param output 输出张量
- */
-// 实现 `relu` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
-void relu_forward(const Tensor* input, Tensor* output) {
-    // 检查输入参数是否有效
-    if (!input || !output || !input->data || !output->data || input->size != output->size) {
-        return;
-    }
-    
-    #pragma omp parallel for
-    for (size_t i = 0; i < input->size; i++) {
-        if (IS_INT_TYPE(input->dtype)) {
-            // 整数路径 
-            int64_t val = get_value_as_int64(input, i);
-            int64_t res = val > 0 ? val : 0;
-            set_tensor_value_from_int(output, i, res);
-        } else {
-            // 浮点路径
-            double val = get_value_as_double(input, i);
-            double res = val > 0 ? val : 0.0;
-            set_tensor_value_from_float(output, i, res);
-        }
-    }
-}
-
-
-/**
- * Abs函数前向传播实现
- * 
- * @param input 输入张量
- * @param output 输出张量
- */
-// 实现 `abs` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
-void abs_forward(const Tensor* input, Tensor* output) {
-    // 检查输入参数是否有效
-    if (!input || !output || !input->data || !output->data || input->size != output->size) {
-        return;
-    }
-    
-    #pragma omp parallel for
-    for (size_t i = 0; i < input->size; i++) {
-        if (IS_INT_TYPE(input->dtype)) {
-            // 整数路径
-            int64_t val = get_value_as_int64(input, i);
-            uint64_t res = val < 0 ? (0ULL - (uint64_t)val) : (uint64_t)val;
-            set_integer_value_wrapped(output, i, res);
-        } else {
-            // 浮点路径
-            double val = get_value_as_double(input, i);
-            double res = fabs(val);
-            set_tensor_value_from_float(output, i, res);
-        }
-    }
-}
-
-
 /**
  * Add函数前向传播实现
  * 
@@ -221,29 +159,6 @@ void div_forward(const Tensor* A, const Tensor* B, Tensor* O) {
         }
     }
 }
-
-
-// Exp 实现
-UNARY_OP_IMPL(exp_forward, exp(val))
-
-
-// Log 实现
-// 未需要处理 log(0) 或负数的情况
-UNARY_OP_IMPL(log_forward, log(val))
-
-
-// Sqrt 实现
-UNARY_OP_IMPL(sqrt_forward, sqrt(val))
-
-
-// Sigmoid 实现
-UNARY_OP_IMPL(sigmoid_forward, 1.0 / (1.0 + exp(-val)))
-
-
-// Tanh 实现
-UNARY_OP_IMPL(tanh_forward, tanh(val))
-
-
 // Pow 实现
 // 实现 `pow` 算子的 C 后端入口，校验张量缓冲区并按目标 dtype 写入计算结果。
 void pow_forward(const Tensor* A, const Tensor* B, Tensor* O) {
@@ -314,15 +229,3 @@ void min_forward(const Tensor* A, const Tensor* B, Tensor* O) {
         }
     }
 }
-
-
-// Reciprocal
-UNARY_OP_IMPL(reciprocal_forward, 1.0 / val)
-
-
-// Ceil
-UNARY_OP_IMPL(ceil_forward, ceil(val))
-
-
-// Floor
-UNARY_OP_IMPL(floor_forward, floor(val))

@@ -116,7 +116,7 @@ REQUIRED_FILES = [
 ]
 
 REQUIRED_MANYLINUX_PYTHON_TAGS = {"cp310", "cp311", "cp312"}
-C_BACKEND_MAX_SHARD_LINES = 350
+C_BACKEND_MAX_SHARD_LINES = 325
 REQUIRED_TREND_WINDOW_IDS = {
     "cuda_full",
     "fixed_runner_performance",

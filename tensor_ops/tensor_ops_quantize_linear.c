@@ -113,7 +113,7 @@ static int quantize_linear_output_is_float_dtype(DataType dtype) {
 // 实现 `quantize linear` 的共享计算逻辑，支持默认精度和显式 precision/saturate 属性。
 static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, const Tensor* ZeroPoint, Tensor* Y, int precision, int saturate) {
     if (!X || !Scale || !ZeroPoint || !Y) return;
-    
+
     size_t loop_size = Y->size;
     int use_double_precision = quantize_linear_use_double_precision(X, Scale, precision);
     int output_is_float_dtype = quantize_linear_output_is_float_dtype(Y->dtype);
@@ -121,8 +121,8 @@ static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, c
     #pragma omp parallel for
     for (size_t i = 0; i < loop_size; i++) {
         double zp_val = get_value_as_double(ZeroPoint, i);
-        
-        double res = zp_val; 
+
+        double res = zp_val;
         if (use_double_precision) {
             double x_val = get_value_as_double(X, i);
             double s_val = get_value_as_double(Scale, i);
@@ -174,9 +174,9 @@ void dequantize_linear_forward(const Tensor* X, const Tensor* Scale, const Tenso
         double x_val = get_value_as_double(X, i);
         double s_val = get_value_as_double(Scale, i);
         double zp_val = get_value_as_double(ZeroPoint, i);
-    
+
         double res = (x_val - zp_val) * s_val;
-        
+
         set_tensor_value_from_float(Y, i, res);
     }
 }
