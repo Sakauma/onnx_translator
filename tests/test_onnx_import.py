@@ -71,8 +71,12 @@ def test_import_dispatches_by_canonical_domain_and_never_falls_back(tmp_path):
 
     assert isinstance(ONNXImport(str(default_path), strict=True)[0], ADD)
     assert isinstance(ONNXImport(str(alias_path), strict=True)[0], ADD)
-    with pytest.raises(RuntimeError, match=r"com\.example.*Add.*opset=1"):
+    with pytest.raises(RuntimeError) as exc_info:
         ONNXImport(str(custom_path), strict=True)
+    message = str(exc_info.value)
+    assert "domain=com.example" in message
+    assert "Add" in message
+    assert "opset=1" in message
 
     generic = ONNXImport(str(custom_path), strict=False)[0]
     assert isinstance(generic, GenericNode)
