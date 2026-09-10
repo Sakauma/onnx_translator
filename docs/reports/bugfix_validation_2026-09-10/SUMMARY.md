@@ -16,8 +16,7 @@
 | --- | --- | --- |
 | `tools/verify_all.py --skip-cuda --keep-artifacts` | RC 0；437 passed，10 skipped；strict coverage、代表模型、图模型和导出模型全部通过 | [final_verify_all_skip_cuda_retry.log](final_verify_all_skip_cuda_retry.log) |
 | 全量 `compile-cuda --force` | RC 0；compiled=178，skipped=0 | [final_compile_cuda_all.log](final_compile_cuda_all.log) |
-| fresh CUDA protocol + runner tests | RC 0；33 passed，0 skipped | [cuda_runner_protocol_retry.log](cuda_runner_protocol_retry.log) |
-| 全量编译后的 fresh CUDA protocol + runner tests | RC 0；33 passed，0 skipped | [cuda_runner_protocol_retry.log](cuda_runner_protocol_retry.log) |
+| 全量编译后的 fresh CUDA protocol + runner tests | RC 0；34 passed，0 skipped | [final_cuda_protocol.log](final_cuda_protocol.log) |
 | 原生 `numerical --iterations 3 --skip-plots` | RC 0；723/723 个 live plan 通过，2169/2169 次迭代通过，失败标记 0；最后触达 LSTM | [final_numerical_full.log](final_numerical_full.log) |
 
 CPU 门禁的 10 个 skip 中，9 个来自 `--skip-cuda` 流程清理 `cache/` 后 CUDA protocol 测试找不到可执行文件，另 1 个是既有的 ONNX17 Celu float16 兼容性 skip。178 个 verifier 重新编译后，CUDA protocol 测试无 skip。
