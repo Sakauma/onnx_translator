@@ -164,15 +164,59 @@ def test_reduce_log_sum_exp_gpu_nonfinite_and_stable_semantics(
         np.testing.assert_allclose(result, expected, rtol=1e-6, atol=1e-6)
 
 
-def test_unique_source_checks_all_four_outputs_and_launch():
-    source = (ROOT / "cuda" / "verify_unique.cu").read_text(encoding="utf-8")
-    assert '#include "verify_common.cuh"' in source
-    assert "CUDA_CHECK_LAUNCH();" in source
-    assert 'verify_write_file(output_path' in source
-    for sidecar in (
-        "tmp_unique_indices.bin",
-        "tmp_unique_inverse.bin",
-        "tmp_unique_counts.bin",
+def _run_unique(tmp_path, source, sorted_output=1):
+    executable = _executable("unique")
+    input_path = tmp_path / "input.bin"
+    params_path = tmp_path / "params.bin"
+    output_path = tmp_path / "values.bin"
+    np.ascontiguousarray(source).tofile(input_path)
+    type_code = 1 if source.dtype == np.int64 else 0
+    params_path.write_bytes(struct.pack("iii", type_code, sorted_output, source.size))
+    completed = subprocess.run(
+        [str(executable), str(source.size), str(input_path), str(params_path), str(output_path)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    return completed, output_path
+
+
+def test_unique_gpu_writes_four_exact_outputs(tmp_path):
+    source = np.array([2.0, -1.0, 2.0, 0.5, -1.0, 3.0, 0.5], dtype=np.float32)
+    expected_values, expected_indices, expected_inverse, expected_counts = np.unique(
+        source, return_index=True, return_inverse=True, return_counts=True
+    )
+    completed, output_path = _run_unique(tmp_path, source)
+    if completed.returncode != 0 and (
+        "no CUDA-capable device" in completed.stderr
+        or "CUDA driver version is insufficient" in completed.stderr
+        or "initialization error" in completed.stderr
     ):
-        assert f'verify_write_file(path' in source
-        assert sidecar in source
+        pytest.skip(completed.stderr)
+    assert completed.returncode == 0, completed.stderr
+    np.testing.assert_array_equal(np.fromfile(output_path, dtype=np.float32), expected_values)
+    np.testing.assert_array_equal(
+        np.fromfile(tmp_path / "tmp_unique_indices.bin", dtype=np.int64), expected_indices
+    )
+    np.testing.assert_array_equal(
+        np.fromfile(tmp_path / "tmp_unique_inverse.bin", dtype=np.int64), expected_inverse
+    )
+    np.testing.assert_array_equal(
+        np.fromfile(tmp_path / "tmp_unique_counts.bin", dtype=np.int64), expected_counts
+    )
+
+
+def test_unique_sidecar_write_failure_is_nonzero_and_names_path(tmp_path):
+    blocked = tmp_path / "tmp_unique_counts.bin"
+    blocked.mkdir()
+    completed, _ = _run_unique(tmp_path, np.array([3, 1, 3, 2], dtype=np.int64))
+    if completed.returncode != 0 and (
+        "no CUDA-capable device" in completed.stderr
+        or "CUDA driver version is insufficient" in completed.stderr
+        or "initialization error" in completed.stderr
+    ):
+        pytest.skip(completed.stderr)
+    assert completed.returncode != 0
+    assert "tmp_unique_counts.bin" in completed.stderr
