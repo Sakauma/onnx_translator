@@ -298,6 +298,37 @@ def test_c_backend_dynamic_quantize_linear_outputs_match_onnx_reference():
         _assert_tensor_matches(actual_tensor, expected_value, rtol=1e-7, atol=1e-7)
 
 
+# 精确半点必须按 nearest-even 计算 zero point；同时用调用计数证明走到真实 C 入口。
+def test_c_backend_dynamic_quantize_linear_halfway_zero_point_uses_ties_to_even(monkeypatch):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    op = DynamicQuantizeLinear(["x"], ["y", "scale", "zero_point"])
+    c_forward = op.lib.dynamic_quantize_linear_forward
+    calls = []
+
+    def counted_c_forward(*args):
+        calls.append(True)
+        return c_forward(*args)
+
+    monkeypatch.setattr(op.lib, "dynamic_quantize_linear_forward", counted_c_forward)
+    x = np.array([-253.0, 257.0, 0.0], dtype=np.float32)
+    y, scale, zero_point = op.forward(_tensor(x, "float32"))["tensor"]
+
+    assert calls == [True]
+    assert y.dtype == "uint8"
+    assert y.data.dtype == np.uint8
+    assert y.data.shape == (3,)
+    np.testing.assert_array_equal(y.data, np.array([0, 254, 126], dtype=np.uint8))
+    assert scale.dtype == "float32"
+    assert scale.data.shape == ()
+    np.testing.assert_array_equal(scale.data, np.array(2.0, dtype=np.float32))
+    assert zero_point.dtype == "uint8"
+    assert zero_point.data.dtype == np.uint8
+    assert zero_point.data.shape == ()
+    np.testing.assert_array_equal(zero_point.data, np.array(126, dtype=np.uint8))
+
+
 # 验证 Cast/CastLike 的 bfloat16 位存储和无符号整型 fallback 行为。
 def test_cast_ops_cover_bfloat16_bit_storage_and_unsigned_dtypes():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):

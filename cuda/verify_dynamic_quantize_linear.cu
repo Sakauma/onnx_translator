@@ -132,7 +132,8 @@ int main(int argc, char** argv) {
     if (params.scale == 0.0f) {
         params.scale = 1.0f;
     }
-    float zp = roundf(0.0f - min_val / params.scale);
+    // ONNX uses round-to-nearest, ties-to-even for the zero point.
+    float zp = nearbyintf(0.0f - min_val / params.scale);
     zp = fminf(255.0f, fmaxf(0.0f, zp));
     params.zero_point = zp;
 

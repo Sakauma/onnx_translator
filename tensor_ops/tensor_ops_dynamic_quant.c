@@ -35,7 +35,8 @@ void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale
 
     double zp_double = 0.0 - min_val / scale;
     // Saturate ZP to [0, 255]
-    zp_double = round(zp_double);
+    // ONNX uses round-to-nearest, ties-to-even for the zero point.
+    zp_double = nearbyint(zp_double);
     if (zp_double < 0.0) zp_double = 0.0;
     if (zp_double > 255.0) zp_double = 255.0;
     uint8_t zp = (uint8_t)zp_double;
