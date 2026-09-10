@@ -6,9 +6,9 @@
 - 已验证源码 HEAD：`4ba7f76e5608419e0b6df4cd77b2f21d48d03916`
 - 分支：`codex/bugfix-audit-20260910`
 - 隔离工作区：`/mnt/d/workspace/onnx_translator_bugfix_worktree`
-- WSL：`ubuntu2004`；Python `3.12.12`；NumPy `2.4.6`；ONNX `1.21.0`；GCC `9.4.0`；CUDA 编译器 CUDA `12.4`。
+- WSL：`ubuntu2004`；Python `/home/sakauma/data/miniconda3/envs/egor/bin/python`（`3.12.12`）；NumPy `2.4.6`；ONNX `1.21.0`；Torch `2.12.0+cpu`；GCC `9.4.0`；CUDA 编译器 CUDA `12.4`；GPU `NVIDIA GeForce RTX 4060 Laptop GPU`；驱动 `610.88`。
 
-所有构建和动态测试均在隔离工作区运行。主仓库在验收期间保持基线 HEAD，原有三组未跟踪审计材料完整保留。
+所有构建和动态测试均在隔离工作区运行。主仓库在验收期间保持基线 HEAD，原有三组未跟踪审计材料完整保留。主目录保留原有生成物；后续若要在主目录运行修复后的源码，应按 `AGENTS.md` 先执行 `make` 和 `python tools/cli.py compile-cuda` 重建对应产物。
 
 ## 最终门禁
 
