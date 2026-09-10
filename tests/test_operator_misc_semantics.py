@@ -344,6 +344,13 @@ def test_c_backend_dynamic_quantize_linear_uses_published_float32_scale(monkeypa
         assert actual_tensor.data.shape == np.asarray(oracle_value).shape
         np.testing.assert_array_equal(actual_tensor.data, oracle_value)
 
+    zero_input = np.zeros(4, dtype=np.float32)
+    zero_y, zero_scale, zero_point = op.forward(_tensor(zero_input, "float32"))["tensor"]
+    assert calls == [True, True]
+    np.testing.assert_array_equal(zero_y.data, np.zeros(4, dtype=np.uint8))
+    np.testing.assert_array_equal(zero_scale.data, np.array(1.0, dtype=np.float32))
+    np.testing.assert_array_equal(zero_point.data, np.array(0, dtype=np.uint8))
+
 
 # 精确半点必须按 nearest-even 计算 zero point；同时用调用计数证明走到真实 C 入口。
 def test_c_backend_dynamic_quantize_linear_halfway_zero_point_uses_ties_to_even(monkeypatch):
