@@ -18,12 +18,13 @@ import numpy as np
 import nn
 
 from .compare import check_accuracy
-from .cuda import run_cuda_ground_truth
+from .cuda import artifact_path, cleanup_cuda_artifacts, run_cuda_ground_truth
 from .dtype import quantize_to_dtype_float32, to_float32
 
 
 def _read_sidecar(path, dtype, shape, op_name):
     """Read one verifier sidecar and reject missing or malformed payloads."""
+    path = artifact_path(path)
     expected_bytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
     if not os.path.exists(path):
         raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {path}")
@@ -110,9 +111,9 @@ def handle_special_output(state):
     if op_name in {"rnn", "gru", "lstm"}:
         recurrent_outputs = [np.asarray(out) for out in nps_out]
         y_np = recurrent_outputs[0]
-        side_specs = [("Y_h", recurrent_outputs[1], f"tmp_{op_name}_y_h.bin")]
+        side_specs = [("Y_h", recurrent_outputs[1], artifact_path(f"tmp_{op_name}_y_h.bin"))]
         if op_name == "lstm":
-            side_specs.append(("Y_c", recurrent_outputs[2], "tmp_lstm_y_c.bin"))
+            side_specs.append(("Y_c", recurrent_outputs[2], artifact_path("tmp_lstm_y_c.bin")))
 
         cuda_inputs = [
             np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float64)),
@@ -199,7 +200,7 @@ def handle_special_output(state):
         if cuda_y is None:
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
-        mask_path = "tmp_dropout_mask.bin"
+        mask_path = artifact_path("tmp_dropout_mask.bin")
         if not os.path.exists(mask_path):
             raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {mask_path}")
         cuda_mask = _read_sidecar(mask_path, np.uint8, mask_np.shape, op_name).astype(np.bool_)
@@ -240,8 +241,8 @@ def handle_special_output(state):
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         side_paths = {
-            "running_mean": "tmp_batch_norm_running_mean.bin",
-            "running_var": "tmp_batch_norm_running_var.bin",
+            "running_mean": artifact_path("tmp_batch_norm_running_mean.bin"),
+            "running_var": artifact_path("tmp_batch_norm_running_var.bin"),
         }
         if not all(os.path.exists(path) for path in side_paths.values()):
             missing = [path for path in side_paths.values() if not os.path.exists(path)]
@@ -308,8 +309,8 @@ def handle_special_output(state):
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         side_paths = {
-            "mean": "tmp_layer_norm_mean.bin",
-            "inv_std": "tmp_layer_norm_inv_std.bin",
+            "mean": artifact_path("tmp_layer_norm_mean.bin"),
+            "inv_std": artifact_path("tmp_layer_norm_inv_std.bin"),
         }
         if not all(os.path.exists(path) for path in side_paths.values()):
             missing = [path for path in side_paths.values() if not os.path.exists(path)]
@@ -392,7 +393,7 @@ def handle_special_output(state):
         log_abs = 0.0
         log_rel = 0.0
         if log_prob_np is not None:
-            log_path = "tmp_out_log_prob.bin"
+            log_path = artifact_path("tmp_out_log_prob.bin")
             if not os.path.exists(log_path):
                 raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {log_path}")
             cuda_log = _read_sidecar(log_path, np.float64, log_prob_np.shape, op_name)
@@ -538,9 +539,9 @@ def handle_special_output(state):
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         side_paths = {
-            "indices": "tmp_unique_indices.bin",
-            "inverse": "tmp_unique_inverse.bin",
-            "counts": "tmp_unique_counts.bin",
+            "indices": artifact_path("tmp_unique_indices.bin"),
+            "inverse": artifact_path("tmp_unique_inverse.bin"),
+            "counts": artifact_path("tmp_unique_counts.bin"),
         }
         if not all(os.path.exists(path) for path in side_paths.values()):
             missing = [path for path in side_paths.values() if not os.path.exists(path)]

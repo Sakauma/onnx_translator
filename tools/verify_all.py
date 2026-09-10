@@ -170,7 +170,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Compile CUDA verifiers but skip numerical correctness checks.",
     )
-    parser.add_argument("--iterations", type=int, default=20, help="Iterations per numerical test plan.")
+    def positive_iterations(value):
+        parsed = int(value)
+        if parsed <= 0:
+            raise argparse.ArgumentTypeError("iterations must be a positive integer")
+        return parsed
+
+    parser.add_argument("--iterations", type=positive_iterations, default=20, help="Iterations per numerical test plan.")
     parser.add_argument("--op", action="append", help="Limit numerical checks to a named op. Can be repeated.")
     parser.add_argument(
         "--force-cuda-compile",

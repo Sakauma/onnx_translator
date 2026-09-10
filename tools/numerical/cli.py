@@ -834,7 +834,13 @@ def build_default_plans():
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Run C backend vs CUDA reference numerical checks.")
-    parser.add_argument("--iterations", type=int, default=20, help="Iterations per test plan.")
+    def positive_iterations(value):
+        parsed = int(value)
+        if parsed <= 0:
+            raise argparse.ArgumentTypeError("iterations must be a positive integer")
+        return parsed
+
+    parser.add_argument("--iterations", type=positive_iterations, default=20, help="Iterations per test plan.")
     parser.add_argument("--op", action="append", help="Run only the named op. Can be repeated.")
     parser.add_argument("--cuda-dir", default=CUDA_VERIFY_DIR, help="Directory containing verify_* CUDA executables.")
     parser.add_argument("--skip-plots", action="store_true", help="Skip matplotlib histogram generation.")

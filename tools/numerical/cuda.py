@@ -11,11 +11,27 @@
 
 import os
 import subprocess
+import tempfile
+import threading
+import shutil
 
 import numpy as np
 
 
 CUDA_VERIFY_DIR = os.environ.get("CUDA_VERIFY_DIR", "cache")
+_artifact_state = threading.local()
+
+
+def artifact_path(name):
+    directory = getattr(_artifact_state, "directory", None)
+    return os.path.join(directory, name) if directory else name
+
+
+def cleanup_cuda_artifacts():
+    directory = getattr(_artifact_state, "directory", None)
+    if directory:
+        shutil.rmtree(directory, ignore_errors=True)
+        _artifact_state.directory = None
 
 
 class CudaVerifierError(RuntimeError):
@@ -49,27 +65,30 @@ def _write_params_input(op_name, path, params_binary):
 
 
 def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=np.float32, target_shape=None):
-    exe = os.path.join(CUDA_VERIFY_DIR, f"verify_{op_name}")
+    exe = os.path.abspath(os.path.join(CUDA_VERIFY_DIR, f"verify_{op_name}"))
     if not os.path.exists(exe):
         raise CudaVerifierError(op_name, f"missing executable: {exe}")
         
     cuda_inputs = list(inputs_f32) # Copy list
+    cleanup_cuda_artifacts()
+    artifact_dir = tempfile.mkdtemp(prefix="onnx-translator-cuda-")
+    _artifact_state.directory = artifact_dir
 
     files = []
     for i, arr in enumerate(cuda_inputs):
         if arr is None:
             files.append("null")
             continue
-        fname = f"tmp_in_{i}.bin"
+        fname = artifact_path(f"tmp_in_{i}.bin")
         _write_array_input(op_name, fname, arr)
         files.append(fname)
     
     if params_binary is not None:
-        p_fname = "tmp_params.bin"
+        p_fname = artifact_path("tmp_params.bin")
         _write_params_input(op_name, p_fname, params_binary)
         files.append(p_fname)
 
-    out_fname = "tmp_out.bin"
+    out_fname = artifact_path("tmp_out.bin")
     
     try:
         # args = [exe, str(cuda_inputs[0].size)] + files + [out_fname]
@@ -93,6 +112,7 @@ def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
+            cwd=artifact_dir,
         )
         if completed.returncode != 0:
             raise CudaVerifierError(

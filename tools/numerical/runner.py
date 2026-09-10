@@ -17,7 +17,7 @@ import numpy as np
 from nn import Tensor
 
 from .compare import check_accuracy
-from .cuda import run_cuda_ground_truth
+from .cuda import artifact_path, cleanup_cuda_artifacts, run_cuda_ground_truth
 from .dtype import quantize_to_dtype_float32, to_float32
 from .runner_config import resolve_verification_config
 from .runner_cuda_inputs import build_cuda_inputs, resolve_cuda_output_dtype
@@ -28,6 +28,7 @@ from .runner_special_outputs import (
     SpecialOutputAction,
     SpecialOutputState,
     handle_special_output,
+    cleanup_cuda_artifacts,
 )
 
 
@@ -41,6 +42,8 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
     多输出算子会委托给 ``handle_special_output``，普通单输出算子继续走本函数
     的统一转换和比较路径。任何一轮失败都会停止当前计划，避免后续样本掩盖首个错误。
     """
+    if not isinstance(iterations, (int, np.integer)) or iterations <= 0:
+        raise ValueError("iterations must be a positive integer")
     init_args = init_args or {}
     print(f"🧪 Testing {op_name.upper()}: {dtypes} -> {out_dtype}")
 
@@ -89,7 +92,11 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             stats_abs=stats_abs,
             stats_rel=stats_rel,
         )
-        special_action = handle_special_output(special_state)
+        try:
+            special_action = handle_special_output(special_state)
+        finally:
+            if op_name != "topk":
+                cleanup_cuda_artifacts()
         pass_cnt = special_state.pass_count
         if special_action is SpecialOutputAction.STOP:
             break
@@ -111,21 +118,26 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         )
         out_np_dtype = resolve_cuda_output_dtype(op_name, out_dtype, verification_config)
 
-        cuda_out = run_cuda_ground_truth(
-        op_name,
-        cuda_inputs,
-        params_binary=params_bin,
-        output_dtype=out_np_dtype,
-        target_shape=expected_shape
-        )
+        try:
+            cuda_out = run_cuda_ground_truth(
+                op_name,
+                cuda_inputs,
+                params_binary=params_bin,
+                output_dtype=out_np_dtype,
+                target_shape=expected_shape,
+            )
+        finally:
+            if op_name != "topk":
+                cleanup_cuda_artifacts()
 
         if cuda_out is None:
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         # TopK 的 values 走主输出文件，indices 由 verifier 写入独立 sidecar。
         if op_name == "topk":
-            idx_path = "tmp_out_idx.bin"
+            idx_path = artifact_path("tmp_out_idx.bin")
             if not os.path.exists(idx_path):
+                cleanup_cuda_artifacts()
                 raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {idx_path}")
 
             expected_bytes = int(np.prod(expected_shape)) * np.dtype(np.int64).itemsize
@@ -140,6 +152,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             finally:
                 if os.path.exists(idx_path):
                     os.remove(idx_path)
+                cleanup_cuda_artifacts()
 
             nps_vals = to_float32(nps_out, out_dtype)
             ok_vals, max_abs, max_rel, fail_mask = check_accuracy(nps_vals, cuda_out, atol, rtol, out_dtype)
@@ -177,14 +190,33 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             max_rel = 0.0 if is_ok else -1.0
             fail_mask = None if is_ok else (nps_raw != cuda_raw)
             nps_f32 = np.asarray(nps_out).reshape(expected_shape)
-        elif out_dtype in {"int32", "int64"}:
-            int_dtype = np.int32 if out_dtype == "int32" else np.int64
-            nps_int = np.asarray(nps_out).astype(int_dtype)
-            cuda_int = np.asarray(cuda_out).astype(int_dtype)
-            is_ok = np.array_equal(nps_int, cuda_int)
-            max_abs = 0.0 if is_ok else -1.0
-            max_rel = 0.0 if is_ok else -1.0
-            fail_mask = None if is_ok else (nps_int != cuda_int)
+        elif out_dtype in {"int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"}:
+            int_dtype = np.dtype(out_dtype)
+            nps_int = np.asarray(nps_out, dtype=int_dtype)
+            cuda_raw = np.asarray(cuda_out)
+            cuda_int = np.zeros(cuda_raw.shape, dtype=int_dtype)
+            if not np.all(np.isfinite(cuda_raw)) or not np.all(cuda_raw == np.floor(cuda_raw)):
+                is_ok = False
+                max_abs = -1.0
+                max_rel = -1.0
+                fail_mask = np.ones(cuda_raw.shape, dtype=bool)
+                nps_f32 = nps_int.astype(np.float32)
+                cuda_int = np.zeros(cuda_raw.shape, dtype=int_dtype)
+            else:
+                info = np.iinfo(int_dtype)
+                in_range = np.all((cuda_raw >= info.min) & (cuda_raw <= info.max))
+                if not in_range:
+                    is_ok = False
+                    max_abs = -1.0
+                    max_rel = -1.0
+                    fail_mask = np.ones(cuda_raw.shape, dtype=bool)
+                    cuda_int = np.zeros(cuda_raw.shape, dtype=int_dtype)
+                else:
+                    cuda_int = cuda_raw.astype(int_dtype)
+                    is_ok = np.array_equal(nps_int, cuda_int)
+                    max_abs = 0.0 if is_ok else -1.0
+                    max_rel = 0.0 if is_ok else -1.0
+                    fail_mask = None if is_ok else (nps_int != cuda_int)
             nps_f32 = nps_int.astype(np.float32)
         else:
             nps_f32 = to_float32(nps_out, out_dtype)
