@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <vector>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 // 实现 `nonzero_kernel_deterministic` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void nonzero_kernel_deterministic(
@@ -67,22 +68,22 @@ int main(int argc, char** argv) {
     int32_t rank = 0;
     if (fread(&rank, sizeof(int32_t), 1, fp) != 1) {
         fprintf(stderr, "read rank failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
     if (rank <= 0 || rank > 8) {
         fprintf(stderr, "unsupported rank=%d\n", rank);
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
 
     std::vector<int32_t> h_dims(rank);
     if (fread(h_dims.data(), sizeof(int32_t), rank, fp) != (size_t)rank) {
         fprintf(stderr, "read dims failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     int total = 1;
     for (int i = 0; i < rank; ++i) total *= h_dims[i];
@@ -101,30 +102,31 @@ int main(int argc, char** argv) {
     }
     if (fread(h_x.data(), sizeof(float), total, fx) != (size_t)total) {
         fprintf(stderr, "read x failed\n");
-        fclose(fx);
+        verify_close_file(fx);
         return 1;
     }
-    fclose(fx);
+    verify_close_file(fx);
 
     float* d_x = NULL;
     int64_t* d_out = NULL;
     int32_t* d_dims = NULL;
 
-    cudaMalloc(&d_x, total * sizeof(float));
-    cudaMalloc(&d_out, out_len * sizeof(int64_t));
-    cudaMalloc(&d_dims, rank * sizeof(int32_t));
+    CUDA_CHECK(cudaMalloc(&d_x, total * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_out, out_len * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_dims, rank * sizeof(int32_t)));
 
-    cudaMemcpy(d_x, h_x.data(), total * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_dims, h_dims.data(), rank * sizeof(int32_t), cudaMemcpyHostToDevice);
-    cudaMemset(d_out, 0, out_len * sizeof(int64_t));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x.data(), total * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_dims, h_dims.data(), rank * sizeof(int32_t), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_out, 0, out_len * sizeof(int64_t)));
 
     int threads = 256;
     int blocks = (total + threads - 1) / threads;
     nonzero_kernel_deterministic<<<blocks, threads>>>(d_x, d_out, d_dims, rank, total, nz_count);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     std::vector<int64_t> h_out(out_len);
-    cudaMemcpy(h_out.data(), d_out, out_len * sizeof(int64_t), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, out_len * sizeof(int64_t), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -133,13 +135,13 @@ int main(int argc, char** argv) {
     }
     if (fwrite(h_out.data(), sizeof(int64_t), out_len, fo) != out_len) {
         fprintf(stderr, "write out failed\n");
-        fclose(fo);
+        verify_close_file(fo);
         return 1;
     }
-    fclose(fo);
+    verify_close_file(fo);
 
-    cudaFree(d_x);
-    cudaFree(d_out);
-    cudaFree(d_dims);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_out));
+    CUDA_CHECK(cudaFree(d_dims));
     return 0;
 }

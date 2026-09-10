@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,25 +78,25 @@ static int read_params(const char* path, SplitParams* params) {
 
     int32_t header[3];
     if (fread(header, sizeof(int32_t), 3, fp) != 3) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     params->rank = header[0];
     params->axis = header[1];
     params->num_outputs = header[2];
     if (params->rank <= 0 || params->rank > MAX_RANK || params->num_outputs <= 0 || params->num_outputs > MAX_OUTPUTS) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     if (fread(params->dims, sizeof(int32_t), params->rank, fp) != (size_t)params->rank) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     if (fread(params->split_sizes, sizeof(int32_t), params->num_outputs, fp) != (size_t)params->num_outputs) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     int64_t offset = 0;
     for (int i = 0; i < params->num_outputs; ++i) {
@@ -118,7 +119,7 @@ static int read_f32_file(const char* path, float* data, size_t n) {
         return 0;
     }
     size_t got = fread(data, sizeof(float), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return got == n;
 }
 
@@ -129,7 +130,7 @@ static int write_f32_file(const char* path, const float* data, size_t n) {
         return 0;
     }
     size_t wrote = fwrite(data, sizeof(float), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 
@@ -152,18 +153,19 @@ int main(int argc, char** argv) {
 
     float* d_x = NULL;
     float* d_out = NULL;
-    cudaMalloc(&d_x, (size_t)input_len * sizeof(float));
-    cudaMalloc(&d_out, out_len * sizeof(float));
-    cudaMemcpy(d_x, h_x, (size_t)input_len * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_x, (size_t)input_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_out, out_len * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, (size_t)input_len * sizeof(float), cudaMemcpyHostToDevice));
 
     split_kernel<<<(out_len + 255) / 256, 256>>>(d_x, d_out, params, out_len);
-    cudaMemcpy(h_out, d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     int ok = write_f32_file(argv[5], h_out, out_len);
 
     free(h_x);
     free(h_out);
-    cudaFree(d_x);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_out));
     return ok ? 0 : 1;
 }

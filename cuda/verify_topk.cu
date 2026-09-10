@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <float.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct TopKParams {
     int32_t M;
@@ -92,10 +93,10 @@ int main(int argc, char** argv) {
     }
     if (fread(&p, sizeof(TopKParams), 1, fp) != 1) {
         fprintf(stderr, "read params failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     if (p.axis != 1 || p.largest != 1 || p.sorted_flag != 1) {
         fprintf(stderr, "This verifier only supports axis=1, largest=1, sorted=1.\n");
@@ -120,10 +121,10 @@ int main(int argc, char** argv) {
     }
     if (fread(&h_k_input, sizeof(int64_t), 1, fk) != 1) {
         fprintf(stderr, "read k input failed\n");
-        fclose(fk);
+        verify_close_file(fk);
         return 1;
     }
-    fclose(fk);
+    verify_close_file(fk);
 
     if ((int)h_k_input != p.k) {
         fprintf(stderr, "k mismatch between input and params\n");
@@ -146,28 +147,29 @@ int main(int argc, char** argv) {
     }
     if (fread(h_data, sizeof(float), data_len, fd) != data_len) {
         fprintf(stderr, "read data failed\n");
-        fclose(fd);
+        verify_close_file(fd);
         return 1;
     }
-    fclose(fd);
+    verify_close_file(fd);
 
     float* d_data = NULL;
     float* d_vals = NULL;
     int64_t* d_idx = NULL;
 
-    cudaMalloc(&d_data, data_len * sizeof(float));
-    cudaMalloc(&d_vals, out_len * sizeof(float));
-    cudaMalloc(&d_idx, out_len * sizeof(int64_t));
+    CUDA_CHECK(cudaMalloc(&d_data, data_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_vals, out_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_idx, out_len * sizeof(int64_t)));
 
-    cudaMemcpy(d_data, h_data, data_len * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_data, h_data, data_len * sizeof(float), cudaMemcpyHostToDevice));
 
     int threads = 128;
     int blocks = (p.M + threads - 1) / threads;
     topk_axis1_2d_kernel<<<blocks, threads>>>(d_data, d_vals, d_idx, p.M, p.N, p.k);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_vals, d_vals, out_len * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_idx, d_idx, out_len * sizeof(int64_t), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_vals, d_vals, out_len * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_idx, d_idx, out_len * sizeof(int64_t), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -176,10 +178,10 @@ int main(int argc, char** argv) {
     }
     if (fwrite(h_vals, sizeof(float), out_len, fo) != out_len) {
         fprintf(stderr, "write values failed\n");
-        fclose(fo);
+        verify_close_file(fo);
         return 1;
     }
-    fclose(fo);
+    verify_close_file(fo);
 
     FILE* fi = fopen("tmp_out_idx.bin", "wb");
     if (!fi) {
@@ -188,14 +190,14 @@ int main(int argc, char** argv) {
     }
     if (fwrite(h_idx, sizeof(int64_t), out_len, fi) != out_len) {
         fprintf(stderr, "write indices failed\n");
-        fclose(fi);
+        verify_close_file(fi);
         return 1;
     }
-    fclose(fi);
+    verify_close_file(fi);
 
-    cudaFree(d_data);
-    cudaFree(d_vals);
-    cudaFree(d_idx);
+    CUDA_CHECK(cudaFree(d_data));
+    CUDA_CHECK(cudaFree(d_vals));
+    CUDA_CHECK(cudaFree(d_idx));
     free(h_data);
     free(h_vals);
     free(h_idx);

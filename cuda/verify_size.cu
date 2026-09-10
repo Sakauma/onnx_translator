@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,11 +28,11 @@ static int read_size_param(const char* params_path, int64_t* input_size) {
         return 0;
     }
     if (fread(input_size, sizeof(int64_t), 1, fp) != 1) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "read params failed\n");
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
     return *input_size >= 0;
 }
 
@@ -58,10 +59,11 @@ int main(int argc, char** argv) {
 
     int64_t h_output = 0;
     int64_t* d_output = NULL;
-    cudaMalloc(&d_output, sizeof(int64_t));
+    CUDA_CHECK(cudaMalloc(&d_output, sizeof(int64_t)));
     size_kernel<<<1, 1>>>(d_output, input_size);
-    cudaDeviceSynchronize();
-    cudaMemcpy(&h_output, d_output, sizeof(int64_t), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_output, sizeof(int64_t), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -69,12 +71,12 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t wo = fwrite(&h_output, sizeof(int64_t), 1, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wo != 1) {
         fprintf(stderr, "write output failed\n");
         return 1;
     }
 
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_output));
     return 0;
 }

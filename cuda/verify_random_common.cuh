@@ -1,3 +1,4 @@
+#include "verify_common.cuh"
 /**
   ******************************************************************************
   * @file        verify_random_common.cuh

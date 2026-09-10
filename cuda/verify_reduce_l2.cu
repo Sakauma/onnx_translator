@@ -14,6 +14,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 typedef struct { int64_t in_len; } ReduceAllParams;
 
@@ -39,7 +40,7 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(argv[3], "rb");
     if (!fp) return 1;
     size_t pr = fread(&p, sizeof(ReduceAllParams), 1, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (pr != 1 || p.in_len <= 0) return 1;
 
     size_t in_len = (size_t)p.in_len;
@@ -51,25 +52,26 @@ int main(int argc, char** argv) {
     FILE* fi = fopen(argv[2], "rb");
     if (!fi) return 1;
     size_t r = fread(h_in, sizeof(float), in_len, fi);
-    fclose(fi);
+    verify_close_file(fi);
     if (r != in_len) return 1;
 
     float *d_in = NULL, *d_out = NULL;
-    cudaMalloc(&d_in, in_bytes);
-    cudaMalloc(&d_out, sizeof(float));
-    cudaMemcpy(d_in, h_in, in_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_in, in_bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_in, h_in, in_bytes, cudaMemcpyHostToDevice));
     reduce_l2_kernel<<<1, 1>>>(d_in, d_out, p.in_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(&h_out, d_out, sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_out, d_out, sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(argv[4], "wb");
     if (!fo) return 1;
     size_t w = fwrite(&h_out, sizeof(float), 1, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (w != 1) return 1;
 
-    cudaFree(d_in);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_in));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_in);
     return 0;
 }

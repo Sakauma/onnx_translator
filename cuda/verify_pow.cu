@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 
 // 实现 `pow_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
@@ -55,27 +56,28 @@ int main(int argc, char** argv) {
 
     size_t r0 = fread(h_a, sizeof(float), n, f0);
     size_t r1 = fread(h_b, sizeof(float), n, f1);
-    fclose(f0);
-    fclose(f1);
+    verify_close_file(f0);
+    verify_close_file(f1);
     if (r0 != n || r1 != n) {
         printf("fread size mismatch\n");
         return 1;
     }
 
     float *d_a = NULL, *d_b = NULL, *d_out = NULL;
-    cudaMalloc(&d_a, bytes);
-    cudaMalloc(&d_b, bytes);
-    cudaMalloc(&d_out, bytes);
+    CUDA_CHECK(cudaMalloc(&d_a, bytes));
+    CUDA_CHECK(cudaMalloc(&d_b, bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
 
-    cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((n + threads - 1) / threads);
     pow_kernel<<<blocks, threads>>>(d_a, d_b, d_out, n);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -83,15 +85,15 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t w = fwrite(h_out, sizeof(float), n, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (w != n) {
         printf("fwrite size mismatch\n");
         return 1;
     }
 
-    cudaFree(d_a);
-    cudaFree(d_b);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_a));
+    CUDA_CHECK(cudaFree(d_b));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_a);
     free(h_b);
     free(h_out);

@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct ReduceMeanParams {
     int M;
@@ -79,7 +80,7 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(p_path, "rb");
     if (!fp) { printf("open params failed\n"); return 1; }
     size_t pr = fread(&p, sizeof(ReduceMeanParams), 1, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (pr != 1) { printf("read params failed\n"); return 1; }
 
     int M = p.M, N = p.N;
@@ -96,28 +97,30 @@ int main(int argc, char** argv) {
     FILE* fi = fopen(in_path, "rb");
     if (!fi) { printf("open input failed\n"); return 1; }
     size_t rx = fread(h_x, sizeof(float), (size_t)total, fi);
-    fclose(fi);
+    verify_close_file(fi);
     if (rx != (size_t)total) { printf("fread mismatch\n"); return 1; }
 
     // device
     float* d_x = NULL;
-    cudaMalloc(&d_x, in_bytes);
-    cudaMemcpy(d_x, h_x, in_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_x, in_bytes));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, in_bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (total + threads - 1) / threads;
 
     double* d_partial = NULL;
     double* d_sum = NULL;
-    cudaMalloc(&d_partial, (size_t)blocks * sizeof(double));
-    cudaMalloc(&d_sum, sizeof(double));
+    CUDA_CHECK(cudaMalloc(&d_partial, (size_t)blocks * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_sum, sizeof(double)));
 
     sum_all_kernel<<<blocks, threads>>>(d_x, d_partial, total);
+    CUDA_CHECK_LAUNCH();
     sum_partial_kernel<<<1, threads>>>(d_partial, d_sum, blocks);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     double h_sum = 0.0;
-    cudaMemcpy(&h_sum, d_sum, sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(&h_sum, d_sum, sizeof(double), cudaMemcpyDeviceToHost));
 
     h_y = (float)(h_sum / (double)total);
 
@@ -125,12 +128,12 @@ int main(int argc, char** argv) {
     FILE* fo = fopen(out_path, "wb");
     if (!fo) { printf("open output failed\n"); return 1; }
     size_t wy = fwrite(&h_y, sizeof(float), 1, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wy != 1) { printf("fwrite mismatch\n"); return 1; }
 
-    cudaFree(d_x);
-    cudaFree(d_partial);
-    cudaFree(d_sum);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_partial));
+    CUDA_CHECK(cudaFree(d_sum));
     free(h_x);
     return 0;
 }

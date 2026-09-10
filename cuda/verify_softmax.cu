@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <float.h>
 #include <math.h>
 
@@ -53,31 +54,32 @@ int main(int argc, char** argv) {
     int p[3]; // [outer, inner, remaining]
     FILE *fp = fopen(argv[3], "rb"); 
     if (!fp) return 2;
-    fread(p, sizeof(int), 3, fp); 
-    fclose(fp);
+    verify_fread_exact(p, sizeof(int), 3, fp);
+    verify_close_file(fp);
     
     size_t bytes = len * sizeof(double);
     double *h_x = (double*)malloc(bytes);
     double *h_y = (double*)malloc(bytes);
     
-    FILE *fx = fopen(argv[2], "rb"); fread(h_x, 1, bytes, fx); fclose(fx);
+    FILE *fx = fopen(argv[2], "rb"); verify_fread_exact(h_x, 1, bytes, fx); verify_close_file(fx);
     
     double *d_x, *d_y;
-    cudaMalloc(&d_x, bytes); cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_y, bytes);
+    CUDA_CHECK(cudaMalloc(&d_x, bytes); CUDA_CHECK(cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_y, bytes));
     
     int work_items = p[0] * p[2];
     softmax_kernel<<<(work_items+255)/256, 256>>>(d_x, d_y, p[0], p[1], p[2]);
+    CUDA_CHECK_LAUNCH();
     
-    cudaMemcpy(h_y, d_y, bytes, cudaMemcpyDeviceToHost);
-    FILE *fout = fopen(argv[4], "wb"); fwrite(h_y, 1, bytes, fout); fclose(fout);
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, bytes, cudaMemcpyDeviceToHost));
+    FILE *fout = fopen(argv[4], "wb"); verify_fwrite_exact(h_y, 1, bytes, fout); verify_close_file(fout);
     
     // --- Resource Release ---
     free(h_x); 
     free(h_y); 
     
-    cudaFree(d_x); 
-    cudaFree(d_y);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_y));
     
     return 0;
 }

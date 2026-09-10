@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 
 // 实现 `relu_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
@@ -29,17 +30,18 @@ int main(int argc, char** argv) {
     float *h_in = (float*)malloc(bytes);
     float *h_out = (float*)malloc(bytes);
     
-    FILE *fin = fopen(argv[2], "rb"); fread(h_in, 1, bytes, fin); fclose(fin);
+    FILE *fin = fopen(argv[2], "rb"); verify_fread_exact(h_in, 1, bytes, fin); verify_close_file(fin);
     
     float *d_in, *d_out;
-    cudaMalloc(&d_in, bytes); cudaMalloc(&d_out, bytes);
-    cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_in, bytes); CUDA_CHECK(cudaMalloc(&d_out, bytes)));
+    CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
     
     relu_kernel<<<(n + 255)/256, 256>>>(d_in, d_out, n);
+    CUDA_CHECK_LAUNCH();
     
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
-    FILE *fout = fopen(argv[3], "wb"); fwrite(h_out, 1, bytes, fout); fclose(fout);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
+    FILE *fout = fopen(argv[3], "wb"); verify_fwrite_exact(h_out, 1, bytes, fout); verify_close_file(fout);
     
-    free(h_in); free(h_out); cudaFree(d_in); cudaFree(d_out);
+    free(h_in); free(h_out); CUDA_CHECK(cudaFree(d_in)); CUDA_CHECK(cudaFree(d_out));
     return 0;
 }

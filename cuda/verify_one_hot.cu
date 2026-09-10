@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,7 +64,7 @@ static int read_params(const char* path, OneHotParams* p) {
     }
     int32_t header[4] = {0, 0, 0, 0};
     if (fread(header, sizeof(int32_t), 4, fp) != 4) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "read header failed\n");
         return 0;
     }
@@ -72,21 +73,21 @@ static int read_params(const char* path, OneHotParams* p) {
     p->axis = header[2];
     p->depth = header[3];
     if (p->indices_rank < 0 || p->indices_rank > MAX_RANK || p->output_rank != p->indices_rank + 1) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "invalid rank\n");
         return 0;
     }
     if (fread(p->indices_shape, sizeof(int32_t), (size_t)p->indices_rank, fp) != (size_t)p->indices_rank) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "read indices shape failed\n");
         return 0;
     }
     if (fread(p->output_shape, sizeof(int32_t), (size_t)p->output_rank, fp) != (size_t)p->output_rank) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "read output shape failed\n");
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
     return 1;
 }
 
@@ -123,46 +124,47 @@ int main(int argc, char** argv) {
 
     FILE* fi = fopen(indices_path, "rb");
     if (!fi || fread(h_indices, sizeof(int64_t), indices_len, fi) != indices_len) {
-        if (fi) fclose(fi);
+        if (fi) verify_close_file(fi);
         fprintf(stderr, "read indices failed\n");
         return 1;
     }
-    fclose(fi);
+    verify_close_file(fi);
 
     FILE* fv = fopen(values_path, "rb");
     if (!fv || fread(h_values, sizeof(float), 2, fv) != 2) {
-        if (fv) fclose(fv);
+        if (fv) verify_close_file(fv);
         fprintf(stderr, "read values failed\n");
         return 1;
     }
-    fclose(fv);
+    verify_close_file(fv);
 
     int64_t* d_indices = NULL;
     float* d_values = NULL;
     float* d_output = NULL;
-    cudaMalloc(&d_indices, indices_len * sizeof(int64_t));
-    cudaMalloc(&d_values, 2 * sizeof(float));
-    cudaMalloc(&d_output, out_len * sizeof(float));
-    cudaMemcpy(d_indices, h_indices, indices_len * sizeof(int64_t), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_values, h_values, 2 * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_indices, indices_len * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_values, 2 * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_output, out_len * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_indices, h_indices, indices_len * sizeof(int64_t), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_values, h_values, 2 * sizeof(float), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     one_hot_kernel<<<blocks, threads>>>(d_indices, d_values, d_output, params, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo || fwrite(h_output, sizeof(float), out_len, fo) != out_len) {
-        if (fo) fclose(fo);
+        if (fo) verify_close_file(fo);
         fprintf(stderr, "write output failed\n");
         return 1;
     }
-    fclose(fo);
+    verify_close_file(fo);
 
-    cudaFree(d_indices);
-    cudaFree(d_values);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_indices));
+    CUDA_CHECK(cudaFree(d_values));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_indices);
     free(h_output);
     return 0;

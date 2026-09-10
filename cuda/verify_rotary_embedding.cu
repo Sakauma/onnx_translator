@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,7 +100,7 @@ static int read_vector(const char* path, std::vector<T>& data) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t count = fread(data.data(), sizeof(T), data.size(), fp);
-    fclose(fp);
+    verify_close_file(fp);
     return count == data.size();
 }
 
@@ -124,10 +125,10 @@ int main(int argc, char** argv) {
     if (!fp) { fprintf(stderr, "open params failed\n"); return 1; }
     if (fread(&params, sizeof(RotaryParams), 1, fp) != 1) {
         fprintf(stderr, "read params failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     if ((params.rank != 3 && params.rank != 4) || params.rotary_dim <= 0 || (params.rotary_dim % 2) != 0) {
         fprintf(stderr, "invalid params\n");
@@ -150,7 +151,7 @@ int main(int argc, char** argv) {
         if (!fc) return 1;
         fseek(fc, 0, SEEK_END);
         long bytes = ftell(fc);
-        fclose(fc);
+        verify_close_file(fc);
         if (bytes <= 0 || bytes % (long)sizeof(float) != 0) return 1;
         cos_len = (size_t)bytes / sizeof(float);
     }
@@ -171,25 +172,26 @@ int main(int argc, char** argv) {
 
     float *d_x = NULL, *d_cos = NULL, *d_sin = NULL, *d_out = NULL;
     long long* d_pos = NULL;
-    cudaMalloc((void**)&d_x, out_len * sizeof(float));
-    cudaMalloc((void**)&d_cos, cos_len * sizeof(float));
-    cudaMalloc((void**)&d_sin, cos_len * sizeof(float));
-    cudaMalloc((void**)&d_out, out_len * sizeof(float));
+    CUDA_CHECK(cudaMalloc((void**)&d_x, out_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&d_cos, cos_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&d_sin, cos_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&d_out, out_len * sizeof(float)));
     if (params.has_position_ids) {
-        cudaMalloc((void**)&d_pos, h_pos.size() * sizeof(long long));
+        CUDA_CHECK(cudaMalloc((void**)&d_pos, h_pos.size() * sizeof(long long)));
     }
-    cudaMemcpy(d_x, h_x.data(), out_len * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_cos, h_cos.data(), cos_len * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_sin, h_sin.data(), cos_len * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_x, h_x.data(), out_len * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_cos, h_cos.data(), cos_len * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_sin, h_sin.data(), cos_len * sizeof(float), cudaMemcpyHostToDevice));
     if (params.has_position_ids) {
-        cudaMemcpy(d_pos, h_pos.data(), h_pos.size() * sizeof(long long), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMemcpy(d_pos, h_pos.data(), h_pos.size() * sizeof(long long), cudaMemcpyHostToDevice));
     }
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     rotary_embedding_kernel<<<blocks, threads>>>(d_x, d_cos, d_sin, d_pos, d_out, params, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out.data(), d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     fp = fopen(out_path, "wb");
     if (!fp) {
@@ -198,15 +200,15 @@ int main(int argc, char** argv) {
     }
     if (fwrite(h_out.data(), sizeof(float), out_len, fp) != out_len) {
         fprintf(stderr, "write output failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
-    cudaFree(d_x);
-    cudaFree(d_cos);
-    cudaFree(d_sin);
-    cudaFree(d_out);
-    if (d_pos) cudaFree(d_pos);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_cos));
+    CUDA_CHECK(cudaFree(d_sin));
+    CUDA_CHECK(cudaFree(d_out));
+    if (d_pos) CUDA_CHECK(cudaFree(d_pos));
     return 0;
 }

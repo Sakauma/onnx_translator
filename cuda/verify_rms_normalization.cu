@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct RMSNormParams {
     int32_t row_count;
@@ -58,7 +59,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t pr = fread(&params, sizeof(RMSNormParams), 1, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (pr != 1 || params.row_count <= 0 || params.normalized_size <= 0) {
         fprintf(stderr, "read params failed\n");
         return 1;
@@ -78,55 +79,56 @@ int main(int argc, char** argv) {
     fp = fopen(x_path, "rb");
     if (!fp || fread(h_x, sizeof(float), total, fp) != (size_t)total) {
         fprintf(stderr, "read input failed\n");
-        if (fp) fclose(fp);
+        if (fp) verify_close_file(fp);
         free(h_x);
         free(h_scale);
         free(h_out);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     fp = fopen(scale_path, "rb");
     if (!fp || fread(h_scale, sizeof(float), total, fp) != (size_t)total) {
         fprintf(stderr, "read scale failed\n");
-        if (fp) fclose(fp);
+        if (fp) verify_close_file(fp);
         free(h_x);
         free(h_scale);
         free(h_out);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     float *d_x = NULL, *d_scale = NULL, *d_out = NULL;
-    cudaMalloc((void**)&d_x, (size_t)total * sizeof(float));
-    cudaMalloc((void**)&d_scale, (size_t)total * sizeof(float));
-    cudaMalloc((void**)&d_out, (size_t)total * sizeof(float));
-    cudaMemcpy(d_x, h_x, (size_t)total * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_scale, h_scale, (size_t)total * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_x, (size_t)total * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&d_scale, (size_t)total * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&d_out, (size_t)total * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, (size_t)total * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_scale, h_scale, (size_t)total * sizeof(float), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (total + threads - 1) / threads;
     rms_normalization_kernel<<<blocks, threads>>>(d_x, d_scale, d_out, params, total);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out, d_out, (size_t)total * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, (size_t)total * sizeof(float), cudaMemcpyDeviceToHost));
 
     fp = fopen(out_path, "wb");
     if (!fp) {
         fprintf(stderr, "open output failed\n");
-        cudaFree(d_x);
-        cudaFree(d_scale);
-        cudaFree(d_out);
+        CUDA_CHECK(cudaFree(d_x));
+        CUDA_CHECK(cudaFree(d_scale));
+        CUDA_CHECK(cudaFree(d_out));
         free(h_x);
         free(h_scale);
         free(h_out);
         return 1;
     }
-    fwrite(h_out, sizeof(float), total, fp);
-    fclose(fp);
+    verify_fwrite_exact(h_out, sizeof(float), total, fp);
+    verify_close_file(fp);
 
-    cudaFree(d_x);
-    cudaFree(d_scale);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_scale));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_x);
     free(h_scale);
     free(h_out);

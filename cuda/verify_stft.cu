@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -79,10 +80,10 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(argv[6], "rb");
     if (!fp) return 2;
     if (fread(p, sizeof(int32_t), 9, fp) != 9) {
-        fclose(fp);
+        verify_close_file(fp);
         return 3;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     int batch = p[0], signal_len = p[1], signal_complex_dim = p[2];
     int n_frames = p[3], bins = p[4], frame_step = p[5], frame_length = p[6], has_window = p[8];
@@ -96,27 +97,27 @@ int main(int argc, char** argv) {
 
     FILE* fs = fopen(argv[2], "rb");
     if (!fs) return 6;
-    fread(h_signal, sizeof(double), signal_size, fs);
-    fclose(fs);
+    verify_fread_exact(h_signal, sizeof(double), signal_size, fs);
+    verify_close_file(fs);
 
     if (has_window) {
         h_window = (double*)malloc((size_t)frame_length * sizeof(double));
         if (!h_window) return 7;
         FILE* fw = fopen(argv[4], "rb");
         if (!fw) return 8;
-        fread(h_window, sizeof(double), (size_t)frame_length, fw);
-        fclose(fw);
+        verify_fread_exact(h_window, sizeof(double), (size_t)frame_length, fw);
+        verify_close_file(fw);
     }
 
     double* d_signal = NULL;
     double* d_window = NULL;
     double* d_y = NULL;
-    cudaMalloc(&d_signal, signal_size * sizeof(double));
-    cudaMalloc(&d_y, out_len * sizeof(double));
-    cudaMemcpy(d_signal, h_signal, signal_size * sizeof(double), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_signal, signal_size * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_y, out_len * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_signal, h_signal, signal_size * sizeof(double), cudaMemcpyHostToDevice));
     if (has_window) {
-        cudaMalloc(&d_window, (size_t)frame_length * sizeof(double));
-        cudaMemcpy(d_window, h_window, (size_t)frame_length * sizeof(double), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMalloc(&d_window, (size_t)frame_length * sizeof(double)));
+        CUDA_CHECK(cudaMemcpy(d_window, h_window, (size_t)frame_length * sizeof(double), cudaMemcpyHostToDevice));
     }
 
     int threads = 256;
@@ -134,19 +135,20 @@ int main(int argc, char** argv) {
         frame_length,
         has_window
     );
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_y, d_y, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, out_len * sizeof(double), cudaMemcpyDeviceToHost));
     FILE* fo = fopen(argv[7], "wb");
     if (!fo) return 9;
-    fwrite(h_y, sizeof(double), out_len, fo);
-    fclose(fo);
+    verify_fwrite_exact(h_y, sizeof(double), out_len, fo);
+    verify_close_file(fo);
 
     free(h_signal);
     if (h_window) free(h_window);
     free(h_y);
-    cudaFree(d_signal);
-    if (d_window) cudaFree(d_window);
-    cudaFree(d_y);
+    CUDA_CHECK(cudaFree(d_signal));
+    if (d_window) CUDA_CHECK(cudaFree(d_window));
+    CUDA_CHECK(cudaFree(d_y));
     return 0;
 }

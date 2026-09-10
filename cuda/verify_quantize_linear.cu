@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 
 // 升级: 所有指针和计算改为 double
@@ -279,7 +280,7 @@ int main(int argc, char** argv) {
         size_t param_count = (size_t)param_bytes / sizeof(int);
         int* params = (int*)malloc(param_count * sizeof(int));
         if (params && param_count > 0) {
-            fread(params, sizeof(int), param_count, fp);
+            verify_fread_exact(params, sizeof(int), param_count, fp);
             if (param_count >= 2) {
                 target_dtype_code = params[0];
                 use_float_math = params[1];
@@ -359,7 +360,7 @@ int main(int argc, char** argv) {
             }
             free(params);
         }
-        fclose(fp);
+        verify_close_file(fp);
     }
     if (scale_count == 0) scale_count = 1;
     if (zp_count == 0) zp_count = 1;
@@ -371,36 +372,37 @@ int main(int argc, char** argv) {
     double *h_z = (double*)calloc(zp_count, sizeof(double));
     double *h_out = (double*)malloc(x_bytes);
     
-    FILE *fx = fopen(argv[2], "rb"); fread(h_x, 1, x_bytes, fx); fclose(fx);
-    FILE *fs = fopen(argv[3], "rb"); fread(h_s, 1, scale_bytes, fs); fclose(fs);
-    FILE *fz = fopen(argv[4], "rb"); fread(h_z, 1, zp_bytes, fz); fclose(fz);
+    FILE *fx = fopen(argv[2], "rb"); verify_fread_exact(h_x, 1, x_bytes, fx); verify_close_file(fx);
+    FILE *fs = fopen(argv[3], "rb"); verify_fread_exact(h_s, 1, scale_bytes, fs); verify_close_file(fs);
+    FILE *fz = fopen(argv[4], "rb"); verify_fread_exact(h_z, 1, zp_bytes, fz); verify_close_file(fz);
     
     double *d_x, *d_s, *d_z, *d_out;
     int *d_input_shape = NULL, *d_scale_shape = NULL;
-    cudaMalloc(&d_x, x_bytes); cudaMalloc(&d_s, scale_bytes); cudaMalloc(&d_z, zp_bytes); cudaMalloc(&d_out, x_bytes);
+    CUDA_CHECK(cudaMalloc(&d_x, x_bytes); CUDA_CHECK(cudaMalloc(&d_s, scale_bytes)); CUDA_CHECK(cudaMalloc(&d_z, zp_bytes)); CUDA_CHECK(cudaMalloc(&d_out, x_bytes)));
     if (input_shape && rank > 0) {
-        cudaMalloc(&d_input_shape, (size_t)rank * sizeof(int));
-        cudaMemcpy(d_input_shape, input_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMalloc(&d_input_shape, (size_t)rank * sizeof(int)));
+        CUDA_CHECK(cudaMemcpy(d_input_shape, input_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice));
     }
     if (scale_shape && rank > 0) {
-        cudaMalloc(&d_scale_shape, (size_t)rank * sizeof(int));
-        cudaMemcpy(d_scale_shape, scale_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMalloc(&d_scale_shape, (size_t)rank * sizeof(int)));
+        CUDA_CHECK(cudaMemcpy(d_scale_shape, scale_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice));
     }
     
-    cudaMemcpy(d_x, h_x, x_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_s, h_s, scale_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_z, h_z, zp_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, x_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_s, h_s, scale_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_z, h_z, zp_bytes, cudaMemcpyHostToDevice));
 
     quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, scale_count, zp_count, axis_dim, axis_stride, d_input_shape, d_scale_shape, rank, axis, block_size, scale_rank, target_dtype_code, use_float_math, saturate);
+    CUDA_CHECK_LAUNCH();
     
-    cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost);
-    FILE *fout = fopen(argv[6], "wb"); fwrite(h_out, 1, x_bytes, fout); fclose(fout);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost));
+    FILE *fout = fopen(argv[6], "wb"); verify_fwrite_exact(h_out, 1, x_bytes, fout); verify_close_file(fout);
     
     free(h_x); free(h_s); free(h_z); free(h_out);
     if (input_shape) free(input_shape);
     if (scale_shape) free(scale_shape);
-    cudaFree(d_x); cudaFree(d_s); cudaFree(d_z); cudaFree(d_out);
-    if (d_input_shape) cudaFree(d_input_shape);
-    if (d_scale_shape) cudaFree(d_scale_shape);
+    CUDA_CHECK(cudaFree(d_x); CUDA_CHECK(cudaFree(d_s)); CUDA_CHECK(cudaFree(d_z)); CUDA_CHECK(cudaFree(d_out)));
+    if (d_input_shape) CUDA_CHECK(cudaFree(d_input_shape));
+    if (d_scale_shape) CUDA_CHECK(cudaFree(d_scale_shape));
     return 0;
 }

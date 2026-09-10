@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -92,23 +93,23 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(params_path, "rb");
     if (!fp) { printf("open params failed\n"); return 1; }
     int header[3];
-    if (fread(header, sizeof(int), 3, fp) != 3) { printf("read params header failed\n"); fclose(fp); return 1; }
+    if (fread(header, sizeof(int), 3, fp) != 3) { printf("read params header failed\n"); verify_close_file(fp); return 1; }
     int rank = header[0];
     int axis = header[1];
     int mode = header[2];
-    if (rank <= 0 || rank > MAX_RANK) { printf("invalid rank\n"); fclose(fp); return 1; }
+    if (rank <= 0 || rank > MAX_RANK) { printf("invalid rank\n"); verify_close_file(fp); return 1; }
     if (axis < 0) axis += rank;
-    if (axis <= 0 || axis >= rank) { printf("invalid axis\n"); fclose(fp); return 1; }
+    if (axis <= 0 || axis >= rank) { printf("invalid axis\n"); verify_close_file(fp); return 1; }
 
     int cache_shape[MAX_RANK] = {0};
     int update_shape[MAX_RANK] = {0};
     if (fread(cache_shape, sizeof(int), (size_t)rank, fp) != (size_t)rank) {
-        printf("read cache shape failed\n"); fclose(fp); return 1;
+        printf("read cache shape failed\n"); verify_close_file(fp); return 1;
     }
     if (fread(update_shape, sizeof(int), (size_t)rank, fp) != (size_t)rank) {
-        printf("read update shape failed\n"); fclose(fp); return 1;
+        printf("read update shape failed\n"); verify_close_file(fp); return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     size_t cache_len = shape_size(cache_shape, rank);
     size_t update_len = shape_size(update_shape, rank);
@@ -129,7 +130,7 @@ int main(int argc, char** argv) {
     if (!fc || !fu) { printf("open input failed\n"); return 1; }
     size_t rc = fread(h_cache, sizeof(float), cache_len, fc);
     size_t ru = fread(h_update, sizeof(float), update_len, fu);
-    fclose(fc); fclose(fu);
+    verify_close_file(fc); verify_close_file(fu);
     if (rc != cache_len || ru != update_len) { printf("fread mismatch\n"); return 1; }
 
     if (indices_path[0] != 'n') {
@@ -138,44 +139,46 @@ int main(int argc, char** argv) {
         FILE* fi = fopen(indices_path, "rb");
         if (!fi) { printf("open indices failed\n"); return 1; }
         size_t ri = fread(h_indices, sizeof(long long), (size_t)cache_shape[0], fi);
-        fclose(fi);
+        verify_close_file(fi);
         if (ri != (size_t)cache_shape[0]) { printf("indices fread mismatch\n"); return 1; }
     }
 
     float *d_cache = NULL, *d_update = NULL, *d_out = NULL;
     long long* d_indices = NULL;
     int *d_cache_shape = NULL, *d_update_shape = NULL;
-    cudaMalloc(&d_cache, cache_bytes);
-    cudaMalloc(&d_update, update_bytes);
-    cudaMalloc(&d_out, cache_bytes);
-    cudaMalloc(&d_cache_shape, (size_t)rank * sizeof(int));
-    cudaMalloc(&d_update_shape, (size_t)rank * sizeof(int));
-    if (h_indices) cudaMalloc(&d_indices, indices_bytes);
+    CUDA_CHECK(cudaMalloc(&d_cache, cache_bytes));
+    CUDA_CHECK(cudaMalloc(&d_update, update_bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, cache_bytes));
+    CUDA_CHECK(cudaMalloc(&d_cache_shape, (size_t)rank * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_update_shape, (size_t)rank * sizeof(int)));
+    if (h_indices) CUDA_CHECK(cudaMalloc(&d_indices, indices_bytes));
 
-    cudaMemcpy(d_cache, h_cache, cache_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_update, h_update, update_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_cache_shape, cache_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_update_shape, update_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice);
-    if (h_indices) cudaMemcpy(d_indices, h_indices, indices_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_cache, h_cache, cache_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_update, h_update, update_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_cache_shape, cache_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_update_shape, update_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice));
+    if (h_indices) CUDA_CHECK(cudaMemcpy(d_indices, h_indices, indices_bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int copy_blocks = (int)((cache_len + (size_t)threads - 1) / (size_t)threads);
     int update_blocks = (int)((update_len + (size_t)threads - 1) / (size_t)threads);
     copy_cache_kernel<<<copy_blocks, threads>>>(d_cache, d_out, cache_len);
+    CUDA_CHECK_LAUNCH();
     tensor_scatter_kernel<<<update_blocks, threads>>>(d_update, d_indices, d_out, d_cache_shape, d_update_shape, rank, axis, mode, update_len);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, cache_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, cache_bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) { printf("open output failed\n"); return 1; }
     size_t wo = fwrite(h_out, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wo != out_len) { printf("fwrite mismatch\n"); return 1; }
 
-    cudaFree(d_cache); cudaFree(d_update); cudaFree(d_out);
-    cudaFree(d_cache_shape); cudaFree(d_update_shape);
-    if (d_indices) cudaFree(d_indices);
+    CUDA_CHECK(cudaFree(d_cache); CUDA_CHECK(cudaFree(d_update)); CUDA_CHECK(cudaFree(d_out)));
+    CUDA_CHECK(cudaFree(d_cache_shape); CUDA_CHECK(cudaFree(d_update_shape)));
+    if (d_indices) CUDA_CHECK(cudaFree(d_indices));
     free(h_cache); free(h_update); free(h_out);
     if (h_indices) free(h_indices);
     return 0;

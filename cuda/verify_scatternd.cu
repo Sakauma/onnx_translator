@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct ScatterNDParams {
     int M;
@@ -77,7 +78,7 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(p_path, "rb");
     if (!fp) { printf("open params failed\n"); return 1; }
     size_t pr = fread(&p, sizeof(ScatterNDParams), 1, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (pr != 1) { printf("read params failed\n"); return 1; }
 
     int M = p.M, N = p.N, I = p.I;
@@ -109,36 +110,37 @@ int main(int argc, char** argv) {
     size_t rd = fread(h_data, sizeof(float), data_len, fd);
     size_t ri = fread(h_idx, sizeof(long long), idx_len, fi);
     size_t ru = fread(h_upd, sizeof(float), upd_len, fu);
-    fclose(fd); fclose(fi); fclose(fu);
+    verify_close_file(fd); verify_close_file(fi); verify_close_file(fu);
     if (rd != data_len || ri != idx_len || ru != upd_len) { printf("fread mismatch\n"); return 1; }
 
     float *d_data=NULL, *d_upd=NULL, *d_out=NULL;
     long long* d_idx=NULL;
-    cudaMalloc(&d_data, data_bytes);
-    cudaMalloc(&d_idx,  idx_bytes);
-    cudaMalloc(&d_upd,  upd_bytes);
-    cudaMalloc(&d_out,  out_bytes);
+    CUDA_CHECK(cudaMalloc(&d_data, data_bytes));
+    CUDA_CHECK(cudaMalloc(&d_idx,  idx_bytes));
+    CUDA_CHECK(cudaMalloc(&d_upd,  upd_bytes));
+    CUDA_CHECK(cudaMalloc(&d_out,  out_bytes));
 
-    cudaMemcpy(d_data, h_data, data_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_idx,  h_idx,  idx_bytes,  cudaMemcpyHostToDevice);
-    cudaMemcpy(d_upd,  h_upd,  upd_bytes,  cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_data, h_data, data_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_idx,  h_idx,  idx_bytes,  cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_upd,  h_upd,  upd_bytes,  cudaMemcpyHostToDevice));
 
-    cudaMemcpy(d_out, d_data, data_bytes, cudaMemcpyDeviceToDevice);
+    CUDA_CHECK(cudaMemcpy(d_out, d_data, data_bytes, cudaMemcpyDeviceToDevice));
 
     int threads = 256;
     int blocks = (I + threads - 1) / threads;
     scatternd_apply_updates<<<blocks, threads>>>(d_out, d_idx, d_upd, M, N, I);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, out_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, out_bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) { printf("open output failed\n"); return 1; }
     size_t wo = fwrite(h_out, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wo != out_len) { printf("fwrite mismatch\n"); return 1; }
 
-    cudaFree(d_data); cudaFree(d_idx); cudaFree(d_upd); cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_data); CUDA_CHECK(cudaFree(d_idx)); CUDA_CHECK(cudaFree(d_upd)); CUDA_CHECK(cudaFree(d_out)));
     free(h_data); free(h_idx); free(h_upd); free(h_out);
     return 0;
 }

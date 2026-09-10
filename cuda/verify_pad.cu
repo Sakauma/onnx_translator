@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -91,14 +92,14 @@ int main(int argc, char** argv) {
 
     int header[2] = {0};
     if (fread(header, sizeof(int), 2, fp) != 2) {
-        fclose(fp);
+        verify_close_file(fp);
         printf("read header failed\n");
         return 1;
     }
     int rank = header[0];
     int mode = header[1];
     if (rank <= 0 || rank > MAX_RANK || mode != 0) {
-        fclose(fp);
+        verify_close_file(fp);
         printf("invalid rank or unsupported mode\n");
         return 1;
     }
@@ -107,11 +108,11 @@ int main(int argc, char** argv) {
     int output_shape[MAX_RANK] = {0};
     if (fread(input_shape, sizeof(int), (size_t)rank, fp) != (size_t)rank ||
         fread(output_shape, sizeof(int), (size_t)rank, fp) != (size_t)rank) {
-        fclose(fp);
+        verify_close_file(fp);
         printf("read shapes failed\n");
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     for (int d = 0; d < rank; ++d) {
         if (input_shape[d] <= 0 || output_shape[d] <= 0) {
@@ -148,9 +149,9 @@ int main(int argc, char** argv) {
     size_t ri = fread(h_input, sizeof(float), in_len, fi);
     size_t rp = fread(h_pads, sizeof(long long), (size_t)rank * 2, fpads);
     size_t rc = fread(h_constant, sizeof(float), 1, fc);
-    fclose(fi);
-    fclose(fpads);
-    fclose(fc);
+    verify_close_file(fi);
+    verify_close_file(fpads);
+    verify_close_file(fc);
     if (ri != in_len || rp != (size_t)rank * 2 || rc != 1) {
         printf("fread mismatch\n");
         return 1;
@@ -162,18 +163,18 @@ int main(int argc, char** argv) {
     long long* d_pads = NULL;
     int* d_input_shape = NULL;
     int* d_output_shape = NULL;
-    cudaMalloc(&d_input, in_bytes);
-    cudaMalloc(&d_output, out_bytes);
-    cudaMalloc(&d_constant, sizeof(float));
-    cudaMalloc(&d_pads, (size_t)rank * 2 * sizeof(long long));
-    cudaMalloc(&d_input_shape, (size_t)rank * sizeof(int));
-    cudaMalloc(&d_output_shape, (size_t)rank * sizeof(int));
+    CUDA_CHECK(cudaMalloc(&d_input, in_bytes));
+    CUDA_CHECK(cudaMalloc(&d_output, out_bytes));
+    CUDA_CHECK(cudaMalloc(&d_constant, sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_pads, (size_t)rank * 2 * sizeof(long long)));
+    CUDA_CHECK(cudaMalloc(&d_input_shape, (size_t)rank * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_output_shape, (size_t)rank * sizeof(int)));
 
-    cudaMemcpy(d_input, h_input, in_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_constant, h_constant, sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_pads, h_pads, (size_t)rank * 2 * sizeof(long long), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_input_shape, input_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_output_shape, output_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, in_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_constant, h_constant, sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_pads, h_pads, (size_t)rank * 2 * sizeof(long long), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_input_shape, input_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_output_shape, output_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
@@ -187,9 +188,10 @@ int main(int argc, char** argv) {
         rank,
         out_len
     );
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_output, d_output, out_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -197,18 +199,18 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t wo = fwrite(h_output, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wo != out_len) {
         printf("fwrite mismatch\n");
         return 1;
     }
 
-    cudaFree(d_input);
-    cudaFree(d_output);
-    cudaFree(d_constant);
-    cudaFree(d_pads);
-    cudaFree(d_input_shape);
-    cudaFree(d_output_shape);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_output));
+    CUDA_CHECK(cudaFree(d_constant));
+    CUDA_CHECK(cudaFree(d_pads));
+    CUDA_CHECK(cudaFree(d_input_shape));
+    CUDA_CHECK(cudaFree(d_output_shape));
     free(h_input);
     free(h_output);
     free(h_pads);

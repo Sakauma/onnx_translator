@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -93,15 +94,15 @@ static int read_params(const char* path, LossParams* params) {
     if (!fp) return 0;
     int32_t ints[7];
     if (fread(ints, sizeof(int32_t), 7, fp) != 7) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     int64_t ignore_index = 0;
     if (fread(&ignore_index, sizeof(int64_t), 1, fp) != 1) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
     params->batch = ints[0];
     params->classes = ints[1];
     params->spatial = ints[2];
@@ -117,7 +118,7 @@ static int read_double_file(const char* path, double* data, size_t n) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t got = fread(data, sizeof(double), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return got == n;
 }
 
@@ -125,7 +126,7 @@ static int read_i64_file(const char* path, int64_t* data, size_t n) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t got = fread(data, sizeof(int64_t), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return got == n;
 }
 
@@ -133,7 +134,7 @@ static int write_double_file(const char* path, const double* data, size_t n) {
     FILE* fp = fopen(path, "wb");
     if (!fp) return 0;
     size_t wrote = fwrite(data, sizeof(double), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 
@@ -167,36 +168,37 @@ int main(int argc, char** argv) {
     double* d_weights = NULL;
     double* d_loss = NULL;
     double* d_log_prob = NULL;
-    cudaMalloc(&d_scores, scores_len * sizeof(double));
-    cudaMalloc(&d_labels, labels_len * sizeof(int64_t));
-    cudaMalloc(&d_loss, out_len * sizeof(double));
-    cudaMemcpy(d_scores, h_scores, scores_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_labels, h_labels, labels_len * sizeof(int64_t), cudaMemcpyHostToDevice);
-    cudaMemset(d_loss, 0, out_len * sizeof(double));
+    CUDA_CHECK(cudaMalloc(&d_scores, scores_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_labels, labels_len * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_loss, out_len * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_scores, h_scores, scores_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_labels, h_labels, labels_len * sizeof(int64_t), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_loss, 0, out_len * sizeof(double)));
     if (params.has_weight) {
-        cudaMalloc(&d_weights, (size_t)params.classes * sizeof(double));
-        cudaMemcpy(d_weights, h_weights, (size_t)params.classes * sizeof(double), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMalloc(&d_weights, (size_t)params.classes * sizeof(double)));
+        CUDA_CHECK(cudaMemcpy(d_weights, h_weights, (size_t)params.classes * sizeof(double), cudaMemcpyHostToDevice));
     }
     if (params.emit_log_prob) {
-        cudaMalloc(&d_log_prob, scores_len * sizeof(double));
+        CUDA_CHECK(cudaMalloc(&d_log_prob, scores_len * sizeof(double)));
     }
 
     sce_loss_kernel<<<1, 1>>>(d_scores, d_labels, d_weights, d_loss, d_log_prob, params);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_loss, d_loss, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_loss, d_loss, out_len * sizeof(double), cudaMemcpyDeviceToHost));
     if (params.emit_log_prob) {
-        cudaMemcpy(h_log_prob, d_log_prob, scores_len * sizeof(double), cudaMemcpyDeviceToHost);
+        CUDA_CHECK(cudaMemcpy(h_log_prob, d_log_prob, scores_len * sizeof(double), cudaMemcpyDeviceToHost));
     }
     int ok = write_double_file(argv[6], h_loss, out_len);
     if (params.emit_log_prob) {
         ok = ok && write_double_file("tmp_out_log_prob.bin", h_log_prob, scores_len);
     }
 
-    cudaFree(d_scores);
-    cudaFree(d_labels);
-    if (d_weights) cudaFree(d_weights);
-    cudaFree(d_loss);
-    if (d_log_prob) cudaFree(d_log_prob);
+    CUDA_CHECK(cudaFree(d_scores));
+    CUDA_CHECK(cudaFree(d_labels));
+    if (d_weights) CUDA_CHECK(cudaFree(d_weights));
+    CUDA_CHECK(cudaFree(d_loss));
+    if (d_log_prob) CUDA_CHECK(cudaFree(d_log_prob));
     free(h_scores);
     free(h_labels);
     free(h_weights);

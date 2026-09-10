@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -55,9 +56,9 @@ int main(int argc, char** argv) {
     size_t rc = fread(h_cond, sizeof(float), n, fc);
     size_t rx = fread(h_x, sizeof(float), n, fx);
     size_t ry = fread(h_y, sizeof(float), n, fy);
-    fclose(fc);
-    fclose(fx);
-    fclose(fy);
+    verify_close_file(fc);
+    verify_close_file(fx);
+    verify_close_file(fy);
     if (rc != n || rx != n || ry != n) {
         fprintf(stderr, "read input failed\n");
         return 1;
@@ -67,20 +68,21 @@ int main(int argc, char** argv) {
     float* d_x = NULL;
     float* d_y = NULL;
     float* d_output = NULL;
-    cudaMalloc(&d_cond, bytes);
-    cudaMalloc(&d_x, bytes);
-    cudaMalloc(&d_y, bytes);
-    cudaMalloc(&d_output, bytes);
-    cudaMemcpy(d_cond, h_cond, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_cond, bytes));
+    CUDA_CHECK(cudaMalloc(&d_x, bytes));
+    CUDA_CHECK(cudaMalloc(&d_y, bytes));
+    CUDA_CHECK(cudaMalloc(&d_output, bytes));
+    CUDA_CHECK(cudaMemcpy(d_cond, h_cond, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((n + (size_t)threads - 1) / (size_t)threads);
     where_kernel<<<blocks, threads>>>(d_cond, d_x, d_y, d_output, n);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -88,16 +90,16 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t wo = fwrite(h_output, sizeof(float), n, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wo != n) {
         fprintf(stderr, "write output failed\n");
         return 1;
     }
 
-    cudaFree(d_cond);
-    cudaFree(d_x);
-    cudaFree(d_y);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_cond));
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_y));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_cond);
     free(h_x);
     free(h_y);

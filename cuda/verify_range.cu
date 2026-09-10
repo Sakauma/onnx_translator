@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -27,7 +28,7 @@ static int read_scalar(const char* path, float* value) {
         return 0;
     }
     int ok = fread(value, sizeof(float), 1, fp) == 1;
-    fclose(fp);
+    verify_close_file(fp);
     if (!ok) {
         fprintf(stderr, "read scalar failed\n");
     }
@@ -59,12 +60,13 @@ int main(int argc, char** argv) {
     }
 
     float* d_output = NULL;
-    cudaMalloc(&d_output, out_len * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&d_output, out_len * sizeof(float)));
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     range_kernel<<<blocks, threads>>>(start, delta, d_output, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -72,13 +74,13 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t write_count = fwrite(h_output, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (write_count != out_len) {
         fprintf(stderr, "write output failed\n");
         return 1;
     }
 
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_output));
     free(h_output);
     return 0;
 }

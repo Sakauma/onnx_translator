@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,7 +37,7 @@ static int read_params(const char* path, RandomNormalLikeParams* params) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     int ok = fread(params, sizeof(RandomNormalLikeParams), 1, fp) == 1;
-    fclose(fp);
+    verify_close_file(fp);
     return ok;
 }
 
@@ -45,7 +46,7 @@ static int write_f32_file(const char* path, const float* data, size_t n) {
     FILE* fp = fopen(path, "wb");
     if (!fp) return 0;
     size_t wrote = fwrite(data, sizeof(float), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 
@@ -64,16 +65,17 @@ int main(int argc, char** argv) {
     float* h_out = (float*)malloc(out_len * sizeof(float));
     float* d_out = NULL;
     if (!h_out) return 1;
-    cudaMalloc(&d_out, out_len * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&d_out, out_len * sizeof(float)));
 
     int threads = 256;
     int blocks = (int)((out_len + threads - 1) / threads);
     random_normal_like_kernel<<<blocks, threads>>>(d_out, params);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out, d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     int ok = write_f32_file(argv[4], h_out, out_len);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_out));
     free(h_out);
     return ok ? 0 : 1;
 }

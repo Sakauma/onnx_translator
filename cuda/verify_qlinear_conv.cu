@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 // 实现 `read_param` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
 __device__ double read_param(const double* data, int size, int full_idx, int full_size,
@@ -102,8 +103,8 @@ int main(int argc, char** argv) {
     int p[22];
     FILE* fp = fopen(argv[10], "rb");
     if (!fp) return 2;
-    fread(p, sizeof(int), 22, fp);
-    fclose(fp);
+    verify_fread_exact(p, sizeof(int), 22, fp);
+    verify_close_file(fp);
 
     int N = p[0], IC = p[1], IH = p[2], IW = p[3];
     int OC = p[4], KH = p[5], KW = p[6];
@@ -134,26 +135,26 @@ int main(int argc, char** argv) {
     double* h_y_zp = (double*)malloc(size_y_zp);
     uint8_t* h_y = (uint8_t*)malloc(size_y);
 
-    FILE* f = fopen(argv[2], "rb"); fread(h_x, 1, size_x, f); fclose(f);
-    f = fopen(argv[3], "rb"); fread(h_x_scale, 1, size_x_scale, f); fclose(f);
-    f = fopen(argv[4], "rb"); fread(h_x_zp, 1, size_x_zp, f); fclose(f);
-    f = fopen(argv[5], "rb"); fread(h_w, 1, size_w, f); fclose(f);
-    f = fopen(argv[6], "rb"); fread(h_w_scale, 1, size_w_scale, f); fclose(f);
-    f = fopen(argv[7], "rb"); fread(h_w_zp, 1, size_w_zp, f); fclose(f);
-    f = fopen(argv[8], "rb"); fread(h_y_scale, 1, size_y_scale, f); fclose(f);
-    f = fopen(argv[9], "rb"); fread(h_y_zp, 1, size_y_zp, f); fclose(f);
+    FILE* f = fopen(argv[2], "rb"); verify_fread_exact(h_x, 1, size_x, f); verify_close_file(f);
+    f = fopen(argv[3], "rb"); verify_fread_exact(h_x_scale, 1, size_x_scale, f); verify_close_file(f);
+    f = fopen(argv[4], "rb"); verify_fread_exact(h_x_zp, 1, size_x_zp, f); verify_close_file(f);
+    f = fopen(argv[5], "rb"); verify_fread_exact(h_w, 1, size_w, f); verify_close_file(f);
+    f = fopen(argv[6], "rb"); verify_fread_exact(h_w_scale, 1, size_w_scale, f); verify_close_file(f);
+    f = fopen(argv[7], "rb"); verify_fread_exact(h_w_zp, 1, size_w_zp, f); verify_close_file(f);
+    f = fopen(argv[8], "rb"); verify_fread_exact(h_y_scale, 1, size_y_scale, f); verify_close_file(f);
+    f = fopen(argv[9], "rb"); verify_fread_exact(h_y_zp, 1, size_y_zp, f); verify_close_file(f);
 
     double *d_x, *d_x_scale, *d_x_zp, *d_w, *d_w_scale, *d_w_zp, *d_y_scale, *d_y_zp;
     uint8_t* d_y;
-    cudaMalloc(&d_x, size_x); cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_x_scale, size_x_scale); cudaMemcpy(d_x_scale, h_x_scale, size_x_scale, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_x_zp, size_x_zp); cudaMemcpy(d_x_zp, h_x_zp, size_x_zp, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_w, size_w); cudaMemcpy(d_w, h_w, size_w, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_w_scale, size_w_scale); cudaMemcpy(d_w_scale, h_w_scale, size_w_scale, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_w_zp, size_w_zp); cudaMemcpy(d_w_zp, h_w_zp, size_w_zp, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_y_scale, size_y_scale); cudaMemcpy(d_y_scale, h_y_scale, size_y_scale, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_y_zp, size_y_zp); cudaMemcpy(d_y_zp, h_y_zp, size_y_zp, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_y, size_y);
+    CUDA_CHECK(cudaMalloc(&d_x, size_x); CUDA_CHECK(cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_x_scale, size_x_scale); CUDA_CHECK(cudaMemcpy(d_x_scale, h_x_scale, size_x_scale, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_x_zp, size_x_zp); CUDA_CHECK(cudaMemcpy(d_x_zp, h_x_zp, size_x_zp, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_w, size_w); CUDA_CHECK(cudaMemcpy(d_w, h_w, size_w, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_w_scale, size_w_scale); CUDA_CHECK(cudaMemcpy(d_w_scale, h_w_scale, size_w_scale, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_w_zp, size_w_zp); CUDA_CHECK(cudaMemcpy(d_w_zp, h_w_zp, size_w_zp, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_y_scale, size_y_scale); CUDA_CHECK(cudaMemcpy(d_y_scale, h_y_scale, size_y_scale, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_y_zp, size_y_zp); CUDA_CHECK(cudaMemcpy(d_y_zp, h_y_zp, size_y_zp, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_y, size_y));
 
     int threads = 256;
     int blocks = (out_len + threads - 1) / threads;
@@ -161,13 +162,14 @@ int main(int argc, char** argv) {
         d_y_scale, d_y_zp, d_y, N, IC, IH, IW, OC, KH, KW, OH, OW,
         p[9], p[10], p[11], p[12], p[13], p[14], group,
         x_scale_size, x_zp_size, w_scale_size, w_zp_size, y_scale_size, y_zp_size);
+        CUDA_CHECK_LAUNCH();
 
-    cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost);
-    f = fopen(argv[11], "wb"); fwrite(h_y, 1, size_y, f); fclose(f);
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost));
+    f = fopen(argv[11], "wb"); verify_fwrite_exact(h_y, 1, size_y, f); verify_close_file(f);
 
     free(h_x); free(h_x_scale); free(h_x_zp); free(h_w); free(h_w_scale);
     free(h_w_zp); free(h_y_scale); free(h_y_zp); free(h_y);
-    cudaFree(d_x); cudaFree(d_x_scale); cudaFree(d_x_zp); cudaFree(d_w); cudaFree(d_w_scale);
-    cudaFree(d_w_zp); cudaFree(d_y_scale); cudaFree(d_y_zp); cudaFree(d_y);
+    CUDA_CHECK(cudaFree(d_x); CUDA_CHECK(cudaFree(d_x_scale)); CUDA_CHECK(cudaFree(d_x_zp)); CUDA_CHECK(cudaFree(d_w)); CUDA_CHECK(cudaFree(d_w_scale)));
+    CUDA_CHECK(cudaFree(d_w_zp); CUDA_CHECK(cudaFree(d_y_scale)); CUDA_CHECK(cudaFree(d_y_zp)); CUDA_CHECK(cudaFree(d_y)));
     return 0;
 }

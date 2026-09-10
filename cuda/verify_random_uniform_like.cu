@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 #include "verify_random_common.cuh"
 
@@ -52,10 +53,10 @@ int main(int argc, char** argv) {
     }
     if (fread(&p, sizeof(RandomUniformLikeParams), 1, fp) != 1) {
         fprintf(stderr, "read params failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     if ((size_t)p.numel != out_len) {
         fprintf(stderr, "out_len mismatch: got %zu expected %d\n", out_len, p.numel);
@@ -69,14 +70,15 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    cudaMalloc(&d_out, out_len * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&d_out, out_len * sizeof(float)));
 
     int threads = 256;
     int blocks = (int)((out_len + threads - 1) / threads);
     random_uniform_like_kernel<<<blocks, threads>>>(d_out, p.numel, p.low, p.high, p.seed);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -85,12 +87,12 @@ int main(int argc, char** argv) {
     }
     if (fwrite(h_out, sizeof(float), out_len, fo) != out_len) {
         fprintf(stderr, "fwrite mismatch\n");
-        fclose(fo);
+        verify_close_file(fo);
         return 1;
     }
-    fclose(fo);
+    verify_close_file(fo);
 
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_out));
     free(h_out);
     return 0;
 }

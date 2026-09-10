@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,7 +56,7 @@ static int read_triangular_params(const char* path, TriangularParams* params) {
     }
     int32_t header[3] = {0, 0, 0};
     if (fread(header, sizeof(int32_t), 3, fp) != 3) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "read params header failed\n");
         return 0;
     }
@@ -63,16 +64,16 @@ static int read_triangular_params(const char* path, TriangularParams* params) {
     params->upper = header[1];
     params->k = header[2];
     if (params->rank <= 0 || params->rank > MAX_RANK) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "invalid rank\n");
         return 0;
     }
     if (fread(params->dims, sizeof(int32_t), (size_t)params->rank, fp) != (size_t)params->rank) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "read dims failed\n");
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
     return 1;
 }
 
@@ -115,7 +116,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t read_count = fread(h_input, sizeof(float), out_len, fi);
-    fclose(fi);
+    verify_close_file(fi);
     if (read_count != out_len) {
         fprintf(stderr, "read input failed\n");
         return 1;
@@ -123,16 +124,17 @@ int main(int argc, char** argv) {
 
     float* d_input = NULL;
     float* d_output = NULL;
-    cudaMalloc(&d_input, out_len * sizeof(float));
-    cudaMalloc(&d_output, out_len * sizeof(float));
-    cudaMemcpy(d_input, h_input, out_len * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_input, out_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_output, out_len * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, out_len * sizeof(float), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     triangular_kernel<<<blocks, threads>>>(d_input, d_output, params, out_len);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -140,14 +142,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t write_count = fwrite(h_output, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (write_count != out_len) {
         fprintf(stderr, "write output failed\n");
         return 1;
     }
 
-    cudaFree(d_input);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_input);
     free(h_output);
     return 0;

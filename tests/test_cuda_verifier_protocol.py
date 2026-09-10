@@ -1,4 +1,5 @@
 import os
+import re
 import stat
 import struct
 import subprocess
@@ -12,6 +13,7 @@ from tools.numerical import cuda as cuda_runner
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "cache"
+VERIFIER_SOURCES = sorted((ROOT / "cuda").glob("verify_*.cu"))
 
 
 def _executable(name):
@@ -24,6 +26,48 @@ def _executable(name):
 def _write_executable(path, source):
     path.write_text(source, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+def _includes_common(source_path, seen=None):
+    seen = set() if seen is None else seen
+    if source_path in seen:
+        return False
+    seen.add(source_path)
+    source = source_path.read_text(encoding="utf-8")
+    if '#include "verify_common.cuh"' in source:
+        return True
+    includes = re.findall(r'#include "(verify_[^"]+\.cuh)"', source)
+    return any(_includes_common(source_path.parent / name, seen) for name in includes)
+
+
+def test_all_178_verifiers_reach_checked_runtime_and_io_helpers():
+    assert len(VERIFIER_SOURCES) == 178
+    missing = [path.name for path in VERIFIER_SOURCES if not _includes_common(path)]
+    assert missing == []
+
+    protocol_sources = VERIFIER_SOURCES + [
+        path
+        for path in sorted((ROOT / "cuda").glob("verify_*.cuh"))
+        if path.name != "verify_common.cuh"
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in protocol_sources)
+    assert combined.count("<<<") == combined.count("CUDA_CHECK_LAUNCH();")
+
+    raw_cuda = []
+    unchecked_io = []
+    for path in protocol_sources:
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"\bcuda(?:Malloc|MallocManaged|Free|Memcpy|Memset|DeviceSynchronize|SetDevice)\s*\(", line) and "CUDA_CHECK(" not in line:
+                raw_cuda.append(f"{path.name}:{line_number}")
+            stripped = line.strip()
+            if re.match(r"f(?:read|write)\s*\(", stripped) and not any(
+                marker in stripped for marker in ("=", "!=", "==")
+            ):
+                unchecked_io.append(f"{path.name}:{line_number}")
+            if "fclose(" in line:
+                unchecked_io.append(f"{path.name}:{line_number}")
+    assert raw_cuda == []
+    assert unchecked_io == []
 
 
 def test_runner_preserves_exit_code_and_distinctive_stderr(tmp_path, monkeypatch):

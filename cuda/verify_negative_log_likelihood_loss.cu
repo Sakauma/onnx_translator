@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -73,15 +74,15 @@ static int read_params(const char* path, LossParams* params) {
     if (!fp) return 0;
     int32_t ints[7];
     if (fread(ints, sizeof(int32_t), 7, fp) != 7) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     int64_t ignore_index = 0;
     if (fread(&ignore_index, sizeof(int64_t), 1, fp) != 1) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
     params->batch = ints[0];
     params->classes = ints[1];
     params->spatial = ints[2];
@@ -97,7 +98,7 @@ static int read_double_file(const char* path, double* data, size_t n) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t got = fread(data, sizeof(double), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return got == n;
 }
 
@@ -105,7 +106,7 @@ static int read_i64_file(const char* path, int64_t* data, size_t n) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t got = fread(data, sizeof(int64_t), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return got == n;
 }
 
@@ -113,7 +114,7 @@ static int write_double_file(const char* path, const double* data, size_t n) {
     FILE* fp = fopen(path, "wb");
     if (!fp) return 0;
     size_t wrote = fwrite(data, sizeof(double), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 
@@ -145,26 +146,27 @@ int main(int argc, char** argv) {
     int64_t* d_target = NULL;
     double* d_weight = NULL;
     double* d_output = NULL;
-    cudaMalloc(&d_input, input_len * sizeof(double));
-    cudaMalloc(&d_target, target_len * sizeof(int64_t));
-    cudaMalloc(&d_output, out_len * sizeof(double));
-    cudaMemcpy(d_input, h_input, input_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_target, h_target, target_len * sizeof(int64_t), cudaMemcpyHostToDevice);
-    cudaMemset(d_output, 0, out_len * sizeof(double));
+    CUDA_CHECK(cudaMalloc(&d_input, input_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_target, target_len * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_output, out_len * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, input_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_target, h_target, target_len * sizeof(int64_t), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_output, 0, out_len * sizeof(double)));
     if (params.has_weight) {
-        cudaMalloc(&d_weight, (size_t)params.classes * sizeof(double));
-        cudaMemcpy(d_weight, h_weight, (size_t)params.classes * sizeof(double), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMalloc(&d_weight, (size_t)params.classes * sizeof(double)));
+        CUDA_CHECK(cudaMemcpy(d_weight, h_weight, (size_t)params.classes * sizeof(double), cudaMemcpyHostToDevice));
     }
 
     nll_loss_kernel<<<1, 1>>>(d_input, d_target, d_weight, d_output, params);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_output, d_output, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_len * sizeof(double), cudaMemcpyDeviceToHost));
     int ok = write_double_file(argv[6], h_output, out_len);
 
-    cudaFree(d_input);
-    cudaFree(d_target);
-    if (d_weight) cudaFree(d_weight);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_target));
+    if (d_weight) CUDA_CHECK(cudaFree(d_weight));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_input);
     free(h_target);
     free(h_weight);

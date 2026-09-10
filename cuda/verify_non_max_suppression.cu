@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -157,14 +158,14 @@ static int read_params(const char* path, NmsParams* params) {
     int32_t ints[5];
     float floats[2];
     if (fread(ints, sizeof(int32_t), 5, fp) != 5) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     if (fread(floats, sizeof(float), 2, fp) != 2) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
     params->batch_count = ints[0];
     params->num_boxes = ints[1];
     params->class_count = ints[2];
@@ -179,7 +180,7 @@ static int read_double_file(const char* path, double* data, size_t n) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t got = fread(data, sizeof(double), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return got == n;
 }
 
@@ -187,7 +188,7 @@ static int write_i64_file(const char* path, const int64_t* data, size_t n) {
     FILE* fp = fopen(path, "wb");
     if (!fp) return 0;
     size_t wrote = fwrite(data, sizeof(int64_t), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 
@@ -219,35 +220,36 @@ int main(int argc, char** argv) {
     double* d_scores = NULL;
     int64_t* d_output = NULL;
     int32_t* d_rows = NULL;
-    cudaMalloc(&d_boxes, boxes_len * sizeof(double));
-    cudaMalloc(&d_scores, scores_len * sizeof(double));
-    cudaMalloc(&d_output, max_out_len * sizeof(int64_t));
-    cudaMalloc(&d_rows, sizeof(int32_t));
-    cudaMemcpy(d_boxes, h_boxes, boxes_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_scores, h_scores, scores_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemset(d_output, 0, max_out_len * sizeof(int64_t));
-    cudaMemset(d_rows, 0, sizeof(int32_t));
+    CUDA_CHECK(cudaMalloc(&d_boxes, boxes_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_scores, scores_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_output, max_out_len * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_rows, sizeof(int32_t)));
+    CUDA_CHECK(cudaMemcpy(d_boxes, h_boxes, boxes_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_scores, h_scores, scores_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_output, 0, max_out_len * sizeof(int64_t)));
+    CUDA_CHECK(cudaMemset(d_rows, 0, sizeof(int32_t)));
 
     nms_kernel<<<1, 1>>>(d_boxes, d_scores, d_output, d_rows, params);
-    cudaDeviceSynchronize();
-    cudaMemcpy(&h_rows, d_rows, sizeof(int32_t), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_rows, d_rows, sizeof(int32_t), cudaMemcpyDeviceToHost));
     if (h_rows < 0 || (size_t)h_rows * 3u != out_len) {
-        cudaFree(d_boxes);
-        cudaFree(d_scores);
-        cudaFree(d_output);
-        cudaFree(d_rows);
+        CUDA_CHECK(cudaFree(d_boxes));
+        CUDA_CHECK(cudaFree(d_scores));
+        CUDA_CHECK(cudaFree(d_output));
+        CUDA_CHECK(cudaFree(d_rows));
         free(h_boxes);
         free(h_scores);
         free(h_output);
         return 1;
     }
-    cudaMemcpy(h_output, d_output, (out_len == 0 ? 1u : out_len) * sizeof(int64_t), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, (out_len == 0 ? 1u : out_len) * sizeof(int64_t), cudaMemcpyDeviceToHost));
     int ok = write_i64_file(argv[8], h_output, out_len);
 
-    cudaFree(d_boxes);
-    cudaFree(d_scores);
-    cudaFree(d_output);
-    cudaFree(d_rows);
+    CUDA_CHECK(cudaFree(d_boxes));
+    CUDA_CHECK(cudaFree(d_scores));
+    CUDA_CHECK(cudaFree(d_output));
+    CUDA_CHECK(cudaFree(d_rows));
     free(h_boxes);
     free(h_scores);
     free(h_output);
