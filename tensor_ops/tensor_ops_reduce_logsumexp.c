@@ -23,14 +23,32 @@ static void reduce_log_sum_exp_stable_forward(const Tensor* input, Tensor* outpu
         prepare_reduce_coords(i, input, output, params, coords);
 
         double max_value = -INFINITY;
+        int has_positive_infinity = 0;
+        int has_nan = 0;
         for (size_t r = 0; r < reduce_total_steps; r++) {
             update_reduce_coords(input, params, coords, r);
             size_t in_idx = get_index_from_coords(coords, input->shape, input->ndim);
             double val = get_value_as_double(input, in_idx);
-            double candidate = isinf(val) ? -INFINITY : val;
-            if (candidate > max_value) {
-                max_value = candidate;
+            if (isnan(val)) {
+                has_nan = 1;
+            } else if (isinf(val) && val > 0.0) {
+                has_positive_infinity = 1;
+            } else if (val > max_value) {
+                max_value = val;
             }
+        }
+
+        if (has_nan) {
+            set_tensor_value_from_float(output, i, NAN);
+            continue;
+        }
+        if (has_positive_infinity) {
+            set_tensor_value_from_float(output, i, INFINITY);
+            continue;
+        }
+        if (isinf(max_value) && max_value < 0.0) {
+            set_tensor_value_from_float(output, i, -INFINITY);
+            continue;
         }
 
         double sum = 0.0;

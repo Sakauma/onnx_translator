@@ -85,12 +85,13 @@ class ReduceBase(Ops):
             elif op_name == "ReduceLogSum":
                 out_data = np.log(np.sum(arr, axis=axis, keepdims=keepdims))
             elif op_name == "ReduceLogSumExp":
-                data_max = arr.copy()
-                data_max[np.isinf(data_max)] = -np.inf
-                max_values = np.max(data_max, axis=axis, keepdims=True)
-                shifted = np.subtract(arr, max_values)
-                summed = np.sum(np.exp(shifted), axis=axis, keepdims=True, dtype=arr.dtype)
-                out_data = np.log(summed) + max_values
+                max_values = np.max(arr, axis=axis, keepdims=True)
+                with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+                    shifted = np.subtract(arr, max_values)
+                    summed = np.sum(np.exp(shifted), axis=axis, keepdims=True, dtype=arr.dtype)
+                    out_data = np.log(summed) + max_values
+                out_data = np.where(np.isposinf(max_values), np.inf, out_data)
+                out_data = np.where(np.isneginf(max_values), -np.inf, out_data)
                 if not keepdims:
                     out_data = np.squeeze(out_data, axis=axis)
             elif op_name == "ReduceSumSquare":

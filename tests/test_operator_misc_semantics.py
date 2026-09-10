@@ -459,6 +459,61 @@ def test_c_backend_reduce_log_sum_exp_uses_stable_reference_formula():
     _assert_tensor_matches(actual, expected, rtol=1e-6, atol=1e-6)
 
 
+# 非有限窗口使用 LogSumExp 的极限值，有限窗口仍使用稳定 max-shift，NaN 继续传播。
+def test_c_backend_reduce_log_sum_exp_handles_non_finite_slices(monkeypatch):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.array(
+        [
+            [-np.inf, -np.inf],
+            [np.inf, -np.inf],
+            [np.inf, 2.0],
+            [1000.0, 1001.0],
+            [np.nan, 1.0],
+        ],
+        dtype=np.float32,
+    )
+    axes = np.array([1], dtype=np.int64)
+    op = ReduceLogSumExp(["x", "axes"], ["y"], keepdims=1, dtype="float32")
+
+    def fail_if_fallback(*args, **kwargs):
+        raise AssertionError("ReduceLogSumExp unexpectedly used the Python fallback")
+
+    monkeypatch.setattr(op, "_numpy_reduce", fail_if_fallback)
+    actual = op.forward(_tensor(x, "float32"), _tensor(axes, "int64"))["tensor"]
+    expected_finite = 1001.0 + np.log1p(np.exp(-1.0))
+
+    assert actual.data.shape == (5, 1)
+    assert np.isneginf(actual.data[0, 0])
+    assert np.isposinf(actual.data[1, 0])
+    assert np.isposinf(actual.data[2, 0])
+    np.testing.assert_allclose(actual.data[3, 0], expected_finite, rtol=1e-6, atol=1e-6)
+    assert np.isnan(actual.data[4, 0])
+
+
+# Python fallback 对多轴、keepdims 和非有限窗口保持相同的公开语义。
+def test_python_reduce_log_sum_exp_handles_non_finite_multi_axis(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    x = np.array(
+        [
+            [[-np.inf, -np.inf], [-np.inf, -np.inf]],
+            [[np.inf, -np.inf], [3.0, 4.0]],
+        ],
+        dtype=np.float32,
+    )
+    axes = np.array([1, -1], dtype=np.int64)
+    actual = ReduceLogSumExp(["x", "axes"], ["y"], keepdims=0, dtype="float32").forward(
+        _tensor(x, "float32"),
+        _tensor(axes, "int64"),
+    )["tensor"]
+
+    assert actual.data.shape == (2,)
+    np.testing.assert_array_equal(np.isneginf(actual.data), np.array([True, False]))
+    np.testing.assert_array_equal(np.isposinf(actual.data), np.array([False, True]))
+
+
 # 验证 bitwise/bitshift 整数语义与 NumPy 等价公式一致。
 def test_c_backend_bitwise_ops_match_integer_formulas():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
