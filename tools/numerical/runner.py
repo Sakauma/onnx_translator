@@ -126,12 +126,20 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if op_name == "topk":
             idx_path = "tmp_out_idx.bin"
             if not os.path.exists(idx_path):
-                print(f"  ❌ Iter {i} FAILED")
-                print("     Missing tmp_out_idx.bin for TopK")
-                break
+                raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {idx_path}")
 
-            cuda_topk_indices = np.fromfile(idx_path, dtype=np.int64).reshape(expected_shape)
-            os.remove(idx_path)
+            expected_bytes = int(np.prod(expected_shape)) * np.dtype(np.int64).itemsize
+            actual_bytes = os.path.getsize(idx_path)
+            try:
+                if actual_bytes != expected_bytes:
+                    raise RuntimeError(
+                        f"CUDA verifier sidecar has invalid size [{op_name}]: {idx_path}; "
+                        f"expected {expected_bytes} bytes, got {actual_bytes}"
+                    )
+                cuda_topk_indices = np.fromfile(idx_path, dtype=np.int64).reshape(expected_shape)
+            finally:
+                if os.path.exists(idx_path):
+                    os.remove(idx_path)
 
             nps_vals = to_float32(nps_out, out_dtype)
             ok_vals, max_abs, max_rel, fail_mask = check_accuracy(nps_vals, cuda_out, atol, rtol, out_dtype)

@@ -22,6 +22,24 @@ from .cuda import run_cuda_ground_truth
 from .dtype import quantize_to_dtype_float32, to_float32
 
 
+def _read_sidecar(path, dtype, shape, op_name):
+    """Read one verifier sidecar and reject missing or malformed payloads."""
+    expected_bytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
+    if not os.path.exists(path):
+        raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {path}")
+    actual_bytes = os.path.getsize(path)
+    try:
+        if actual_bytes != expected_bytes:
+            raise RuntimeError(
+                f"CUDA verifier sidecar has invalid size [{op_name}]: {path}; "
+                f"expected {expected_bytes} bytes, got {actual_bytes}"
+            )
+        return np.fromfile(path, dtype=dtype).reshape(shape)
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
 class SpecialOutputAction(Enum):
     """告知通用调度器当前迭代是否已被特殊协议消费。"""
 
@@ -111,17 +129,16 @@ def handle_special_output(state):
 
         missing_paths = [path for _name, _expected, path in side_specs if not os.path.exists(path)]
         if missing_paths:
-            print(f"  ❌ Iter {i} FAILED")
-            print(f"     Missing {op_cls.__name__} sidecar output: {', '.join(missing_paths)}")
             for _name, _expected, path in side_specs:
                 if os.path.exists(path):
                     os.remove(path)
-            return SpecialOutputAction.STOP
+            raise RuntimeError(
+                f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing_paths)}"
+            )
 
         comparisons = [("Y", y_np, cuda_y)]
         for name, expected, path in side_specs:
-            cuda_side = np.fromfile(path, dtype=np.float64).reshape(expected.shape)
-            os.remove(path)
+            cuda_side = _read_sidecar(path, np.float64, expected.shape, op_name)
             comparisons.append((name, expected, cuda_side))
 
         ok_all = True
@@ -168,11 +185,8 @@ def handle_special_output(state):
 
         mask_path = "tmp_dropout_mask.bin"
         if not os.path.exists(mask_path):
-            print(f"  ❌ Iter {i} FAILED")
-            print("     Missing Dropout mask sidecar output")
-            return SpecialOutputAction.STOP
-        cuda_mask = np.fromfile(mask_path, dtype=np.uint8).reshape(mask_np.shape).astype(np.bool_)
-        os.remove(mask_path)
+            raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {mask_path}")
+        cuda_mask = _read_sidecar(mask_path, np.uint8, mask_np.shape, op_name).astype(np.bool_)
 
         nps_y = to_float32(y_np, out_dtype)
         cuda_y = quantize_to_dtype_float32(cuda_y, out_dtype)
@@ -214,17 +228,14 @@ def handle_special_output(state):
             "running_var": "tmp_batch_norm_running_var.bin",
         }
         if not all(os.path.exists(path) for path in side_paths.values()):
-            print(f"  ❌ Iter {i} FAILED")
-            print("     Missing BatchNormalization training sidecar output")
+            missing = [path for path in side_paths.values() if not os.path.exists(path)]
             for path in side_paths.values():
                 if os.path.exists(path):
                     os.remove(path)
-            return SpecialOutputAction.STOP
+            raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing)}")
 
-        cuda_running_mean = np.fromfile(side_paths["running_mean"], dtype=np.float64).reshape(running_mean_np.shape)
-        cuda_running_var = np.fromfile(side_paths["running_var"], dtype=np.float64).reshape(running_var_np.shape)
-        for path in side_paths.values():
-            os.remove(path)
+        cuda_running_mean = _read_sidecar(side_paths["running_mean"], np.float64, running_mean_np.shape, op_name)
+        cuda_running_var = _read_sidecar(side_paths["running_var"], np.float64, running_var_np.shape, op_name)
 
         comparisons = [
             ("y", y_np, cuda_y),
@@ -280,17 +291,14 @@ def handle_special_output(state):
             "inv_std": "tmp_layer_norm_inv_std.bin",
         }
         if not all(os.path.exists(path) for path in side_paths.values()):
-            print(f"  ❌ Iter {i} FAILED")
-            print("     Missing LayerNormalization stats sidecar output")
+            missing = [path for path in side_paths.values() if not os.path.exists(path)]
             for path in side_paths.values():
                 if os.path.exists(path):
                     os.remove(path)
-            return SpecialOutputAction.STOP
+            raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing)}")
 
-        cuda_mean = np.fromfile(side_paths["mean"], dtype=np.float64).reshape(mean_np.shape)
-        cuda_inv_std = np.fromfile(side_paths["inv_std"], dtype=np.float64).reshape(inv_std_np.shape)
-        for path in side_paths.values():
-            os.remove(path)
+        cuda_mean = _read_sidecar(side_paths["mean"], np.float64, mean_np.shape, op_name)
+        cuda_inv_std = _read_sidecar(side_paths["inv_std"], np.float64, inv_std_np.shape, op_name)
 
         stash_dtype = nn.onnx_dtype_mapping.get(int(init_args.get("stash_type", 1)), "float32")
         comparisons = [
@@ -360,11 +368,8 @@ def handle_special_output(state):
         if log_prob_np is not None:
             log_path = "tmp_out_log_prob.bin"
             if not os.path.exists(log_path):
-                print(f"  ❌ Iter {i} FAILED")
-                print("     Missing SoftmaxCrossEntropyLoss log_prob sidecar output")
-                return SpecialOutputAction.STOP
-            cuda_log = np.fromfile(log_path, dtype=np.float64).reshape(log_prob_np.shape)
-            os.remove(log_path)
+                raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {log_path}")
+            cuda_log = _read_sidecar(log_path, np.float64, log_prob_np.shape, op_name)
             log_ref = quantize_to_dtype_float32(cuda_log, out_dtype)
             log_nps = to_float32(log_prob_np, out_dtype)
             log_ok, log_abs, log_rel, _log_fail = check_accuracy(log_nps, log_ref, atol, rtol, out_dtype)
@@ -512,18 +517,15 @@ def handle_special_output(state):
             "counts": "tmp_unique_counts.bin",
         }
         if not all(os.path.exists(path) for path in side_paths.values()):
-            print(f"  ❌ Iter {i} FAILED")
-            print("     Missing Unique sidecar output")
+            missing = [path for path in side_paths.values() if not os.path.exists(path)]
             for path in side_paths.values():
                 if os.path.exists(path):
                     os.remove(path)
-            return SpecialOutputAction.STOP
+            raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing)}")
 
-        cuda_indices = np.fromfile(side_paths["indices"], dtype=np.int64).reshape(indices_np.shape)
-        cuda_inverse = np.fromfile(side_paths["inverse"], dtype=np.int64).reshape(inverse_np.shape)
-        cuda_counts = np.fromfile(side_paths["counts"], dtype=np.int64).reshape(counts_np.shape)
-        for path in side_paths.values():
-            os.remove(path)
+        cuda_indices = _read_sidecar(side_paths["indices"], np.int64, indices_np.shape, op_name)
+        cuda_inverse = _read_sidecar(side_paths["inverse"], np.int64, inverse_np.shape, op_name)
+        cuda_counts = _read_sidecar(side_paths["counts"], np.int64, counts_np.shape, op_name)
 
         if out_dtype == "int64":
             values_ok = np.array_equal(values_np.astype(np.int64), cuda_values.astype(np.int64))

@@ -102,6 +102,19 @@ def test_multi_output_missing_cuda_result_propagates(monkeypatch):
         runner_special_outputs.handle_special_output(state)
 
 
+@pytest.mark.parametrize("payload", [b"", b"\x00" * 4, b"\x00" * 12])
+def test_sidecar_rejects_missing_or_wrong_sized_payload(tmp_path, payload):
+    path = tmp_path / "tmp_unique_indices.bin"
+    if payload:
+        path.write_bytes(payload)
+
+    expected = "missing" if not payload else "invalid size"
+    with pytest.raises(RuntimeError, match=rf"{expected}.*unique.*tmp_unique_indices"):
+        runner_special_outputs._read_sidecar(path, np.int64, (1,), "unique")
+
+    assert not path.exists()
+
+
 @pytest.mark.parametrize(
     "op_name,out_dtype,expected",
     [
