@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 // 核心核函数：只处理 float32，保证最高精度真值
 // 实现 `add_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
@@ -30,28 +31,32 @@ int main(int argc, char** argv) {
     size_t bytes = n * sizeof(float);
     
     // 1. 读取数据 (假设 Python 已经转好了 float32)
-    float *h_a = (float*)malloc(bytes);
-    float *h_b = (float*)malloc(bytes);
-    float *h_out = (float*)malloc(bytes);
+    float *h_a = (float*)verify_malloc(bytes);
+    float *h_b = (float*)verify_malloc(bytes);
+    float *h_out = (float*)verify_malloc(bytes);
     
-    FILE *fa = fopen(argv[2], "rb"); fread(h_a, 1, bytes, fa); fclose(fa);
-    FILE *fb = fopen(argv[3], "rb"); fread(h_b, 1, bytes, fb); fclose(fb);
+    verify_read_file(argv[2], h_a, bytes);
+    verify_read_file(argv[3], h_b, bytes);
     
     // 2. GPU 计算
     float *d_a, *d_b, *d_out;
-    cudaMalloc(&d_a, bytes); cudaMalloc(&d_b, bytes); cudaMalloc(&d_out, bytes);
-    cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_a, bytes));
+    CUDA_CHECK(cudaMalloc(&d_b, bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
+    CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice));
     
     add_kernel<<<(n + 255)/256, 256>>>(d_a, d_b, d_out, n);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
     
     // 3. 写入结果
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
-    FILE *fout = fopen(argv[4], "wb"); fwrite(h_out, 1, bytes, fout); fclose(fout);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
+    verify_write_file(argv[4], h_out, bytes);
     
     // 清理
     free(h_a); free(h_b); free(h_out);
-    cudaFree(d_a); cudaFree(d_b); cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_a));
+    CUDA_CHECK(cudaFree(d_b));
+    CUDA_CHECK(cudaFree(d_out));
     return 0;
 }

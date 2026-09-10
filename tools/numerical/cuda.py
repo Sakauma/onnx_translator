@@ -18,11 +18,40 @@ import numpy as np
 CUDA_VERIFY_DIR = os.environ.get("CUDA_VERIFY_DIR", "cache")
 
 
+class CudaVerifierError(RuntimeError):
+    def __init__(self, op_name, message, returncode=None, stderr=""):
+        self.op_name = op_name
+        self.returncode = returncode
+        self.stderr = stderr
+        details = f"CUDA verifier failed [{op_name}]"
+        if returncode is not None:
+            details += f" with exit code {returncode}"
+        if message:
+            details += f": {message}"
+        if stderr:
+            details += f"\nstderr: {stderr}"
+        super().__init__(details)
+
+
+def _write_array_input(op_name, path, array):
+    try:
+        np.ascontiguousarray(array).tofile(path)
+    except OSError as exc:
+        raise CudaVerifierError(op_name, f"failed to write input {path}: {exc}") from exc
+
+
+def _write_params_input(op_name, path, params_binary):
+    try:
+        with open(path, "wb") as params_file:
+            params_file.write(params_binary)
+    except OSError as exc:
+        raise CudaVerifierError(op_name, f"failed to write params {path}: {exc}") from exc
+
+
 def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=np.float32, target_shape=None):
     exe = os.path.join(CUDA_VERIFY_DIR, f"verify_{op_name}")
     if not os.path.exists(exe):
-        print(f"⚠️  Missing CUDA executable: {exe}")
-        return None
+        raise CudaVerifierError(op_name, f"missing executable: {exe}")
         
     cuda_inputs = list(inputs_f32) # Copy list
 
@@ -32,14 +61,12 @@ def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=
             files.append("null")
             continue
         fname = f"tmp_in_{i}.bin"
-        #arr.tofile(fname)
-        np.ascontiguousarray(arr).tofile(fname)
+        _write_array_input(op_name, fname, arr)
         files.append(fname)
     
     if params_binary is not None:
         p_fname = "tmp_params.bin"
-        with open(p_fname, "wb") as f:
-            f.write(params_binary)
+        _write_params_input(op_name, p_fname, params_binary)
         files.append(p_fname)
 
     out_fname = "tmp_out.bin"
@@ -60,17 +87,42 @@ def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=
         else:
             args = [exe, str(out_elem_count)] + files + [out_fname]
 
-        subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        completed = subprocess.run(
+            args,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise CudaVerifierError(
+                op_name,
+                "verifier process returned a failure status",
+                returncode=completed.returncode,
+                stderr=completed.stderr.strip(),
+            )
+        if not os.path.exists(out_fname):
+            raise CudaVerifierError(op_name, f"verifier did not create output: {out_fname}")
         final_shape = target_shape if target_shape is not None else cuda_inputs[0].shape
-        result = np.fromfile(out_fname, dtype=output_dtype).reshape(final_shape)
-        
-    except Exception as e:
-        print(f"CUDA Fail [{op_name}]: {e}") 
-        result = None
-    # except subprocess.CalledProcessError as e:
-    #     msg = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
-    #     print(f"CUDA Fail [{op_name}]: {msg}")
-    #     result = None
+        expected_count = int(np.prod(final_shape))
+        expected_bytes = expected_count * np.dtype(output_dtype).itemsize
+        actual_bytes = os.path.getsize(out_fname)
+        if actual_bytes != expected_bytes:
+            raise CudaVerifierError(
+                op_name,
+                f"invalid output size: expected {expected_bytes} bytes, got {actual_bytes}",
+            )
+        result = np.fromfile(out_fname, dtype=output_dtype)
+        if result.size != expected_count:
+            raise CudaVerifierError(
+                op_name,
+                f"invalid output element count: expected {expected_count}, got {result.size}",
+            )
+        result = result.reshape(final_shape)
+    except CudaVerifierError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise CudaVerifierError(op_name, str(exc)) from exc
     finally:
         for f in files:
             if f != "null" and os.path.exists(f): os.remove(f)

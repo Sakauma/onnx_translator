@@ -14,6 +14,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "verify_common.cuh"
 
 struct DynamicQuantParams {
     float scale;
@@ -108,15 +109,16 @@ int main(int argc, char** argv) {
     float* h_block_max = (float*)malloc(blocks * sizeof(float));
     if (!h_block_min || !h_block_max) return 1;
 
-    cudaMalloc(&d_x, n * sizeof(float));
-    cudaMalloc(&d_out, n * sizeof(float));
-    cudaMalloc(&d_block_min, blocks * sizeof(float));
-    cudaMalloc(&d_block_max, blocks * sizeof(float));
-    cudaMemcpy(d_x, h_x, n * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_x, n * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_out, n * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_block_min, blocks * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_block_max, blocks * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, n * sizeof(float), cudaMemcpyHostToDevice));
 
     reduce_minmax_kernel<<<blocks, threads, threads * 2 * sizeof(float)>>>(d_x, d_block_min, d_block_max, n);
-    cudaMemcpy(h_block_min, d_block_min, blocks * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_block_max, d_block_max, blocks * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaMemcpy(h_block_min, d_block_min, blocks * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_block_max, d_block_max, blocks * sizeof(float), cudaMemcpyDeviceToHost));
 
     float min_val = FLT_MAX;
     float max_val = -FLT_MAX;
@@ -138,7 +140,8 @@ int main(int argc, char** argv) {
     params.zero_point = zp;
 
     dynamic_quantize_kernel<<<blocks, threads>>>(d_x, d_out, n, params);
-    cudaMemcpy(h_out, d_out, n * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, n * sizeof(float), cudaMemcpyDeviceToHost));
     h_out[n] = params.scale;
     h_out[n + 1] = params.zero_point;
 
@@ -148,9 +151,9 @@ int main(int argc, char** argv) {
     free(h_out);
     free(h_block_min);
     free(h_block_max);
-    cudaFree(d_x);
-    cudaFree(d_out);
-    cudaFree(d_block_min);
-    cudaFree(d_block_max);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_out));
+    CUDA_CHECK(cudaFree(d_block_min));
+    CUDA_CHECK(cudaFree(d_block_max));
     return ok ? 0 : 1;
 }
