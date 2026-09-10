@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from functools import lru_cache
 from typing import Any
 
 import onnx
@@ -14,7 +15,7 @@ def canonical_domain(domain: str | None) -> str:
     return DEFAULT_DOMAIN if domain in (None, "", "ai.onnx") else domain
 
 
-# 保留公开注册表的 callable 值，避免破坏已有的直接使用者；版本元数据单独存放。
+# 保留公开注册表的 callable 值，避免破坏已有的直接使用者；anchor 元数据单独存放。
 OP_FACTORY_REGISTRY: dict[tuple[str, str], Callable[..., Any]] = {}
 OP_FACTORY_VERSION_SUPPORT: dict[tuple[str, str], frozenset[int]] = {}
 
@@ -32,8 +33,8 @@ def register_factory(
 ):
     """注册工厂；旧的 ``@register_factory("Add")`` 形式仍然有效。
 
-    未显式声明的旧工厂只承诺其实现长期采用的 opset 17。额外版本必须通过
-    ``declare_factory_versions`` 增量登记，避免把 schema 存在误当成实现兼容。
+    未显式声明的旧工厂以模型 opset 17 为实现 anchor。匹配时比较 effective
+    schema revision；额外能力必须通过 ``declare_factory_versions`` 增量登记。
     """
     key = _key(domain, op_type)
     supported = frozenset(int(version) for version in versions)
@@ -65,9 +66,30 @@ def declare_factory_versions(
     )
 
 
+@lru_cache(maxsize=None)
+def _max_known_opset(domain: str) -> int:
+    return max(
+        (
+            schema.since_version
+            for schema in onnx.defs.get_all_schemas_with_history()
+            if canonical_domain(schema.domain) == domain
+        ),
+        default=0,
+    )
+
+
 def lookup_factory(domain: str | None, op_type: str, opset: int):
     """按声明 anchor 所对应的 schema revision 匹配 effective opset。"""
     normalized_domain = canonical_domain(domain)
+    if opset <= 0:
+        return None, f"invalid opset {opset}; opset versions must be positive"
+    max_known_opset = _max_known_opset(normalized_domain)
+    if opset > max_known_opset:
+        shown_domain = normalized_domain or "ai.onnx"
+        return None, (
+            f"future opset {opset} for domain {shown_domain!r}; "
+            f"maximum understood opset is {max_known_opset}"
+        )
     keys = [_key(normalized_domain, op_type)]
     # 历史工厂中基础算子使用全大写注册名；该兼容仅发生在同一 domain 内。
     if op_type.upper() != op_type:

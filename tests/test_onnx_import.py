@@ -96,6 +96,21 @@ def test_import_accepts_same_schema_segment_and_rejects_older_revision(tmp_path)
         ONNXImport(str(old_path), strict=True)
 
 
+@pytest.mark.parametrize("opset", [0, 999])
+def test_import_rejects_invalid_or_future_opset_in_strict_and_non_strict_modes(tmp_path, opset):
+    model_path = tmp_path / f"add_v{opset}.onnx"
+    _write_add_model(model_path, opset=opset)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        ONNXImport(str(model_path), strict=True)
+    assert f"opset={opset}" in str(exc_info.value)
+
+    generic = ONNXImport(str(model_path), strict=False)[0]
+    assert isinstance(generic, GenericNode)
+    assert generic.opset == opset
+    assert "opset" in generic.error
+
+
 def _write_softmax_model(path, opset, axis_marker=None):
     x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 2, 3])
     y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 2, 3])

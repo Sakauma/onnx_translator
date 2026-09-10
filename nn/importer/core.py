@@ -30,12 +30,15 @@ from onnx import shape_inference
 # 映射到同一 effective schema revision 的模型 opset；新 schema revision 必须新增 anchor。
 _VERIFIED_VERSION_OVERLAYS = {
     18: {"Col2Im", "CenterCropPad"},
-    20: {"Gelu", "RegexFullMatch", "StringConcat", "StringSplit", "ImageDecoder"},
+    20: {"AffineGrid", "Gelu", "RegexFullMatch", "StringConcat", "StringSplit", "ImageDecoder"},
     22: {"DeformConv"},
     23: {"RMSNormalization", "RotaryEmbedding"},
-    24: {"Swish", "TensorScatter", "Attention", "ScatterElements"},
+    24: {
+        "Attention", "MaxPool", "QuantizeLinear", "DequantizeLinear",
+        "ScatterElements", "Swish", "TensorScatter",
+    },
     25: {"Cast", "QuantizeLinear", "DequantizeLinear"},
-    26: {"BitCast", "CastLike", "Shape", "Size"},
+    26: {"BitCast", "CastLike", "CumProd", "Shape", "Size"},
 }
 
 
