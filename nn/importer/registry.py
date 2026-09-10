@@ -83,6 +83,10 @@ def lookup_factory(domain: str | None, op_type: str, opset: int):
     normalized_domain = canonical_domain(domain)
     if opset <= 0:
         return None, f"invalid opset {opset}; opset versions must be positive"
+    known_domains = {key[0] for key in OP_FACTORY_REGISTRY}
+    if normalized_domain not in known_domains:
+        shown_domain = normalized_domain or "ai.onnx"
+        return None, f"unimported domain {shown_domain!r}"
     max_known_opset = _max_known_opset(normalized_domain)
     if opset > max_known_opset:
         shown_domain = normalized_domain or "ai.onnx"
@@ -126,8 +130,5 @@ def lookup_factory(domain: str | None, op_type: str, opset: int):
             )
         return factory, None
 
-    known_domains = sorted({key[0] or "ai.onnx" for key in OP_FACTORY_REGISTRY})
     shown_domain = normalized_domain or "ai.onnx"
-    if shown_domain not in known_domains:
-        return None, f"unimported domain {shown_domain!r}"
     return None, f"operator {op_type!r} is not registered in domain {shown_domain!r}"
