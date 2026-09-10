@@ -124,6 +124,46 @@ def test_dynamic_quantize_gpu_exact_ties_to_even_fixture(tmp_path, monkeypatch):
     assert zero_point.item() == 126
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (np.array([np.inf], dtype=np.float32), np.inf),
+        (np.array([np.inf, -np.inf], dtype=np.float32), np.inf),
+        (np.array([-np.inf, -np.inf], dtype=np.float32), -np.inf),
+        (np.array([np.nan, np.inf], dtype=np.float32), np.nan),
+        (np.array([1000.0, 1000.0], dtype=np.float32), np.float32(1000.0 + np.log(2.0))),
+    ],
+)
+def test_reduce_log_sum_exp_gpu_nonfinite_and_stable_semantics(
+    tmp_path, monkeypatch, source, expected
+):
+    _executable("reduce_log_sum_exp")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cuda_runner, "CUDA_VERIFY_DIR", str(CACHE))
+
+    try:
+        result = cuda_runner.run_cuda_ground_truth(
+            "reduce_log_sum_exp",
+            [source],
+            params_binary=struct.pack("q", source.size),
+            output_dtype=np.float32,
+            target_shape=(1,),
+        )[0]
+    except cuda_runner.CudaVerifierError as exc:
+        if exc.stderr and (
+            "no CUDA-capable device" in exc.stderr
+            or "CUDA driver version is insufficient" in exc.stderr
+            or "initialization error" in exc.stderr
+        ):
+            pytest.skip(exc.stderr)
+        raise
+
+    if np.isnan(expected):
+        assert np.isnan(result)
+    else:
+        np.testing.assert_allclose(result, expected, rtol=1e-6, atol=1e-6)
+
+
 def test_unique_source_checks_all_four_outputs_and_launch():
     source = (ROOT / "cuda" / "verify_unique.cu").read_text(encoding="utf-8")
     assert '#include "verify_common.cuh"' in source
