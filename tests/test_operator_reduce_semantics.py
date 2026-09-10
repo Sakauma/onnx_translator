@@ -11,6 +11,7 @@
 
 from onnx.reference import ReferenceEvaluator
 
+from conftest import _disable_c_backend
 from operator_test_context import *  # noqa: F401,F403
 from nn.Operators import ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum
 
@@ -179,6 +180,55 @@ def test_reduce_sum_empty_axes_shape_inference_matches_runtime_semantics():
 
     reduced = ReduceSum(["x", "axes"], ["y"], dtype="float16").forward_(x, axes)["tensor"]
     assert reduced.size == (1, 1)
+
+
+# 构造器 axes=[] 与 runtime 空 axes 使用相同规则：noop=0 全归约，noop=1 恒等。
+def test_reduce_sum_constructor_empty_axes_matches_runtime_semantics():
+    x = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+    data = _tensor(x, "float32")
+
+    reduce_all_op = ReduceSum(["x"], ["y"], axes=[], keepdims=0, dtype="float32")
+    reduced = reduce_all_op.forward(data)["tensor"]
+    assert reduced.data.shape == ()
+    np.testing.assert_array_equal(reduced.data, np.array(10.0, dtype=np.float32))
+    assert reduce_all_op.forward_(Tensor_(2, 2, dtype="float32"))["tensor"].size == ()
+
+    identity_op = ReduceSum(
+        ["x"],
+        ["y"],
+        axes=[],
+        keepdims=0,
+        noop_with_empty_axes=1,
+        dtype="float32",
+    )
+    identity = identity_op.forward(data)["tensor"]
+    assert identity.data.shape == x.shape
+    np.testing.assert_array_equal(identity.data, x)
+    assert identity_op.forward_(Tensor_(2, 2, dtype="float32"))["tensor"].size == x.shape
+
+
+# 负轴与 keepdims 在构造器路径中仍按规范化后的轴计算 shape 和数值。
+def test_reduce_sum_constructor_negative_axis_preserves_keepdims():
+    x = np.arange(1, 7, dtype=np.float32).reshape(2, 3)
+    op = ReduceSum(["x"], ["y"], axes=[-1], keepdims=1, dtype="float32")
+
+    actual = op.forward(_tensor(x, "float32"))["tensor"]
+    np.testing.assert_array_equal(actual.data, np.sum(x, axis=-1, keepdims=True))
+    assert actual.data.shape == (2, 1)
+    assert op.forward_(Tensor_(2, 3, dtype="float32"))["tensor"].size == (2, 1)
+
+
+# Python fallback 也把构造器空 axes + noop=0 解释为全维归约。
+def test_python_reduce_sum_constructor_empty_axes_reduces_all(monkeypatch):
+    _disable_c_backend(monkeypatch)
+    x = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+
+    actual = ReduceSum(["x"], ["y"], axes=[], keepdims=0, dtype="float32").forward(
+        _tensor(x, "float32")
+    )["tensor"]
+
+    assert actual.data.shape == ()
+    np.testing.assert_array_equal(actual.data, np.array(10.0, dtype=np.float32))
 
 
 # 验证 bfloat16 输入按位解码，并以 bfloat16 输出写回 Reduce 结果。

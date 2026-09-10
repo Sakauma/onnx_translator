@@ -42,12 +42,14 @@ class ReduceBase(Ops):
         if runtime_axes is not None:
             # 如果 axes 是作为 Tensor 输入传进来的
             target_axes = runtime_axes.data.astype(np.int64).flatten().tolist()
-            if not target_axes and not self.noop_with_empty_axes:
-                target_axes = list(range(ndim))
         elif self.axes is not None:
-            target_axes = self.axes
+            target_axes = list(self.axes)
         else:
             # 默认归约所有维度
+            target_axes = list(range(ndim))
+
+        # 属性和运行时输入的空 axes 使用同一 ONNX 语义。
+        if not target_axes and not self.noop_with_empty_axes:
             target_axes = list(range(ndim))
             
         # 归一化负索引
