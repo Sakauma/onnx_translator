@@ -17,6 +17,7 @@ class Softmax(Ops):
         super(Softmax, self).__init__(inputs, outputs)
         self.axis = axis
         self.dtype = dtype
+        self.version = str(version)
         
         if self.lib:
             self.lib.softmax_forward.argtypes = [
@@ -26,14 +27,31 @@ class Softmax(Ops):
     # 执行 `Softmax` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, input: Tensor) -> dict:
         out_shape = input.size
+
+        axis = self.axis
+        if axis < 0:
+            axis += len(out_shape)
+        if axis < 0 or axis >= len(out_shape):
+            raise ValueError(f"Softmax axis {self.axis} is out of range for rank {len(out_shape)}")
+
+        input_data = input.data
+        c_axis = axis
+        c_shape = out_shape
+        if int(self.version) == 11:
+            # ONNX Softmax-11 treats [0, axis) and [axis, rank) as two dimensions.
+            outer = int(np.prod(out_shape[:axis], dtype=np.int64))
+            inner = int(np.prod(out_shape[axis:], dtype=np.int64))
+            c_shape = (outer, inner)
+            input_data = input.data.reshape(c_shape)
+            c_axis = 1
+
+        input_c = self._numpy_to_ctensor(input_data, input.dtype)
+        output_shape_c = (ctypes.c_int * len(c_shape))(*c_shape)
+        output_c = self.lib.create_tensor(output_shape_c, len(c_shape), DTYPE_MAP[self.dtype])
+
+        self.lib.softmax_forward(input_c, output_c, ctypes.c_int(c_axis))
         
-        input_c = self._numpy_to_ctensor(input.data, input.dtype)
-        output_shape_c = (ctypes.c_int * len(out_shape))(*out_shape)
-        output_c = self.lib.create_tensor(output_shape_c, len(out_shape), DTYPE_MAP[self.dtype])
-        
-        self.lib.softmax_forward(input_c, output_c, ctypes.c_int(self.axis))
-        
-        out_data = self._ctensor_to_numpy(output_c, self.dtype)
+        out_data = self._ctensor_to_numpy(output_c, self.dtype).reshape(out_shape)
         self.lib.free_tensor(input_c)
         self.lib.free_tensor(output_c)
         

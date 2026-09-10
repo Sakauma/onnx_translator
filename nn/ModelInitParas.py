@@ -14,6 +14,7 @@ from nn import Tensor
 from nn import onnx_dtype_mapping
 import numpy as np
 from onnx import shape_inference
+from nn.importer.model_loader import load_model
 
 # ONNX数据类型到NumPy数据类型的映射
 onnx_np_dtype_mapping = {
@@ -68,7 +69,7 @@ def ONNXParasGen(file_path):
     tensor_list = []
     
     # 加载ONNX模型
-    model = onnx.load(file_path, load_external_data=False)
+    model = load_model(file_path, load_external_data=True)
     graph = model.graph
 
     # 构建所有Initializer的名称集合

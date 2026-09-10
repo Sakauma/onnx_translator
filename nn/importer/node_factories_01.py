@@ -401,11 +401,20 @@ def _factory_017_gemm(node, import_context):
 def _factory_018_softmax(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
     onnx_graph_list = []
-    axis = -1
+    opset = import_context.get_opset(node.domain)
+    axis = 1 if opset == 11 else -1
     for attr in node.attribute:
         if attr.name == "axis": axis = attr.i
     elem_type = get_dtype(node.output[0])
-    onnx_graph_list.append(nn.Operators.Softmax(node.input, node.output, axis=axis, dtype=onnx_dtype_mapping[elem_type], version="17"))
+    onnx_graph_list.append(
+        nn.Operators.Softmax(
+            node.input,
+            node.output,
+            axis=axis,
+            dtype=onnx_dtype_mapping[elem_type],
+            version=str(opset),
+        )
+    )
     return onnx_graph_list[-1]
 
 

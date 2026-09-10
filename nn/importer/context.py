@@ -14,9 +14,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from nn import Tensor_
-
-
 @dataclass
 class ImportContext:
     """一次模型导入期间由所有节点工厂共享的状态。
@@ -29,10 +26,22 @@ class ImportContext:
     dtype_map: dict[str, int]
     strict: bool = False
     generic_nodes: list[Any] = field(default_factory=list)
+    opset_versions: dict[str, int] = field(default_factory=dict)
+    model_path: str | None = None
 
     def get_dtype(self, name, default):
         """按张量名返回 ONNX ``TensorProto`` 类型编号，未知名称使用调用方默认值。"""
         return self.dtype_map.get(name, default)
+
+    def get_opset(self, domain):
+        """返回节点 domain 在当前模型声明的 effective opset。"""
+        from .registry import canonical_domain
+
+        normalized = canonical_domain(domain)
+        if normalized not in self.opset_versions:
+            shown = normalized or "ai.onnx"
+            raise ValueError(f"model does not declare an opset for domain {shown!r}")
+        return self.opset_versions[normalized]
 
 
 class GenericNode:
@@ -43,25 +52,30 @@ class GenericNode:
     ``generic_nodes``。
     """
 
-    def __init__(self, op_type, inputs, outputs, name=None, attributes=None, error=None):
+    def __init__(self, op_type, inputs, outputs, name=None, attributes=None, error=None,
+                 domain="", opset=None, diagnostic_kind="node"):
         self.op_type = op_type
         self.inputs = list(inputs) if inputs else []
         self.outputs = list(outputs) if outputs else []
         self.name = name if name else f"{op_type}_{outputs[0] if outputs else 'unknown'}"
         self.attributes = attributes if attributes else {}
         self.error = error
+        self.domain = domain or "ai.onnx"
+        self.opset = opset
+        self.diagnostic_kind = diagnostic_kind
+        self.executable = False
 
     def forward(self, *args):
-        # 保持图运行器的返回协议，但用 None 明确表示没有产生可用数值。
-        return {"tensor": [None] * len(self.outputs), "parameters": None}
+        raise RuntimeError(
+            f"GenericNode is diagnostic-only and cannot execute: "
+            f"{self.domain}:{self.op_type} opset={self.opset}: {self.error}"
+        )
 
     def forward_(self, *args):
-        # 占位形状不代表 ONNX 推断结果，仅让非严格模式能够继续遍历图结构。
-        out_tensors = []
-        for _ in self.outputs:
-            out_tensors.append(Tensor_(1, dtype="float32"))
-        res = out_tensors[0] if len(out_tensors) == 1 else out_tensors
-        return {"tensor": res, "parameters": None, "graph": None}
+        raise RuntimeError(
+            f"GenericNode has no valid shape semantics: "
+            f"{self.domain}:{self.op_type} opset={self.opset}: {self.error}"
+        )
 
     @property
     def parameters(self):
@@ -69,6 +83,8 @@ class GenericNode:
         info = []
         if self.error:
             info.append(f"error={self.error}")
+        info.append(f"domain={self.domain}")
+        info.append(f"opset={self.opset}")
         for k, v in self.attributes.items():
             val_str = str(v)
             if len(val_str) > 20: val_str = val_str[:17] + "..."

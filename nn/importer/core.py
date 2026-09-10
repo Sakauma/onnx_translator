@@ -11,18 +11,57 @@
 
 import onnx
 import numpy as np
+from pathlib import Path
 from onnx import numpy_helper
 import nn.Operators
-from nn import onnx_dtype_mapping, Tensor_
+from nn import onnx_dtype_mapping
 from .context import GenericNode, ImportContext
-from .registry import OP_FACTORY_REGISTRY
+from .model_loader import load_model
+from .registry import canonical_domain, declare_factory_versions, lookup_factory
 # 这些导入会执行 @register_factory 装饰器，是构建节点工厂注册表所必需的副作用。
 from . import node_factories_01  # noqa: F401
 from . import node_factories_02  # noqa: F401
 from . import node_factories_03  # noqa: F401
 from . import node_factories_04  # noqa: F401
 from onnx import shape_inference
-import traceback
+
+
+# 这些值是实现能力 anchor，而不是可接受模型版本白名单。lookup 只接受与 anchor
+# 映射到同一 effective schema revision 的模型 opset；新 schema revision 必须新增 anchor。
+_VERIFIED_VERSION_OVERLAYS = {
+    18: {"Col2Im", "CenterCropPad"},
+    20: {"Gelu", "RegexFullMatch", "StringConcat", "StringSplit", "ImageDecoder"},
+    22: {"DeformConv"},
+    23: {"RMSNormalization", "RotaryEmbedding"},
+    24: {"Swish", "TensorScatter", "Attention", "ScatterElements"},
+    25: {"Cast", "QuantizeLinear", "DequantizeLinear"},
+    26: {"BitCast", "CastLike", "Shape", "Size"},
+}
+
+
+def _declare_verified_versions():
+    for version, op_types in _VERIFIED_VERSION_OVERLAYS.items():
+        for op_type in op_types:
+            try:
+                declare_factory_versions(op_type, (version,))
+            except KeyError:
+                # 部分基础工厂以全大写历史键注册。
+                declare_factory_versions(op_type.upper(), (version,))
+
+    # Softmax v11 anchor covers the v11 schema segment; v17 anchor covers v13 semantics.
+    declare_factory_versions("Softmax", (11,))
+
+    # Binarizer 属于 ai.onnx.ml，不应留在默认域或套用默认域版本号。
+    default_key = ("", "Binarizer")
+    from .registry import OP_FACTORY_REGISTRY, OP_FACTORY_VERSION_SUPPORT
+    if default_key in OP_FACTORY_REGISTRY:
+        factory = OP_FACTORY_REGISTRY.pop(default_key)
+        OP_FACTORY_VERSION_SUPPORT.pop(default_key)
+        OP_FACTORY_REGISTRY[("ai.onnx.ml", "Binarizer")] = factory
+        OP_FACTORY_VERSION_SUPPORT[("ai.onnx.ml", "Binarizer")] = frozenset({1})
+
+
+_declare_verified_versions()
 
 def ONNXImport(file_path, strict=False):
     """按 ONNX 图顺序将模型转换为内部算子列表。
@@ -38,14 +77,22 @@ def ONNXImport(file_path, strict=False):
     """
     onnx_graph_list = []
     generic_nodes = []
-    import_context = ImportContext(dtype_map={}, strict=strict, generic_nodes=generic_nodes)
+    resolved_model_path = str(Path(file_path).expanduser().resolve())
+    import_context = ImportContext(
+        dtype_map={}, strict=strict, generic_nodes=generic_nodes, model_path=resolved_model_path
+    )
     
     print(f"   [ONNXImport] Loading model from {file_path}...")
     try:
-        onnx_model = onnx.load(file_path, load_external_data=False)
+        # 先载入结构，再由 numpy_helper 按 initializer 使用官方 external-data loader。
+        # 这样失败能够精确绑定 initializer 名称，而不是只报告模型级 I/O 错误。
+        onnx_model = load_model(resolved_model_path, load_external_data=False)
     except Exception as e:
-        print(f" Critical Error: Failed to load ONNX file. {e}")
-        raise e
+        raise RuntimeError(f"Failed to load ONNX model structure {resolved_model_path}: {e}") from e
+
+    import_context.opset_versions = {
+        canonical_domain(item.domain): int(item.version) for item in onnx_model.opset_import
+    }
 
     # dtype 推断只在导入开始时执行一次；很多算子构造函数需要输出 dtype 来选择 C 张量类型或 Python fallback。
     # 如果每个节点都重新执行形状推断，不仅性能较差，对部分推断成功的图也更难保持行为稳定。
@@ -86,12 +133,30 @@ def ONNXImport(file_path, strict=False):
     print("   [ONNXImport] Parsing Initializers...")
     for init in onnx_model.graph.initializer:
         try:
-            val = numpy_helper.to_array(init)
+            val = numpy_helper.to_array(init, base_dir=str(Path(resolved_model_path).parent))
             dtype = onnx_dtype_mapping.get(init.data_type, "float32")
             const_op = nn.Operators.Constant([], [init.name], value=val, dtype=dtype, version="17")
             onnx_graph_list.append(const_op)
         except Exception as e:
-            print(f" Warning: Failed to convert initializer {init.name}: {e}")
+            message = (
+                f"Failed to convert initializer {init.name!r} from model "
+                f"{resolved_model_path}: {type(e).__name__}: {e}"
+            )
+            if strict:
+                raise RuntimeError(message) from e
+            generic_op = GenericNode(
+                op_type="Initializer",
+                inputs=[],
+                outputs=[init.name],
+                name=f"initializer_{init.name}",
+                error=message,
+                domain="initializer",
+                opset=None,
+                diagnostic_kind="initializer",
+            )
+            onnx_graph_list.append(generic_op)
+            generic_nodes.append(generic_op)
+            print(f" Warning: {message}")
 
     # 下面每个分支都应遵循 ONNX opset 17 的属性默认值；遇到可选张量输入时保留空字符串占位。
     # 运行时会依赖输入位置还原 ONNX 语义，因此不能随意压缩 optional 输入列表。
@@ -108,16 +173,23 @@ def ONNXImport(file_path, strict=False):
 
         try:
             # 工厂负责属性默认值和版本选择；主循环只处理统一分派与错误策略。
-            factory = OP_FACTORY_REGISTRY.get(node.op_type) or OP_FACTORY_REGISTRY.get(node.op_type.upper())
+            domain = canonical_domain(node.domain)
+            opset = import_context.get_opset(domain)
+            factory, rejection = lookup_factory(domain, node.op_type, opset)
             if factory is None:
-                raise NotImplementedError(f"Operator {node.op_type} is not implemented.")
+                shown_domain = domain or "ai.onnx"
+                raise NotImplementedError(
+                    f"{shown_domain}:{node.op_type} opset={opset}: {rejection}"
+                )
 
             onnx_graph_list.append(factory(node, import_context))
         except Exception as e:
             error_msg = f"{type(e).__name__}: {e}"
             if strict:
                 raise RuntimeError(
-                    f"Failed to import node #{i} ({node.op_type}, name={node.name or '<unnamed>'})"
+                    f"Failed to import node #{i} ({node.op_type}, name={node.name or '<unnamed>'}, "
+                    f"domain={node.domain or 'ai.onnx'}, "
+                    f"opset={import_context.opset_versions.get(canonical_domain(node.domain), '<missing>')})"
                 ) from e
 
             # 降级节点只保留适合诊断和可视化的轻量属性；Graph/Tensor 大对象不复制。
@@ -142,7 +214,9 @@ def ONNXImport(file_path, strict=False):
                 outputs=node.output,
                 name=node.name,
                 attributes=attrs,
-                error=error_msg
+                error=error_msg,
+                domain=node.domain,
+                opset=import_context.opset_versions.get(canonical_domain(node.domain)),
             )
             onnx_graph_list.append(generic_op)
             generic_nodes.append(generic_op)
