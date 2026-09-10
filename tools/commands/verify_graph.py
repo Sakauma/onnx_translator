@@ -28,10 +28,13 @@ def _declared_outputs(model):
     outputs = []
     for value_info in model.graph.output:
         tensor_type = value_info.type.tensor_type
-        dims = []
-        for dim in tensor_type.shape.dim:
-            dims.append(dim.dim_value if dim.HasField("dim_value") else None)
-        outputs.append((value_info.name, tensor_type.elem_type, tuple(dims)))
+        shape = None
+        if tensor_type.HasField("shape"):
+            dims = []
+            for dim in tensor_type.shape.dim:
+                dims.append(dim.dim_value if dim.HasField("dim_value") else None)
+            shape = tuple(dims)
+        outputs.append((value_info.name, tensor_type.elem_type, shape))
     return outputs
 
 
@@ -48,6 +51,8 @@ def _validate_declared_outputs(declarations, inferred):
             raise TypeError(
                 f"Output #{index} {name!r} dtype mismatch: expected {expected_dtype}, got {actual_dtype}"
             )
+        if expected_shape is None:
+            continue
         actual_shape = tuple(getattr(tensor, "size", ()))
         if len(actual_shape) != len(expected_shape):
             raise ValueError(

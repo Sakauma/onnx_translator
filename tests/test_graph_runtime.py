@@ -192,3 +192,11 @@ def test_declared_output_validation_rejects_output_count_mismatch():
     ]
     with pytest.raises(ValueError, match="output count mismatch"):
         verify_graph._validate_declared_outputs(declarations, Tensor_(1, dtype="float32"))
+
+
+def test_declared_output_without_shape_keeps_rank_unknown():
+    output = helper.make_tensor_value_info("out", TensorProto.FLOAT, None)
+    graph = helper.make_graph([], "unknown_rank", [], [output])
+    declarations = verify_graph._declared_outputs(helper.make_model(graph))
+    assert declarations == [("out", TensorProto.FLOAT, None)]
+    verify_graph._validate_declared_outputs(declarations, Tensor_(2, 3, 4, dtype="float32"))
