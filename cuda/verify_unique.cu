@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "verify_common.cuh"
 
 struct UniqueParams {
     int32_t type_code;
@@ -101,50 +102,31 @@ __global__ void unique_kernel(
 }
 
 static int read_params(const char* path, UniqueParams* params) {
-    FILE* fp = fopen(path, "rb");
-    if (!fp) {
-        fprintf(stderr, "open params failed\n");
-        return 0;
-    }
-    int ok = fread(params, sizeof(UniqueParams), 1, fp) == 1;
-    fclose(fp);
-    return ok;
+    verify_read_file(path, params, sizeof(*params));
+    return 1;
 }
 
 template <typename T>
 static int read_array(const char* path, T* data, size_t n) {
-    FILE* fp = fopen(path, "rb");
-    if (!fp) {
-        fprintf(stderr, "open input failed\n");
-        return 0;
-    }
-    size_t got = fread(data, sizeof(T), n, fp);
-    fclose(fp);
-    return got == n;
+    verify_read_file(path, data, n * sizeof(T));
+    return 1;
 }
 
 template <typename T>
 static int write_array(const char* path, const T* data, size_t n) {
-    FILE* fp = fopen(path, "wb");
-    if (!fp) {
-        fprintf(stderr, "open output failed\n");
-        return 0;
-    }
-    size_t wrote = fwrite(data, sizeof(T), n, fp);
-    fclose(fp);
-    return wrote == n;
+    verify_write_file(path, data, n * sizeof(T));
+    return 1;
 }
 
 template <typename T>
 static int run_unique(const char* input_path, const char* output_path, const UniqueParams& params) {
     int n = params.input_len;
     int expected_unique = 0;
-    T* h_input = (T*)malloc((size_t)n * sizeof(T));
-    T* h_values = (T*)malloc((size_t)n * sizeof(T));
-    int64_t* h_indices = (int64_t*)malloc((size_t)n * sizeof(int64_t));
-    int64_t* h_inverse = (int64_t*)malloc((size_t)n * sizeof(int64_t));
-    int64_t* h_counts = (int64_t*)malloc((size_t)n * sizeof(int64_t));
-    if (!h_input || !h_values || !h_indices || !h_inverse || !h_counts) return 0;
+    T* h_input = (T*)verify_malloc((size_t)n * sizeof(T));
+    T* h_values = (T*)verify_malloc((size_t)n * sizeof(T));
+    int64_t* h_indices = (int64_t*)verify_malloc((size_t)n * sizeof(int64_t));
+    int64_t* h_inverse = (int64_t*)verify_malloc((size_t)n * sizeof(int64_t));
+    int64_t* h_counts = (int64_t*)verify_malloc((size_t)n * sizeof(int64_t));
     if (!read_array(input_path, h_input, (size_t)n)) return 0;
 
     T* d_input = NULL;
@@ -159,19 +141,19 @@ static int run_unique(const char* input_path, const char* output_path, const Uni
     int* d_order = NULL;
     int* d_remap = NULL;
 
-    cudaMalloc(&d_input, (size_t)n * sizeof(T));
-    cudaMalloc(&d_values, (size_t)n * sizeof(T));
-    cudaMalloc(&d_tmp_values, (size_t)n * sizeof(T));
-    cudaMalloc(&d_indices, (size_t)n * sizeof(int64_t));
-    cudaMalloc(&d_inverse, (size_t)n * sizeof(int64_t));
-    cudaMalloc(&d_counts, (size_t)n * sizeof(int64_t));
-    cudaMalloc(&d_tmp_indices, (size_t)n * sizeof(int64_t));
-    cudaMalloc(&d_tmp_counts, (size_t)n * sizeof(int64_t));
-    cudaMalloc(&d_count, sizeof(int));
-    cudaMalloc(&d_order, (size_t)n * sizeof(int));
-    cudaMalloc(&d_remap, (size_t)n * sizeof(int));
+    CUDA_CHECK(cudaMalloc(&d_input, (size_t)n * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&d_values, (size_t)n * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&d_tmp_values, (size_t)n * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(&d_indices, (size_t)n * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_inverse, (size_t)n * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_counts, (size_t)n * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_tmp_indices, (size_t)n * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_tmp_counts, (size_t)n * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_count, sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_order, (size_t)n * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_remap, (size_t)n * sizeof(int)));
 
-    cudaMemcpy(d_input, h_input, (size_t)n * sizeof(T), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, (size_t)n * sizeof(T), cudaMemcpyHostToDevice));
     unique_kernel<<<1, 1>>>(
         d_input,
         d_values,
@@ -187,12 +169,16 @@ static int run_unique(const char* input_path, const char* output_path, const Uni
         n,
         params.sorted
     );
-    cudaMemcpy(&expected_unique, d_count, sizeof(int), cudaMemcpyDeviceToHost);
-    if (expected_unique < 0 || expected_unique > n) return 0;
-    cudaMemcpy(h_values, d_values, (size_t)expected_unique * sizeof(T), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_indices, d_indices, (size_t)expected_unique * sizeof(int64_t), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_inverse, d_inverse, (size_t)n * sizeof(int64_t), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_counts, d_counts, (size_t)expected_unique * sizeof(int64_t), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaMemcpy(&expected_unique, d_count, sizeof(int), cudaMemcpyDeviceToHost));
+    if (expected_unique < 0 || expected_unique > n) {
+        fprintf(stderr, "invalid unique output count: %d (input length %d)\n", expected_unique, n);
+        return 0;
+    }
+    CUDA_CHECK(cudaMemcpy(h_values, d_values, (size_t)expected_unique * sizeof(T), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_indices, d_indices, (size_t)expected_unique * sizeof(int64_t), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_inverse, d_inverse, (size_t)n * sizeof(int64_t), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_counts, d_counts, (size_t)expected_unique * sizeof(int64_t), cudaMemcpyDeviceToHost));
 
     int ok = 1;
     ok = ok && write_array(output_path, h_values, (size_t)expected_unique);
@@ -205,17 +191,17 @@ static int run_unique(const char* input_path, const char* output_path, const Uni
     free(h_indices);
     free(h_inverse);
     free(h_counts);
-    cudaFree(d_input);
-    cudaFree(d_values);
-    cudaFree(d_tmp_values);
-    cudaFree(d_indices);
-    cudaFree(d_inverse);
-    cudaFree(d_counts);
-    cudaFree(d_tmp_indices);
-    cudaFree(d_tmp_counts);
-    cudaFree(d_count);
-    cudaFree(d_order);
-    cudaFree(d_remap);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_values));
+    CUDA_CHECK(cudaFree(d_tmp_values));
+    CUDA_CHECK(cudaFree(d_indices));
+    CUDA_CHECK(cudaFree(d_inverse));
+    CUDA_CHECK(cudaFree(d_counts));
+    CUDA_CHECK(cudaFree(d_tmp_indices));
+    CUDA_CHECK(cudaFree(d_tmp_counts));
+    CUDA_CHECK(cudaFree(d_count));
+    CUDA_CHECK(cudaFree(d_order));
+    CUDA_CHECK(cudaFree(d_remap));
     return ok;
 }
 
