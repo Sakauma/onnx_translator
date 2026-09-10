@@ -15,11 +15,51 @@ import shutil
 import sys
 import traceback
 
+import onnx
+
 import nn
 import nn.ModelInitParas
 from nn import Graph
 from nn.GraphVisualization import GraphGenerate
 from nn.ONNXImport import ONNXImport
+
+
+def _declared_outputs(model):
+    outputs = []
+    for value_info in model.graph.output:
+        tensor_type = value_info.type.tensor_type
+        dims = []
+        for dim in tensor_type.shape.dim:
+            dims.append(dim.dim_value if dim.HasField("dim_value") else None)
+        outputs.append((value_info.name, tensor_type.elem_type, tuple(dims)))
+    return outputs
+
+
+def _validate_declared_outputs(declarations, inferred):
+    actual = list(inferred) if isinstance(inferred, (list, tuple)) else [inferred]
+    if len(actual) != len(declarations):
+        raise ValueError(
+            f"Declared output count mismatch: expected {len(declarations)}, got {len(actual)}"
+        )
+    for index, ((name, elem_type, expected_shape), tensor) in enumerate(zip(declarations, actual)):
+        actual_dtype = getattr(tensor, "dtype", None)
+        expected_dtype = nn.onnx_dtype_mapping.get(elem_type)
+        if actual_dtype != expected_dtype:
+            raise TypeError(
+                f"Output #{index} {name!r} dtype mismatch: expected {expected_dtype}, got {actual_dtype}"
+            )
+        actual_shape = tuple(getattr(tensor, "size", ()))
+        if len(actual_shape) != len(expected_shape):
+            raise ValueError(
+                f"Output #{index} {name!r} rank mismatch: expected {len(expected_shape)}, "
+                f"got {len(actual_shape)}"
+            )
+        for axis, (expected_dim, actual_dim) in enumerate(zip(expected_shape, actual_shape)):
+            if expected_dim is not None and expected_dim != actual_dim:
+                raise ValueError(
+                    f"Output #{index} {name!r} dimension {axis} mismatch: "
+                    f"expected {expected_dim}, got {actual_dim}"
+                )
 
 
 # 实现 `run_verification` 步骤，规范化输入并返回下游期望的数据或元信息。
@@ -31,6 +71,14 @@ def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False
     print(f"创建结果目录: {result_dir}")
 
     print(f"\n开始验证模型: {onnx_file_path}")
+
+    try:
+        model = onnx.load_model(onnx_file_path, load_external_data=False)
+        output_declarations = _declared_outputs(model)
+        output_names = [item[0] for item in output_declarations]
+    except Exception as e:
+        print(f"错误: 无法读取模型输出声明: {e}")
+        return 1
 
     print("\n[Step 1] 正在运行 ONNXImport 导入算子...")
     try:
@@ -78,12 +126,14 @@ def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False
         graph = Graph(
             ops=ops_list,
             input_name=initial_inputs,
+            output_name=output_names,
             model_name=task_name,
         )
 
         print("正在执行图结构推断 (forward_)...")
         placeholder_tensors = [nn.Tensor_(*t.size, dtype=t.dtype) for t in initial_tensors]
-        graph.forward_(*placeholder_tensors)
+        inferred_outputs = graph.forward_(*placeholder_tensors)
+        _validate_declared_outputs(output_declarations, inferred_outputs)
         print("图结构推断完成，节点连接逻辑验证通过。")
     except Exception:
         print("错误: 图构建或形状推断失败。")
