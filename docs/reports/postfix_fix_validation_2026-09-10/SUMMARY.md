@@ -1,6 +1,6 @@
 # 第二轮缺陷修复验收摘要（2026-09-10）
 
-八项审计缺陷已修复，独立审查无剩余阻断，隔离 worktree 的最终 CPU、CUDA 和数值门禁全部通过。生产源码与测试基线为 `c5882ba`；门禁 HEAD 为 `f084e92`，后一个提交只增加独立审查报告。
+八项审计缺陷已修复，独立审查无剩余阻断，隔离 worktree 的最终 CPU、CUDA 和数值门禁全部通过。生产源码与测试基线为 `c5882ba`；门禁 HEAD 为 `f084e92`，后一个提交只增加独立审查报告。本地 `main` 已通过纯快进同步修复和完整报告证据，未 push。
 
 ## 修复范围
 
@@ -27,4 +27,4 @@ CPU 的 11 个 skip 包含 10 个因 `--skip-cuda` 清空 cache 而跳过的 GPU
 
 环境为 WSL `ubuntu2004`、Python 3.12.12、ONNX 1.21.0、NumPy 2.4.6、GCC 9.4.0、CUDA 12.4、RTX 4060 driver 610.88。全部动态命令只在 `/mnt/d/workspace/onnx_translator_bugfix_worktree` 执行，主目录生成物和未跟踪审计材料未被清理或覆盖。
 
-完整命令、SHA、RC、原始日志链接和限制见 [VALIDATION.md](VALIDATION.md)。主目录未同步且没有 push；同步后执行前必须至少 `make` 重建 C 库，需要 CUDA 验证时再运行 `python tools/cli.py compile-cuda`，或直接使用本次已验收的隔离 worktree。
+完整命令、SHA、RC、原始日志链接和限制见 [VALIDATION.md](VALIDATION.md)。主目录原有未跟踪审计材料以及 `.so`、`cache/`、模型和结果均已保留，但这些生成物尚未按同步后的源码重建。直接从主目录执行前必须至少运行 `make` 重建 C 库；需要 CUDA 验证时再运行 `python tools/cli.py compile-cuda`。也可继续使用本次已验收的隔离 worktree。

@@ -79,5 +79,5 @@ numerical 使用 `python -u` 与 `pipefail` 保存未缓冲 stdout/stderr，开�
 
 - 完成声明覆盖 `ACCEPTANCE.md` 的八项第二轮审计缺陷与上述工程门禁；未额外执行 ABI/ASan/UBSan 审计。
 - 默认 723 个 numerical plans 当前没有 `uint32`/`uint64` 输出。宽整数经浮点 wire 且超出连续精确表示范围时现在会 fail closed；这项保护不代表已提供完整的 `uint64` CUDA wire 协议。
-- 主目录保留原有生成物，尚未用本分支源码重建。若同步源码到主目录，执行前必须至少运行 `make` 重建 C 库；需要 CUDA 验证时再运行 `python tools/cli.py compile-cuda`。也可继续使用本次已完整验收的隔离 worktree。
-- 未 push，未同步主目录。
+- 本地 `main` 已通过 `git merge --ff-only` 同步修复提交和本报告证据，原有未跟踪审计材料以及 `.so`、`cache/`、模型和结果均保留；未 push。
+- 主目录保留的生成物尚未按同步后的源码重建。直接从主目录执行前必须至少运行 `make` 重建 C 库；需要 CUDA 验证时再运行 `python tools/cli.py compile-cuda`。也可继续使用本次已完整验收的隔离 worktree。
