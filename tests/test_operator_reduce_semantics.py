@@ -145,6 +145,111 @@ def test_c_backend_reduce_sum_empty_axes_noop_matches_onnx_reference():
     _assert_tensor_matches(actual, expected)
 
 
+# 省略 axes 与空 axes 使用同一 noop 语义，运行与 shape-only 路径必须一致。
+def test_reduce_sum_omitted_axes_respects_noop_and_full_reduction(monkeypatch):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int32)
+    graph = helper.make_graph(
+        [helper.make_node("ReduceSum", ["x"], ["y"], keepdims=0, noop_with_empty_axes=1)],
+        "reduce_sum_omitted_axes",
+        [helper.make_tensor_value_info("x", TensorProto.INT32, [2, 3])],
+        [helper.make_tensor_value_info("y", TensorProto.INT32, [2, 3])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    onnx.checker.check_model(model)
+    expected_identity = ReferenceEvaluator(model).run(None, {"x": x})[0]
+
+    identity_op = ReduceSum(
+        ["x"],
+        ["y"],
+        keepdims=0,
+        noop_with_empty_axes=1,
+        dtype="int32",
+    )
+    c_forward = identity_op.lib.reduce_sum_forward
+    calls = []
+
+    def counted_c_forward(*args):
+        calls.append(True)
+        return c_forward(*args)
+
+    monkeypatch.setattr(identity_op.lib, "reduce_sum_forward", counted_c_forward)
+    identity = identity_op.forward(_tensor(x, "int32"))["tensor"]
+    assert calls == []
+    assert identity.dtype == "int32"
+    assert identity.data.dtype == np.int32
+    assert identity.data.shape == (2, 3)
+    np.testing.assert_array_equal(identity.data, expected_identity)
+    assert identity_op.forward_(Tensor_(2, 3, dtype="int32"))["tensor"].size == (2, 3)
+
+    reduce_all_op = ReduceSum(["x"], ["y"], keepdims=0, dtype="int32")
+    reduced = reduce_all_op.forward(_tensor(x, "int32"))["tensor"]
+    assert calls == [True]
+    assert reduced.dtype == "int32"
+    assert reduced.data.dtype == np.int32
+    assert reduced.data.shape == ()
+    np.testing.assert_array_equal(reduced.data, np.array(21, dtype=np.int32))
+    assert reduce_all_op.forward_(Tensor_(2, 3, dtype="int32"))["tensor"].size == ()
+
+
+# 从合法 opset-17 模型导入的省略 axes，在 C 和 fallback 路径上均与空 axes 规则一致。
+def test_imported_reduce_sum_omitted_axes_matches_direct_and_fallback(tmp_path, monkeypatch):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.arange(1, 7, dtype=np.float32).reshape(2, 3)
+    graph = helper.make_graph(
+        [helper.make_node("ReduceSum", ["x"], ["y"], keepdims=0, noop_with_empty_axes=1)],
+        "reduce_sum_omitted_axes_import",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 3])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    onnx.checker.check_model(model)
+    model_path = tmp_path / "reduce_sum_omitted_axes.onnx"
+    onnx.save(model, model_path)
+
+    imported = [op for op in ONNXImport(str(model_path), strict=True) if isinstance(op, ReduceSum)]
+    assert len(imported) == 1
+    imported_op = imported[0]
+    assert imported_op.axes is None
+    imported_identity = imported_op.forward(_tensor(x, "float32"))["tensor"]
+    assert imported_identity.data.dtype == np.float32
+    assert imported_identity.data.shape == (2, 3)
+    np.testing.assert_array_equal(imported_identity.data, x)
+    assert imported_op.forward_(Tensor_(2, 3, dtype="float32"))["tensor"].size == (2, 3)
+
+    _disable_c_backend(monkeypatch)
+    fallback_identity = ReduceSum(
+        ["x"], ["y"], keepdims=0, noop_with_empty_axes=1, dtype="float32"
+    ).forward(_tensor(x, "float32"))["tensor"]
+    np.testing.assert_array_equal(fallback_identity.data, x)
+    assert fallback_identity.data.shape == (2, 3)
+
+    empty_axes = _tensor(np.array([], dtype=np.int64), "int64")
+    fallback_empty_identity = ReduceSum(
+        ["x", "axes"], ["y"], keepdims=0, noop_with_empty_axes=1, dtype="float32"
+    ).forward(_tensor(x, "float32"), empty_axes)["tensor"]
+    np.testing.assert_array_equal(fallback_empty_identity.data, x)
+
+    fallback_empty_reduced = ReduceSum(
+        ["x", "axes"], ["y"], keepdims=0, dtype="float32"
+    ).forward(_tensor(x, "float32"), empty_axes)["tensor"]
+    np.testing.assert_array_equal(fallback_empty_reduced.data, np.array(21.0, dtype=np.float32))
+    assert fallback_empty_reduced.data.shape == ()
+
+    fallback_negative_axis = ReduceSum(
+        ["x"], ["y"], axes=[-1], keepdims=1, dtype="float32"
+    ).forward(_tensor(x, "float32"))["tensor"]
+    np.testing.assert_array_equal(
+        fallback_negative_axis.data,
+        np.sum(x, axis=-1, keepdims=True, dtype=np.float32),
+    )
+    assert fallback_negative_axis.data.shape == (2, 1)
+
+
 # 验证 ReduceSum 空 axes 在默认 noop=0 时归约所有维度，并保留默认 keepdims=1。
 def test_c_backend_reduce_sum_empty_axes_default_reduces_all_axes():
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):

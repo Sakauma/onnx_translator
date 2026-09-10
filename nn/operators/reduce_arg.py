@@ -36,7 +36,8 @@ class ReduceBase(Ops):
     # 封装 `_prepare_axes` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _prepare_axes(self, input_shape, runtime_axes=None):
         ndim = len(input_shape)
-        # 优先级: 运行时输入 > 属性 > 默认(全归约)
+        # 优先级: 运行时输入 > 属性 > 省略 axes。
+        # 省略和显式空 axes 必须保留到 noop 判定之后。
         target_axes = None
         
         if runtime_axes is not None:
@@ -45,8 +46,7 @@ class ReduceBase(Ops):
         elif self.axes is not None:
             target_axes = list(self.axes)
         else:
-            # 默认归约所有维度
-            target_axes = list(range(ndim))
+            target_axes = []
 
         # 属性和运行时输入的空 axes 使用同一 ONNX 语义。
         if not target_axes and not self.noop_with_empty_axes:
