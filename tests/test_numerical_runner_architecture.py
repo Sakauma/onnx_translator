@@ -12,8 +12,50 @@
 import numpy as np
 import pytest
 
+from tools.numerical import cli as numerical_cli
 from tools.numerical.runner_config import resolve_verification_config
 from tools.numerical.runner_cuda_inputs import build_cuda_inputs, resolve_cuda_output_dtype
+from tools.numerical.runner_inputs import prepare_input_samples
+
+
+def test_all_default_slice_plans_prepare_inputs():
+    slice_plans = [plan for plan in numerical_cli.build_default_plans() if plan[1] == "slice"]
+
+    assert len(slice_plans) == 5
+    for _op_cls, op_name, shapes, dtypes, _out_dtype, init_args in slice_plans:
+        inputs = prepare_input_samples(op_name, shapes, dtypes, init_args)
+        assert len(inputs) == 5
+        assert inputs[1].dtype == np.int64
+        assert inputs[2].dtype == np.int64
+        assert inputs[3].dtype == np.int64
+        assert inputs[4].dtype == np.int64
+
+
+def test_cli_aggregates_plan_exception_and_runs_remaining_plan(monkeypatch, capsys):
+    plans = [
+        (object, "broken", [(1,)], ["float32"], "float32"),
+        (object, "healthy", [(1,)], ["float32"], "float32"),
+    ]
+    calls = []
+
+    def fake_verify_op(_cls, name, *_args, **_kwargs):
+        calls.append(name)
+        if name == "broken":
+            raise RuntimeError("preparation exploded")
+        return [], [], True
+
+    monkeypatch.setattr(numerical_cli, "build_default_plans", lambda: plans)
+    monkeypatch.setattr(numerical_cli, "verify_op", fake_verify_op)
+    monkeypatch.setattr(numerical_cli.os.path, "exists", lambda _path: True)
+
+    with pytest.raises(SystemExit) as exc_info:
+        numerical_cli.main(["--iterations", "1", "--skip-plots"])
+
+    assert exc_info.value.code == 1
+    assert calls == ["broken", "healthy"]
+    output = capsys.readouterr().out
+    assert "preparation exploded" in output
+    assert "numerical verification failed for: ['broken']" in output
 
 
 @pytest.mark.parametrize(

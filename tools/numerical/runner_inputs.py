@@ -15,6 +15,7 @@ import nn
 
 from .data import generate_random_data
 from .dtype import from_float32, to_float32
+from .runner_params import slice_io_values
 
 
 def prepare_input_samples(op_name, shapes, dtypes, init_args):

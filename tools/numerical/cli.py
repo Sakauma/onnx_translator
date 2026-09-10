@@ -12,6 +12,7 @@
 import argparse
 import os
 import sys
+import traceback
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -872,15 +873,23 @@ def main(argv=None):
             print(f"⚠️ 跳过格式错误的测试计划: {plan}")
             failed_ops.append("<malformed-plan>")
             continue
-        abs_errs, rel_errs, ok = verify_op(
-            op_cls,
-            op_name,
-            shapes,
-            dtypes,
-            out_dtype,
-            init_args=init_args,
-            iterations=args.iterations,
-        )
+        try:
+            abs_errs, rel_errs, ok = verify_op(
+                op_cls,
+                op_name,
+                shapes,
+                dtypes,
+                out_dtype,
+                init_args=init_args,
+                iterations=args.iterations,
+            )
+        except Exception as exc:
+            # A broken input-preparation or verifier-infrastructure path must
+            # fail this plan without aborting the remaining live inventory.
+            print(f"ERROR: numerical plan failed before completion [{op_name}]: {exc}")
+            traceback.print_exc()
+            failed_ops.append(op_name)
+            continue
         if not ok:
             failed_ops.append(op_name)
         # 按算子名称聚合数据
