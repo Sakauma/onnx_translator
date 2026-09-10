@@ -14,6 +14,55 @@ import numpy as np
 from .dtype import get_dtype_limits, to_float32
 
 
+INTEGER_DTYPES = frozenset({
+    "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"
+})
+
+
+def compare_integer_output(nps_out, cuda_out, out_dtype):
+    """Compare integer results without trusting values already rounded by a float wire."""
+    int_dtype = np.dtype(out_dtype)
+    nps_raw = np.asarray(nps_out)
+    if nps_raw.dtype != int_dtype:
+        return (
+            False,
+            np.ones(nps_raw.shape, dtype=bool),
+            nps_raw,
+            np.asarray(cuda_out),
+            f"NPS output dtype mismatch: expected {int_dtype}, got {nps_raw.dtype}",
+        )
+    nps_int = nps_raw
+    cuda_raw = np.asarray(cuda_out)
+    if cuda_raw.shape != nps_int.shape:
+        return False, np.ones(nps_int.shape, dtype=bool), nps_int, cuda_raw, "shape mismatch"
+
+    if cuda_raw.dtype.kind in "iu":
+        info = np.iinfo(int_dtype)
+        flat_values = cuda_raw.reshape(-1).tolist()
+        if any(int(value) < info.min or int(value) > info.max for value in flat_values):
+            return False, np.ones(cuda_raw.shape, dtype=bool), nps_int, cuda_raw, "integer wire value out of range"
+        cuda_int = cuda_raw.astype(int_dtype)
+    elif cuda_raw.dtype.kind == "f":
+        if not np.all(np.isfinite(cuda_raw)):
+            return False, np.ones(cuda_raw.shape, dtype=bool), nps_int, cuda_raw, "non-finite floating integer wire"
+        if not np.all(cuda_raw == np.floor(cuda_raw)):
+            return False, np.ones(cuda_raw.shape, dtype=bool), nps_int, cuda_raw, "fractional floating integer wire"
+        precision_limit = 1 << (np.finfo(cuda_raw.dtype).nmant + 1)
+        if np.any(np.abs(cuda_raw) >= precision_limit):
+            return False, np.ones(cuda_raw.shape, dtype=bool), nps_int, cuda_raw, "floating integer wire exceeds exact precision"
+        info = np.iinfo(int_dtype)
+        if np.any(cuda_raw < info.min) or np.any(cuda_raw > info.max):
+            return False, np.ones(cuda_raw.shape, dtype=bool), nps_int, cuda_raw, "floating integer wire value out of range"
+        cuda_int = cuda_raw.astype(int_dtype)
+    else:
+        return False, np.ones(cuda_raw.shape, dtype=bool), nps_int, cuda_raw, "unsupported integer wire dtype"
+
+    equal = np.array_equal(nps_int, cuda_int)
+    fail_mask = None if equal else (nps_int != cuda_int)
+    reason = None if equal else "integer values differ"
+    return equal, fail_mask, nps_int, cuda_int, reason
+
+
 def check_accuracy(nps_val, cuda_val, atol, rtol, dtype):
     """
     严谨的验证逻辑：支持数值对比、溢出判定和 NaN 匹配

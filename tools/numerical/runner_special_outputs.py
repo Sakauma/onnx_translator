@@ -11,53 +11,14 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
-import os
 
 import numpy as np
 
 import nn
 
-from .compare import check_accuracy
-from .cuda import artifact_path, cleanup_cuda_artifacts, run_cuda_ground_truth as _run_cuda_ground_truth
+from .compare import INTEGER_DTYPES, check_accuracy, compare_integer_output
+from .cuda import CudaSidecarSpec, run_cuda_ground_truth
 from .dtype import quantize_to_dtype_float32, to_float32
-
-
-def run_cuda_ground_truth(*args, **kwargs):
-    """Keep this call's sidecars until the special-output reader finishes."""
-    kwargs["keep_artifacts"] = True
-    return _run_cuda_ground_truth(*args, **kwargs)
-
-
-def _read_sidecar(path, dtype, shape, op_name):
-    """Read one verifier sidecar and reject missing or malformed payloads."""
-    path = artifact_path(path)
-    expected_bytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
-    if not os.path.exists(path):
-        raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {path}")
-    actual_bytes = os.path.getsize(path)
-    try:
-        if actual_bytes != expected_bytes:
-            raise RuntimeError(
-                f"CUDA verifier sidecar has invalid size [{op_name}]: {path}; "
-                f"expected {expected_bytes} bytes, got {actual_bytes}"
-            )
-        return np.fromfile(path, dtype=dtype).reshape(shape)
-    finally:
-        if os.path.exists(path):
-            os.remove(path)
-
-
-def _read_sidecar_group(specs, op_name):
-    """Read related sidecars atomically and clean every member on failure."""
-    try:
-        return [
-            _read_sidecar(path, dtype, shape, op_name)
-            for path, dtype, shape in specs
-        ]
-    finally:
-        for path, _dtype, _shape in specs:
-            if os.path.exists(path):
-                os.remove(path)
 
 
 class SpecialOutputAction(Enum):
@@ -117,9 +78,9 @@ def handle_special_output(state):
     if op_name in {"rnn", "gru", "lstm"}:
         recurrent_outputs = [np.asarray(out) for out in nps_out]
         y_np = recurrent_outputs[0]
-        side_specs = [("Y_h", recurrent_outputs[1], artifact_path(f"tmp_{op_name}_y_h.bin"))]
+        side_specs = [("Y_h", recurrent_outputs[1], f"tmp_{op_name}_y_h.bin")]
         if op_name == "lstm":
-            side_specs.append(("Y_c", recurrent_outputs[2], artifact_path("tmp_lstm_y_c.bin")))
+            side_specs.append(("Y_c", recurrent_outputs[2], "tmp_lstm_y_c.bin"))
 
         cuda_inputs = [
             np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float64)),
@@ -137,32 +98,22 @@ def handle_special_output(state):
                 ]
             )
 
-        cuda_y = run_cuda_ground_truth(
+        cuda_result = run_cuda_ground_truth(
             op_name,
             cuda_inputs,
             params_binary=params_bin,
             output_dtype=np.float64,
             target_shape=y_np.shape,
+            sidecars=[
+                CudaSidecarSpec(path, np.float64, expected.shape)
+                for _name, expected, path in side_specs
+            ],
         )
-        if cuda_y is None:
+        if cuda_result is None:
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
-
-        missing_paths = [path for _name, _expected, path in side_specs if not os.path.exists(path)]
-        if missing_paths:
-            for _name, _expected, path in side_specs:
-                if os.path.exists(path):
-                    os.remove(path)
-            raise RuntimeError(
-                f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing_paths)}"
-            )
-
-        comparisons = [("Y", y_np, cuda_y)]
-        side_values = _read_sidecar_group(
-            [(path, np.float64, expected.shape) for _name, expected, path in side_specs],
-            op_name,
-        )
-        for (name, expected, _path), cuda_side in zip(side_specs, side_values):
-            comparisons.append((name, expected, cuda_side))
+        comparisons = [("Y", y_np, cuda_result.output)]
+        for name, expected, path in side_specs:
+            comparisons.append((name, expected, cuda_result.sidecars[path]))
 
         ok_all = True
         max_abs_all = 0.0
@@ -196,20 +147,18 @@ def handle_special_output(state):
         cuda_inputs = [
             np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float32)),
         ]
-        cuda_y = run_cuda_ground_truth(
+        cuda_result = run_cuda_ground_truth(
             op_name,
             cuda_inputs,
             params_binary=params_bin,
             output_dtype=np.float32,
             target_shape=y_np.shape,
+            sidecars=[CudaSidecarSpec("tmp_dropout_mask.bin", np.uint8, mask_np.shape)],
         )
-        if cuda_y is None:
+        if cuda_result is None:
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
-
-        mask_path = artifact_path("tmp_dropout_mask.bin")
-        if not os.path.exists(mask_path):
-            raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {mask_path}")
-        cuda_mask = _read_sidecar(mask_path, np.uint8, mask_np.shape, op_name).astype(np.bool_)
+        cuda_y = cuda_result.output
+        cuda_mask = cuda_result.sidecars["tmp_dropout_mask.bin"].astype(np.bool_)
 
         nps_y = to_float32(y_np, out_dtype)
         cuda_y = quantize_to_dtype_float32(cuda_y, out_dtype)
@@ -236,34 +185,22 @@ def handle_special_output(state):
             np.ascontiguousarray(to_float32(inputs_np[idx], dtypes[idx]).astype(np.float64))
             for idx in range(5)
         ]
-        cuda_y = run_cuda_ground_truth(
+        cuda_result = run_cuda_ground_truth(
             op_name,
             cuda_inputs,
             params_binary=params_bin,
             output_dtype=np.float64,
             target_shape=y_np.shape,
-        )
-        if cuda_y is None:
-            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
-
-        side_paths = {
-            "running_mean": artifact_path("tmp_batch_norm_running_mean.bin"),
-            "running_var": artifact_path("tmp_batch_norm_running_var.bin"),
-        }
-        if not all(os.path.exists(path) for path in side_paths.values()):
-            missing = [path for path in side_paths.values() if not os.path.exists(path)]
-            for path in side_paths.values():
-                if os.path.exists(path):
-                    os.remove(path)
-            raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing)}")
-
-        cuda_running_mean, cuda_running_var = _read_sidecar_group(
-            [
-                (side_paths["running_mean"], np.float64, running_mean_np.shape),
-                (side_paths["running_var"], np.float64, running_var_np.shape),
+            sidecars=[
+                CudaSidecarSpec("tmp_batch_norm_running_mean.bin", np.float64, running_mean_np.shape),
+                CudaSidecarSpec("tmp_batch_norm_running_var.bin", np.float64, running_var_np.shape),
             ],
-            op_name,
         )
+        if cuda_result is None:
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
+        cuda_y = cuda_result.output
+        cuda_running_mean = cuda_result.sidecars["tmp_batch_norm_running_mean.bin"]
+        cuda_running_var = cuda_result.sidecars["tmp_batch_norm_running_var.bin"]
 
         comparisons = [
             ("y", y_np, cuda_y),
@@ -304,34 +241,23 @@ def handle_special_output(state):
             np.ascontiguousarray(to_float32(inputs_np[idx], dtypes[idx]).astype(np.float64))
             for idx in range(3)
         ]
-        cuda_y = run_cuda_ground_truth(
+        cuda_result = run_cuda_ground_truth(
             op_name,
             cuda_inputs,
             params_binary=params_bin,
             output_dtype=np.float64,
             target_shape=y_np.shape,
+            sidecars=[
+                CudaSidecarSpec("tmp_layer_norm_mean.bin", np.float64, mean_np.shape),
+                CudaSidecarSpec("tmp_layer_norm_inv_std.bin", np.float64, inv_std_np.shape),
+            ],
         )
-        if cuda_y is None:
+        if cuda_result is None:
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
-        side_paths = {
-            "mean": artifact_path("tmp_layer_norm_mean.bin"),
-            "inv_std": artifact_path("tmp_layer_norm_inv_std.bin"),
-        }
-        if not all(os.path.exists(path) for path in side_paths.values()):
-            missing = [path for path in side_paths.values() if not os.path.exists(path)]
-            for path in side_paths.values():
-                if os.path.exists(path):
-                    os.remove(path)
-            raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing)}")
-
-        cuda_mean, cuda_inv_std = _read_sidecar_group(
-            [
-                (side_paths["mean"], np.float64, mean_np.shape),
-                (side_paths["inv_std"], np.float64, inv_std_np.shape),
-            ],
-            op_name,
-        )
+        cuda_y = cuda_result.output
+        cuda_mean = cuda_result.sidecars["tmp_layer_norm_mean.bin"]
+        cuda_inv_std = cuda_result.sidecars["tmp_layer_norm_inv_std.bin"]
 
         stash_dtype = nn.onnx_dtype_mapping.get(int(init_args.get("stash_type", 1)), "float32")
         comparisons = [
@@ -381,15 +307,22 @@ def handle_special_output(state):
             np.ascontiguousarray(inputs_np[1].astype(np.int64)),
             None if len(inputs_np) <= 2 or inputs_np[2] is None else np.ascontiguousarray(to_float32(inputs_np[2], dtypes[2]).astype(np.float64)),
         ]
-        cuda_loss = run_cuda_ground_truth(
+        sidecar_specs = []
+        if log_prob_np is not None:
+            sidecar_specs.append(
+                CudaSidecarSpec("tmp_out_log_prob.bin", np.float64, log_prob_np.shape)
+            )
+        cuda_result = run_cuda_ground_truth(
             op_name,
             cuda_inputs,
             params_binary=params_bin,
             output_dtype=np.float64,
             target_shape=loss_shape,
+            sidecars=sidecar_specs or None,
         )
-        if cuda_loss is None:
+        if cuda_result is None:
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
+        cuda_loss = cuda_result.output if sidecar_specs else cuda_result
 
         loss_ref = quantize_to_dtype_float32(cuda_loss, out_dtype)
         loss_nps = to_float32(loss_cmp, out_dtype)
@@ -399,10 +332,7 @@ def handle_special_output(state):
         log_abs = 0.0
         log_rel = 0.0
         if log_prob_np is not None:
-            log_path = artifact_path("tmp_out_log_prob.bin")
-            if not os.path.exists(log_path):
-                raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {log_path}")
-            cuda_log = _read_sidecar(log_path, np.float64, log_prob_np.shape, op_name)
+            cuda_log = cuda_result.sidecars["tmp_out_log_prob.bin"]
             log_ref = quantize_to_dtype_float32(cuda_log, out_dtype)
             log_nps = to_float32(log_prob_np, out_dtype)
             log_ok, log_abs, log_rel, _log_fail = check_accuracy(log_nps, log_ref, atol, rtol, out_dtype)
@@ -497,18 +427,32 @@ def handle_special_output(state):
         max_abs_all = 0.0
         max_rel_all = 0.0
         failed_index = -1
+        failed_reason = None
         for out_idx, expected_piece in enumerate(flat_outputs):
             piece_len = int(expected_piece.size)
             cuda_piece = cuda_flat[offset:offset + piece_len].reshape(expected_piece.shape)
             offset += piece_len
-            nps_piece = to_float32(expected_piece, out_dtype)
-            cuda_piece = quantize_to_dtype_float32(cuda_piece, out_dtype)
-            ok_piece, max_abs, max_rel, _fail_mask = check_accuracy(nps_piece, cuda_piece, atol, rtol, out_dtype)
+            if out_dtype in INTEGER_DTYPES:
+                ok_piece, _fail_mask, _nps_int, _cuda_int, reason = compare_integer_output(
+                    expected_piece,
+                    cuda_piece,
+                    out_dtype,
+                )
+                max_abs = 0.0 if ok_piece else -1.0
+                max_rel = 0.0 if ok_piece else -1.0
+            else:
+                nps_piece = to_float32(expected_piece, out_dtype)
+                cuda_piece = quantize_to_dtype_float32(cuda_piece, out_dtype)
+                ok_piece, max_abs, max_rel, _fail_mask = check_accuracy(
+                    nps_piece, cuda_piece, atol, rtol, out_dtype
+                )
+                reason = None
             max_abs_all = max(max_abs_all, max_abs if max_abs >= 0 else 0.0)
             max_rel_all = max(max_rel_all, max_rel if max_rel >= 0 else 0.0)
             if not ok_piece:
                 ok_all = False
                 failed_index = out_idx
+                failed_reason = reason
                 break
 
         state.stats_abs.append(max_abs_all)
@@ -518,6 +462,8 @@ def handle_special_output(state):
         else:
             print(f"  ❌ Iter {i} FAILED")
             print(f"     Split output {failed_index} mismatch")
+            if failed_reason is not None:
+                print(f"     Integer comparison failed: {failed_reason}")
             print(f"     Max Abs Diff: {max_abs_all:.6f} (Limit: {atol})")
             print(f"     Max Rel Diff: {max_rel_all:.6f} (Limit: {rtol})")
             return SpecialOutputAction.STOP
@@ -534,39 +480,32 @@ def handle_special_output(state):
             cuda_inputs = [np.ascontiguousarray(to_float32(input_arr, dtypes[0]).astype(np.float32))]
             cuda_value_dtype = np.float32
 
-        cuda_values = run_cuda_ground_truth(
+        cuda_result = run_cuda_ground_truth(
             op_name,
             cuda_inputs,
             params_binary=params_bin,
             output_dtype=cuda_value_dtype,
             target_shape=values_np.shape,
-        )
-        if cuda_values is None:
-            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
-
-        side_paths = {
-            "indices": artifact_path("tmp_unique_indices.bin"),
-            "inverse": artifact_path("tmp_unique_inverse.bin"),
-            "counts": artifact_path("tmp_unique_counts.bin"),
-        }
-        if not all(os.path.exists(path) for path in side_paths.values()):
-            missing = [path for path in side_paths.values() if not os.path.exists(path)]
-            for path in side_paths.values():
-                if os.path.exists(path):
-                    os.remove(path)
-            raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing)}")
-
-        cuda_indices, cuda_inverse, cuda_counts = _read_sidecar_group(
-            [
-                (side_paths["indices"], np.int64, indices_np.shape),
-                (side_paths["inverse"], np.int64, inverse_np.shape),
-                (side_paths["counts"], np.int64, counts_np.shape),
+            sidecars=[
+                CudaSidecarSpec("tmp_unique_indices.bin", np.int64, indices_np.shape),
+                CudaSidecarSpec("tmp_unique_inverse.bin", np.int64, inverse_np.shape),
+                CudaSidecarSpec("tmp_unique_counts.bin", np.int64, counts_np.shape),
             ],
-            op_name,
         )
+        if cuda_result is None:
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
+        cuda_values = cuda_result.output
+        cuda_indices = cuda_result.sidecars["tmp_unique_indices.bin"]
+        cuda_inverse = cuda_result.sidecars["tmp_unique_inverse.bin"]
+        cuda_counts = cuda_result.sidecars["tmp_unique_counts.bin"]
 
-        if out_dtype == "int64":
-            values_ok = np.array_equal(values_np.astype(np.int64), cuda_values.astype(np.int64))
+        value_reason = None
+        if out_dtype in INTEGER_DTYPES:
+            values_ok, _fail_mask, _nps_int, _cuda_int, value_reason = compare_integer_output(
+                values_np,
+                cuda_values,
+                out_dtype,
+            )
             value_abs = 0.0 if values_ok else -1.0
             value_rel = 0.0 if values_ok else -1.0
         else:
@@ -588,6 +527,8 @@ def handle_special_output(state):
             print(f"  ❌ Iter {i} FAILED")
             if not values_ok:
                 print("     Unique values mismatch")
+                if value_reason is not None:
+                    print(f"     Integer comparison failed: {value_reason}")
             if not indices_ok:
                 print("     Unique indices mismatch")
             if not inverse_ok:

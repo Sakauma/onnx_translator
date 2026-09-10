@@ -105,9 +105,7 @@ def _normalize_reduce_output(op_name: str, nps_out):
         "reduce_sum_square",
     }:
         return nps_out
-    if np.shape(nps_out) == ():
-        return np.array([float(nps_out)], dtype=np.float32)
-    return np.asarray(nps_out, dtype=np.float32).reshape(1,)
+    return np.asarray(nps_out).reshape(1,)
 
 
 def run_nps_forward(op_cls, op_name: str, inputs_tensor: list, init_args: dict, out_dtype: str) -> NpsForwardResult:
