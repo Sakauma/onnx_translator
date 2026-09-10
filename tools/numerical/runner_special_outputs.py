@@ -18,8 +18,14 @@ import numpy as np
 import nn
 
 from .compare import check_accuracy
-from .cuda import artifact_path, cleanup_cuda_artifacts, run_cuda_ground_truth
+from .cuda import artifact_path, cleanup_cuda_artifacts, run_cuda_ground_truth as _run_cuda_ground_truth
 from .dtype import quantize_to_dtype_float32, to_float32
+
+
+def run_cuda_ground_truth(*args, **kwargs):
+    """Keep this call's sidecars until the special-output reader finishes."""
+    kwargs["keep_artifacts"] = True
+    return _run_cuda_ground_truth(*args, **kwargs)
 
 
 def _read_sidecar(path, dtype, shape, op_name):

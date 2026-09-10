@@ -64,7 +64,7 @@ def _write_params_input(op_name, path, params_binary):
         raise CudaVerifierError(op_name, f"failed to write params {path}: {exc}") from exc
 
 
-def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=np.float32, target_shape=None):
+def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=np.float32, target_shape=None, keep_artifacts=False):
     exe = os.path.abspath(os.path.join(CUDA_VERIFY_DIR, f"verify_{op_name}"))
     if not os.path.exists(exe):
         raise CudaVerifierError(op_name, f"missing executable: {exe}")
@@ -75,22 +75,19 @@ def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=
     _artifact_state.directory = artifact_dir
 
     files = []
-    for i, arr in enumerate(cuda_inputs):
-        if arr is None:
-            files.append("null")
-            continue
-        fname = artifact_path(f"tmp_in_{i}.bin")
-        _write_array_input(op_name, fname, arr)
-        files.append(fname)
-    
-    if params_binary is not None:
-        p_fname = artifact_path("tmp_params.bin")
-        _write_params_input(op_name, p_fname, params_binary)
-        files.append(p_fname)
-
     out_fname = artifact_path("tmp_out.bin")
-    
     try:
+        for i, arr in enumerate(cuda_inputs):
+            if arr is None:
+                files.append("null")
+                continue
+            fname = artifact_path(f"tmp_in_{i}.bin")
+            _write_array_input(op_name, fname, arr)
+            files.append(fname)
+        if params_binary is not None:
+            p_fname = artifact_path("tmp_params.bin")
+            _write_params_input(op_name, p_fname, params_binary)
+            files.append(p_fname)
         # args = [exe, str(cuda_inputs[0].size)] + files + [out_fname]
         # if target_shape is not None:
         #      out_elem_count = int(np.prod(target_shape))
@@ -147,5 +144,7 @@ def run_cuda_ground_truth(op_name, inputs_f32, params_binary=None, output_dtype=
         for f in files:
             if f != "null" and os.path.exists(f): os.remove(f)
         if os.path.exists(out_fname): os.remove(out_fname)
+        if not keep_artifacts:
+            cleanup_cuda_artifacts()
             
     return result
