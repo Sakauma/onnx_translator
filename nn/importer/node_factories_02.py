@@ -435,7 +435,10 @@ def _factory_076_if(node, import_context):
     # 导入阶段只验证 ONNX 规定的必需图属性是否存在。
     if then_branch is None or else_branch is None:
         raise ValueError("If requires then_branch and else_branch graphs")
-    onnx_graph_list.append(nn.Operators.If(node.input, node.output, then_branch=then_branch, else_branch=else_branch, version="17"))
+    onnx_graph_list.append(nn.Operators.If(
+        node.input, node.output, then_branch=then_branch, else_branch=else_branch,
+        version="17", opset_imports=dict(import_context.opset_versions),
+    ))
     return onnx_graph_list[-1]
 
 
@@ -449,7 +452,10 @@ def _factory_077_loop(node, import_context):
     # body 的循环携带值、条件和扫描输出均具有位置语义，因此不在此处展开子图。
     if body is None:
         raise ValueError("Loop requires body graph")
-    onnx_graph_list.append(nn.Operators.Loop(node.input, node.output, body=body, version="17"))
+    onnx_graph_list.append(nn.Operators.Loop(
+        node.input, node.output, body=body, version="17",
+        opset_imports=dict(import_context.opset_versions),
+    ))
     return onnx_graph_list[-1]
 
 
@@ -479,6 +485,7 @@ def _factory_078_scan(node, import_context):
         scan_output_axes=scan_output_axes,
         scan_output_directions=scan_output_directions,
         version="17",
+        opset_imports=dict(import_context.opset_versions),
     ))
     return onnx_graph_list[-1]
 
@@ -492,7 +499,10 @@ def _factory_079_sequencemap(node, import_context):
         if attr.name == "body": body = attr.g
     if body is None:
         raise ValueError("SequenceMap requires body graph")
-    onnx_graph_list.append(nn.Operators.SequenceMap(node.input, node.output, body=body, version="17"))
+    onnx_graph_list.append(nn.Operators.SequenceMap(
+        node.input, node.output, body=body, version="17",
+        opset_imports=dict(import_context.opset_versions),
+    ))
     return onnx_graph_list[-1]
 
 

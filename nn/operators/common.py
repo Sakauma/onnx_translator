@@ -718,6 +718,19 @@ def _tensor_from_numpy(array):
     dtype = _numpy_dtype_to_tensor_dtype(array)
     return Tensor(*array.shape, dtype=dtype, data=array)
 
+def _value_from_reference(value, type_proto):
+    """Convert a ReferenceEvaluator value according to its declared ONNX kind."""
+    if type_proto.HasField("tensor_type"):
+        return _tensor_from_numpy(value)
+    if type_proto.HasField("sequence_type"):
+        elem_type = type_proto.sequence_type.elem_type
+        return [_value_from_reference(item, elem_type) for item in value]
+    if type_proto.HasField("optional_type"):
+        if value is None:
+            return None
+        return _value_from_reference(value, type_proto.optional_type.elem_type)
+    return value
+
 def _tensor_to_numpy(value):
     # Tensor_ 没有数据；参考执行只需要形状占位，因此构造零值而不声称其代表真实输入。
     if isinstance(value, Tensor):
@@ -764,7 +777,39 @@ def _graph_value_shape(value_info):
         dims.append(dim.dim_value if dim.HasField("dim_value") else 1)
     return Tensor_(*dims, dtype=dtype)
 
-def _run_graph_proto(graph_proto, feeds, outer_scope=None):
+def _normalize_opset_imports(opset_imports):
+    """Return explicit domain/version pairs for a temporary nested model."""
+    from onnx import helper
+
+    if opset_imports is None:
+        return [helper.make_opsetid("", 17)]
+    if isinstance(opset_imports, dict):
+        items = opset_imports.items()
+    else:
+        items = ((item.domain, item.version) for item in opset_imports)
+    return [helper.make_opsetid(domain, int(version)) for domain, version in items]
+
+def _infer_graph_outputs_for_shapes(graph_proto, input_shapes, opset_imports=None):
+    """Infer nested graph outputs after replacing declared inputs with runtime shapes."""
+    import onnx
+    from onnx import helper, shape_inference
+
+    concrete_graph = onnx.GraphProto()
+    concrete_graph.CopyFrom(graph_proto)
+    for value_info, shape in zip(concrete_graph.input, input_shapes):
+        if not value_info.type.HasField("tensor_type"):
+            continue
+        dims = value_info.type.tensor_type.shape.dim
+        del dims[:]
+        for size in shape:
+            dims.add().dim_value = int(size)
+    model = helper.make_model(
+        concrete_graph, opset_imports=_normalize_opset_imports(opset_imports)
+    )
+    inferred = shape_inference.infer_shapes(model, strict_mode=False)
+    return list(inferred.graph.output)
+
+def _run_graph_proto(graph_proto, feeds, outer_scope=None, opset_imports=None):
     """使用 ONNX 参考执行器运行嵌套 GraphProto，并实现词法作用域输入绑定。
 
     只向子图传递其声明输入或自由变量；局部 ``feeds`` 后写入，因此会覆盖同名的
@@ -773,7 +818,7 @@ def _run_graph_proto(graph_proto, feeds, outer_scope=None):
     from onnx import helper
     from onnx.reference import ReferenceEvaluator
 
-    model = helper.make_model(graph_proto, opset_imports=[helper.make_opsetid("", 17)])
+    model = helper.make_model(graph_proto, opset_imports=_normalize_opset_imports(opset_imports))
     evaluator = ReferenceEvaluator(model)
     input_names = {value.name for value in graph_proto.input}
     needed_names = input_names | _graph_external_names(graph_proto)

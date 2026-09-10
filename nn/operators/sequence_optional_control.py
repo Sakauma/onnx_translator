@@ -261,11 +261,12 @@ class OptionalHasElement(Ops):
 
 class If(Ops):
     # 初始化 `If` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, then_branch, else_branch, version="17"):
+    def __init__(self, inputs, outputs, then_branch, else_branch, version="17", opset_imports=None):
         super().__init__(inputs, outputs)
         self.then_branch = then_branch
         self.else_branch = else_branch
         self.version = version
+        self.opset_imports = opset_imports
         self.outer_scope_names = sorted(
             _graph_external_names(then_branch) | _graph_external_names(else_branch)
         )
@@ -278,7 +279,16 @@ class If(Ops):
     def forward_with_context(self, outer_scope, cond):
         condition = bool(np.asarray(cond.data).item())
         graph = self.then_branch if condition else self.else_branch
-        outputs = tuple(_tensor_from_numpy(value) for value in _run_graph_proto(graph, {}, outer_scope))
+        values = _run_graph_proto(graph, {}, outer_scope, self.opset_imports)
+        if len(values) != len(graph.output):
+            raise RuntimeError(
+                f"If branch {graph.name!r} returned {len(values)} values for "
+                f"{len(graph.output)} declared outputs"
+            )
+        outputs = tuple(
+            _value_from_reference(value, value_info.type)
+            for value, value_info in zip(values, graph.output)
+        )
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
     # 执行 `If` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -290,10 +300,11 @@ class If(Ops):
 
 class Loop(Ops):
     # 初始化 `Loop` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, body, version="17"):
+    def __init__(self, inputs, outputs, body, version="17", opset_imports=None):
         super().__init__(inputs, outputs)
         self.body = body
         self.version = version
+        self.opset_imports = opset_imports
         self.outer_scope_names = sorted(_graph_external_names(body))
 
     # 封装 `_trip_count` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
@@ -333,7 +344,7 @@ class Loop(Ops):
                 feeds[body_inputs[1]] = np.asarray(condition, dtype=np.bool_)
             for name, value in zip(body_inputs[2:], state_values):
                 feeds[name] = value
-            last_outputs = list(_run_graph_proto(self.body, feeds, outer_scope))
+            last_outputs = list(_run_graph_proto(self.body, feeds, outer_scope, self.opset_imports))
             condition = bool(np.asarray(last_outputs[0]).item())
             state_values = [np.asarray(value) for value in last_outputs[1:1 + len(state_values)]]
             produced_scan = last_outputs[1 + len(state_values):]
@@ -383,6 +394,7 @@ class Scan(Ops):
         scan_output_axes=None,
         scan_output_directions=None,
         version="17",
+        opset_imports=None,
     ):
         super().__init__(inputs, outputs)
         self.body = body
@@ -392,11 +404,70 @@ class Scan(Ops):
         self.scan_output_axes = list(scan_output_axes or [])
         self.scan_output_directions = list(scan_output_directions or [])
         self.version = version
+        self.opset_imports = opset_imports
         self.outer_scope_names = sorted(_graph_external_names(body))
 
     # 执行 `Scan` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, *inputs):
         return self.forward_with_context(None, *inputs)
+
+    @staticmethod
+    def _normalized_axis(axis, rank, label):
+        normalized = axis + rank if axis < 0 else axis
+        if normalized < 0 or normalized >= rank:
+            raise ValueError(f"Scan {label} axis {axis} is out of range for rank {rank}")
+        return normalized
+
+    def _empty_scan_output(self, value_info, output_index, body_input_shapes):
+        tensor_type = value_info.type.tensor_type
+        if not value_info.type.HasField("tensor_type") or tensor_type.elem_type == 0:
+            raise ValueError(
+                f"Scan cannot construct empty output {output_index}: body output "
+                f"{value_info.name!r} has no declared tensor type"
+            )
+
+        symbol_values = {}
+        for input_info, actual_shape in zip(self.body.input, body_input_shapes):
+            declared_dims = input_info.type.tensor_type.shape.dim
+            if len(declared_dims) != len(actual_shape):
+                continue
+            for dim, actual in zip(declared_dims, actual_shape):
+                if dim.HasField("dim_param") and dim.dim_param:
+                    previous = symbol_values.setdefault(dim.dim_param, int(actual))
+                    if previous != int(actual):
+                        raise ValueError(
+                            f"Scan body symbol {dim.dim_param!r} has conflicting runtime "
+                            f"dimensions {previous} and {actual}"
+                        )
+
+        element_shape = []
+        for dim_index, dim in enumerate(tensor_type.shape.dim):
+            if dim.HasField("dim_value"):
+                element_shape.append(int(dim.dim_value))
+            elif dim.HasField("dim_param") and dim.dim_param in symbol_values:
+                element_shape.append(symbol_values[dim.dim_param])
+            else:
+                raise ValueError(
+                    f"Scan cannot determine dimension {dim_index} of empty output "
+                    f"{value_info.name!r}; declare a concrete dimension or a symbol "
+                    "bound by a body input"
+                )
+
+        output_rank = len(element_shape) + 1
+        requested_axis = (
+            self.scan_output_axes[output_index]
+            if output_index < len(self.scan_output_axes) else 0
+        )
+        output_axis = self._normalized_axis(requested_axis, output_rank, "output")
+        output_shape = list(element_shape)
+        output_shape.insert(output_axis, 0)
+        dtype = nn.onnx_dtype_mapping.get(tensor_type.elem_type)
+        if dtype is None or dtype not in nn.DTYPE_TO_NUMPY:
+            raise ValueError(
+                f"Scan cannot construct empty output {value_info.name!r}: "
+                f"unsupported element type {tensor_type.elem_type}"
+            )
+        return np.empty(output_shape, dtype=nn.DTYPE_TO_NUMPY[dtype])
 
     # 在外层作用域上下文中执行 `Scan` 的子图逻辑，用于控制流算子解析捕获值。
     def forward_with_context(self, outer_scope, *inputs):
@@ -405,15 +476,28 @@ class Scan(Ops):
         scan_inputs = [_tensor_to_numpy(value) for value in inputs[num_states:]]
         body_inputs = [value.name for value in self.body.input]
         body_outputs = [value.name for value in self.body.output]
-        trip_count = scan_inputs[0].shape[self.scan_input_axes[0]]
+        scan_axes = [
+            self._normalized_axis(
+                self.scan_input_axes[index] if index < len(self.scan_input_axes) else 0,
+                value.ndim,
+                "input",
+            )
+            for index, value in enumerate(scan_inputs)
+        ]
+        scan_lengths = [value.shape[axis] for value, axis in zip(scan_inputs, scan_axes)]
+        if not scan_lengths:
+            raise ValueError("Scan requires at least one scan input")
+        if len(set(scan_lengths)) != 1:
+            raise ValueError(f"Scan inputs have different sequence lengths: {scan_lengths}")
+        trip_count = scan_lengths[0]
         collected = None
         for iteration in range(trip_count):
             feeds = {name: value for name, value in zip(body_inputs[:num_states], states)}
             for index, value in enumerate(scan_inputs):
-                axis = self.scan_input_axes[index] if index < len(self.scan_input_axes) else 0
+                axis = scan_axes[index]
                 take_index = trip_count - 1 - iteration if self.scan_input_directions[index] else iteration
                 feeds[body_inputs[num_states + index]] = np.take(value, take_index, axis=axis)
-            result = list(_run_graph_proto(self.body, feeds, outer_scope))
+            result = list(_run_graph_proto(self.body, feeds, outer_scope, self.opset_imports))
             output_map = dict(zip(body_outputs, result))
             states = [np.asarray(output_map[name]) for name in body_outputs[:num_states]]
             scan_values = [np.asarray(output_map[name]) for name in body_outputs[num_states:]]
@@ -422,10 +506,25 @@ class Scan(Ops):
             for bucket, value in zip(collected, scan_values):
                 bucket.append(value)
         scan_outputs = []
-        for index, bucket in enumerate(collected or []):
-            values = list(reversed(bucket)) if index < len(self.scan_output_directions) and self.scan_output_directions[index] else bucket
-            axis = self.scan_output_axes[index] if index < len(self.scan_output_axes) else 0
-            scan_outputs.append(np.stack(values, axis=axis))
+        if collected is None:
+            body_input_shapes = [value.shape for value in states]
+            body_input_shapes.extend(
+                value.shape[:axis] + value.shape[axis + 1:]
+                for value, axis in zip(scan_inputs, scan_axes)
+            )
+            try:
+                inferred_outputs = _infer_graph_outputs_for_shapes(
+                    self.body, body_input_shapes, self.opset_imports
+                )
+            except Exception:
+                inferred_outputs = list(self.body.output)
+            for index, value_info in enumerate(inferred_outputs[num_states:]):
+                scan_outputs.append(self._empty_scan_output(value_info, index, body_input_shapes))
+        else:
+            for index, bucket in enumerate(collected):
+                values = list(reversed(bucket)) if index < len(self.scan_output_directions) and self.scan_output_directions[index] else bucket
+                axis = self.scan_output_axes[index] if index < len(self.scan_output_axes) else 0
+                scan_outputs.append(np.stack(values, axis=axis))
         outputs = tuple(_tensor_from_numpy(value) for value in states + scan_outputs)
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
@@ -449,10 +548,11 @@ class Scan(Ops):
 
 class SequenceMap(Ops):
     # 初始化 `SequenceMap` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, body, version="17"):
+    def __init__(self, inputs, outputs, body, version="17", opset_imports=None):
         super().__init__(inputs, outputs)
         self.body = body
         self.version = version
+        self.opset_imports = opset_imports
         self.outer_scope_names = sorted(_graph_external_names(body))
 
     # 执行 `SequenceMap` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
@@ -467,7 +567,9 @@ class SequenceMap(Ops):
             feeds = {body_inputs[0]: _tensor_to_numpy(item)}
             for name, value in zip(body_inputs[1:], additional_inputs):
                 feeds[name] = _tensor_to_numpy(value[idx]) if isinstance(value, list) else _tensor_to_numpy(value)
-            result = [_tensor_from_numpy(value) for value in _run_graph_proto(self.body, feeds, outer_scope)]
+            result = [_tensor_from_numpy(value) for value in _run_graph_proto(
+                self.body, feeds, outer_scope, self.opset_imports
+            )]
             if collected is None:
                 collected = [[] for _ in result]
             for bucket, value in zip(collected, result):

@@ -393,6 +393,207 @@ def test_control_flow_subgraphs_capture_outer_scope(monkeypatch):
     np.testing.assert_array_equal(mapped[0].data, np.array(6.0, dtype=np.float32))
     np.testing.assert_array_equal(mapped[1].data, np.array(7.0, dtype=np.float32))
 
+def test_scan_zero_length_preserves_all_outputs_without_running_body(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    body = helper.make_graph(
+        [
+            helper.make_node("Identity", ["state_in"], ["state_out"]),
+            helper.make_node("Identity", ["x_in"], ["matrix_out"]),
+            helper.make_node("Cast", ["x_in"], ["ids_out"], to=TensorProto.INT64),
+        ],
+        "empty_scan_body",
+        [
+            helper.make_tensor_value_info("state_in", TensorProto.FLOAT, [2]),
+            helper.make_tensor_value_info("x_in", TensorProto.FLOAT, ["rows", 3]),
+        ],
+        [
+            helper.make_tensor_value_info("state_out", TensorProto.FLOAT, [2]),
+            helper.make_tensor_value_info("matrix_out", TensorProto.FLOAT, ["rows", 3]),
+            helper.make_tensor_value_info("ids_out", TensorProto.INT64, ["rows", 3]),
+        ],
+    )
+    state = Tensor(2, dtype="float32", data=np.array([3.0, 4.0], dtype=np.float32))
+    scan_input = Tensor(5, 0, 3, dtype="float32", data=np.empty((5, 0, 3), dtype=np.float32))
+    final, matrices, ids = Scan(
+        ["state", "x"], ["final", "matrices", "ids"], body=body,
+        num_scan_inputs=1, scan_input_axes=[1], scan_input_directions=[0],
+        scan_output_axes=[1, -1], scan_output_directions=[1, 0],
+    ).forward(state, scan_input)["tensor"]
+
+    np.testing.assert_array_equal(final.data, state.data)
+    assert matrices.data.shape == (5, 0, 3)
+    assert matrices.data.dtype == np.float32
+    assert ids.data.shape == (5, 3, 0)
+    assert ids.data.dtype == np.int64
+
+def test_scan_zero_length_rejects_unresolvable_output_shape(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    body = helper.make_graph(
+        [helper.make_node("NonZero", ["x_in"], ["y_out"])],
+        "unknown_empty_scan_body",
+        [helper.make_tensor_value_info("x_in", TensorProto.FLOAT, [2])],
+        [helper.make_tensor_value_info("y_out", TensorProto.INT64, [1, None])],
+    )
+    scan = Scan(["x"], ["y"], body=body, num_scan_inputs=1)
+    with pytest.raises(ValueError, match="cannot determine dimension 1"):
+        scan.forward(Tensor(0, 2, dtype="float32", data=np.empty((0, 2), dtype=np.float32)))
+
+def test_if_preserves_sequence_and_optional_output_kinds(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    scalar = helper.make_tensor("scalar", TensorProto.FLOAT, [], [7.0])
+    vector = helper.make_tensor("vector", TensorProto.FLOAT, [2], [1.0, 2.0])
+    seq_info = helper.make_tensor_sequence_value_info("seq", TensorProto.FLOAT, None)
+    value_info = helper.make_tensor_value_info("value", TensorProto.INT64, [])
+
+    def sequence_branch(name, seq_inputs, integer):
+        nodes = [
+            helper.make_node("Constant", [], ["scalar"], value=scalar),
+            helper.make_node("Constant", [], ["vector"], value=vector),
+            helper.make_node("SequenceConstruct", seq_inputs, ["seq"]),
+            helper.make_node(
+                "Constant", [], ["value"],
+                value=helper.make_tensor("integer", TensorProto.INT64, [], [integer]),
+            ),
+        ]
+        return helper.make_graph(nodes, name, [], [seq_info, value_info])
+
+    then_branch = sequence_branch("then_sequence", ["scalar", "vector"], 1)
+    else_branch = sequence_branch("else_sequence", ["vector", "scalar", "vector"], 2)
+    op = If(["cond"], ["seq", "value"], then_branch=then_branch, else_branch=else_branch)
+    for condition, expected_shapes, expected_value in (
+        (True, [(), (2,)], 1),
+        (False, [(2,), (), (2,)], 2),
+    ):
+        seq, value = op.forward(Tensor(dtype="bool", data=np.array(condition)))["tensor"]
+        assert isinstance(seq, list)
+        assert [item.size for item in seq] == expected_shapes
+        assert all(isinstance(item, Tensor) for item in seq)
+        np.testing.assert_array_equal(value.data, np.array(expected_value, dtype=np.int64))
+        length = SequenceLength(["seq"], ["length"]).forward(seq)["tensor"]
+        np.testing.assert_array_equal(length.data, np.array(len(expected_shapes), dtype=np.int64))
+
+    sequence_graph = Graph(
+        [op, SequenceLength(["seq"], ["length"])],
+        input_name=["cond"],
+        output_name=["length"],
+    )
+    for condition, expected_length in ((True, 2), (False, 3)):
+        length = sequence_graph.forward(Tensor(dtype="bool", data=np.array(condition)))
+        np.testing.assert_array_equal(length.data, np.array(expected_length, dtype=np.int64))
+
+    optional_info = helper.make_optional_type_proto(
+        helper.make_tensor_type_proto(TensorProto.FLOAT, [2])
+    )
+    optional_output = helper.make_value_info("optional", optional_info)
+    empty_branch = helper.make_graph(
+        [helper.make_node("Optional", [], ["optional"])],
+        "empty",
+        [],
+        [optional_output],
+    )
+    present_branch = helper.make_graph(
+        [
+            helper.make_node("Constant", [], ["vector"], value=vector),
+            helper.make_node("Optional", ["vector"], ["optional"]),
+        ],
+        "present",
+        [],
+        [optional_output],
+    )
+    optional_if = If(
+        ["cond"], ["optional"], then_branch=present_branch, else_branch=empty_branch
+    )
+    present = optional_if.forward(Tensor(dtype="bool", data=np.array(True)))["tensor"]
+    assert isinstance(present, Tensor)
+    np.testing.assert_array_equal(present.data, np.array([1.0, 2.0], dtype=np.float32))
+    assert optional_if.forward(Tensor(dtype="bool", data=np.array(False)))["tensor"] is None
+    optional_graph = Graph(
+        [optional_if, OptionalHasElement(["optional"], ["has"])],
+        input_name=["cond"],
+        output_name=["has"],
+    )
+    for condition in (True, False):
+        has = optional_graph.forward(Tensor(dtype="bool", data=np.array(condition)))
+        np.testing.assert_array_equal(has.data, np.array(condition, dtype=np.bool_))
+
+def test_imported_control_flow_propagates_all_model_opsets(monkeypatch, tmp_path):
+    _disable_c_backend(monkeypatch)
+
+    branch_output = helper.make_tensor_value_info("branch_y", TensorProto.FLOAT, [3])
+
+    def ml_branch(name):
+        return helper.make_graph(
+            [helper.make_node(
+                "Binarizer", ["x"], ["branch_y"],
+                domain="ai.onnx.ml", threshold=0.5,
+            )],
+            name,
+            [],
+            [branch_output],
+        )
+
+    graph = helper.make_graph(
+        [helper.make_node(
+            "If", ["cond"], ["y"],
+            then_branch=ml_branch("then_ml"), else_branch=ml_branch("else_ml"),
+        )],
+        "nested_ml_domain",
+        [
+            helper.make_tensor_value_info("cond", TensorProto.BOOL, []),
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [3]),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [3])],
+    )
+    model = helper.make_model(
+        graph,
+        opset_imports=[
+            helper.make_opsetid("", 17),
+            helper.make_opsetid("ai.onnx.ml", 1),
+        ],
+    )
+    model_path = tmp_path / "nested_ml_domain.onnx"
+    onnx.save(model, model_path)
+    onnx.checker.check_model(model)
+
+    imported = ONNXImport(str(model_path), strict=True)
+    if_op = imported[0]
+    assert if_op.opset_imports == {"": 17, "ai.onnx.ml": 1}
+    runtime = Graph(imported, ["cond", "x"], ["y"])
+    actual = runtime.forward(
+        Tensor(dtype="bool", data=np.array(True, dtype=np.bool_)),
+        Tensor(3, dtype="float32", data=np.array([0.2, 0.5, 0.8], dtype=np.float32)),
+    )
+    np.testing.assert_array_equal(actual.data, np.array([0.0, 0.0, 1.0], dtype=np.float32))
+
+def test_if_uses_propagated_default_domain_version(monkeypatch):
+    _disable_c_backend(monkeypatch)
+
+    output_a = helper.make_tensor_value_info("a", TensorProto.FLOAT, [1])
+    output_b = helper.make_tensor_value_info("b", TensorProto.FLOAT, [1])
+
+    def split_branch(name):
+        return helper.make_graph(
+            [helper.make_node("Split", ["x"], ["a", "b"], axis=0, num_outputs=2)],
+            name,
+            [],
+            [output_a, output_b],
+        )
+
+    op = If(
+        ["cond"], ["a", "b"],
+        then_branch=split_branch("then_split"), else_branch=split_branch("else_split"),
+        opset_imports={"": 18},
+    )
+    a, b = op.forward_with_context(
+        {"x": Tensor(2, dtype="float32", data=np.array([1.0, 2.0], dtype=np.float32))},
+        Tensor(dtype="bool", data=np.array(True, dtype=np.bool_)),
+    )["tensor"]
+    np.testing.assert_array_equal(a.data, np.array([1.0], dtype=np.float32))
+    np.testing.assert_array_equal(b.data, np.array([2.0], dtype=np.float32))
+
 def test_onehot_and_compress_shape_inference(monkeypatch):
     _disable_c_backend(monkeypatch)
 
