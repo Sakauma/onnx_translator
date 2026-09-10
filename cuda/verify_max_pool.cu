@@ -67,7 +67,8 @@ int main(int argc, char** argv) {
     FILE *fx = fopen(argv[2], "rb"); verify_fread_exact(h_x, 1, size_x, fx); verify_close_file(fx);
     
     double *d_x, *d_y;
-    CUDA_CHECK(cudaMalloc(&d_x, size_x); CUDA_CHECK(cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_x, size_x));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMalloc(&d_y, size_y));
     
     maxpool_kernel<<<(out_len+255)/256, 256>>>(d_x, d_y, 
@@ -77,6 +78,8 @@ int main(int argc, char** argv) {
     CUDA_CHECK(cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost));
     FILE *fout = fopen(argv[4], "wb"); verify_fwrite_exact(h_y, 1, size_y, fout); verify_close_file(fout);
     
-    free(h_x); free(h_y); CUDA_CHECK(cudaFree(d_x)); CUDA_CHECK(cudaFree(d_y));
+    free(h_x); free(h_y);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_y));
     return 0;
 }

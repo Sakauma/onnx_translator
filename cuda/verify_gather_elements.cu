@@ -101,7 +101,9 @@ int main(int argc, char** argv) {
     verify_close_file(fo);
     if (w != out_len) { fprintf(stderr, "fwrite mismatch\n"); return 1; }
 
-    CUDA_CHECK(cudaFree(d_data); CUDA_CHECK(cudaFree(d_idx)); CUDA_CHECK(cudaFree(d_out)));
+    CUDA_CHECK(cudaFree(d_data));
+    CUDA_CHECK(cudaFree(d_idx));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_data); free(h_idx); free(h_out);
     return 0;
 }

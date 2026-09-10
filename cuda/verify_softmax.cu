@@ -64,7 +64,8 @@ int main(int argc, char** argv) {
     FILE *fx = fopen(argv[2], "rb"); verify_fread_exact(h_x, 1, bytes, fx); verify_close_file(fx);
     
     double *d_x, *d_y;
-    CUDA_CHECK(cudaMalloc(&d_x, bytes); CUDA_CHECK(cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_x, bytes));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMalloc(&d_y, bytes));
     
     int work_items = p[0] * p[2];

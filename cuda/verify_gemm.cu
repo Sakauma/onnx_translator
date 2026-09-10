@@ -85,8 +85,10 @@ int main(int argc, char** argv) {
     }
     
     double *d_a, *d_b, *d_c = NULL, *d_y;
-    CUDA_CHECK(cudaMalloc(&d_a, size_a); CUDA_CHECK(cudaMemcpy(d_a, h_a, size_a, cudaMemcpyHostToDevice)));
-    CUDA_CHECK(cudaMalloc(&d_b, size_b); CUDA_CHECK(cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_a, size_a));
+    CUDA_CHECK(cudaMemcpy(d_a, h_a, size_a, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&d_b, size_b));
+    CUDA_CHECK(cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMalloc(&d_y, size_y));
     if (h_c) {
         // Simple hack: allocate M*N size max

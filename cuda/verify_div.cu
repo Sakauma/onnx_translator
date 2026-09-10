@@ -41,7 +41,9 @@ int main(int argc, char** argv) {
     
     // 2. GPU 计算
     float *d_a, *d_b, *d_out;
-    CUDA_CHECK(cudaMalloc(&d_a, bytes); CUDA_CHECK(cudaMalloc(&d_b, bytes)); CUDA_CHECK(cudaMalloc(&d_out, bytes)));
+    CUDA_CHECK(cudaMalloc(&d_a, bytes));
+    CUDA_CHECK(cudaMalloc(&d_b, bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
     CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice));
     
@@ -55,6 +57,8 @@ int main(int argc, char** argv) {
     
     // 清理
     free(h_a); free(h_b); free(h_out);
-    CUDA_CHECK(cudaFree(d_a); CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_out)));
+    CUDA_CHECK(cudaFree(d_a));
+    CUDA_CHECK(cudaFree(d_b));
+    CUDA_CHECK(cudaFree(d_out));
     return 0;
 }

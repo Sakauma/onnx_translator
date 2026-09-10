@@ -80,7 +80,9 @@ int main(int argc, char** argv) {
     verify_close_file(fo);
     if (wo != (size_t)out_len) { printf("fwrite mismatch\n"); return 1; }
 
-    CUDA_CHECK(cudaFree(d_a); CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_out)));
+    CUDA_CHECK(cudaFree(d_a));
+    CUDA_CHECK(cudaFree(d_b));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_a); free(h_b); free(h_out);
     return 0;
 }

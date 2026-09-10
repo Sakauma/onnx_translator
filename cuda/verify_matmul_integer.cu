@@ -87,10 +87,14 @@ int main(int argc, char** argv) {
 
     double *d_a, *d_b, *d_a_zp, *d_b_zp;
     int32_t* d_y;
-    CUDA_CHECK(cudaMalloc(&d_a, size_a); CUDA_CHECK(cudaMemcpy(d_a, h_a, size_a, cudaMemcpyHostToDevice)));
-    CUDA_CHECK(cudaMalloc(&d_b, size_b); CUDA_CHECK(cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice)));
-    CUDA_CHECK(cudaMalloc(&d_a_zp, size_a_zp); CUDA_CHECK(cudaMemcpy(d_a_zp, h_a_zp, size_a_zp, cudaMemcpyHostToDevice)));
-    CUDA_CHECK(cudaMalloc(&d_b_zp, size_b_zp); CUDA_CHECK(cudaMemcpy(d_b_zp, h_b_zp, size_b_zp, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_a, size_a));
+    CUDA_CHECK(cudaMemcpy(d_a, h_a, size_a, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&d_b, size_b));
+    CUDA_CHECK(cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&d_a_zp, size_a_zp));
+    CUDA_CHECK(cudaMemcpy(d_a_zp, h_a_zp, size_a_zp, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&d_b_zp, size_b_zp));
+    CUDA_CHECK(cudaMemcpy(d_b_zp, h_b_zp, size_b_zp, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMalloc(&d_y, size_y));
 
     matmul_integer_kernel<<<(out_len + 255) / 256, 256>>>(d_a, d_b, d_a_zp, d_b_zp, d_y, M, K, N, a_zp_size, b_zp_size);
@@ -100,6 +104,10 @@ int main(int argc, char** argv) {
     f = fopen(argv[7], "wb"); verify_fwrite_exact(h_y, 1, size_y, f); verify_close_file(f);
 
     free(h_a); free(h_b); free(h_a_zp); free(h_b_zp); free(h_y);
-    CUDA_CHECK(cudaFree(d_a); CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_a_zp)); CUDA_CHECK(cudaFree(d_b_zp)); CUDA_CHECK(cudaFree(d_y)));
+    CUDA_CHECK(cudaFree(d_a));
+    CUDA_CHECK(cudaFree(d_b));
+    CUDA_CHECK(cudaFree(d_a_zp));
+    CUDA_CHECK(cudaFree(d_b_zp));
+    CUDA_CHECK(cudaFree(d_y));
     return 0;
 }

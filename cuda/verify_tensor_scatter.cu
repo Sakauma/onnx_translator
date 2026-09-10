@@ -176,8 +176,11 @@ int main(int argc, char** argv) {
     verify_close_file(fo);
     if (wo != out_len) { printf("fwrite mismatch\n"); return 1; }
 
-    CUDA_CHECK(cudaFree(d_cache); CUDA_CHECK(cudaFree(d_update)); CUDA_CHECK(cudaFree(d_out)));
-    CUDA_CHECK(cudaFree(d_cache_shape); CUDA_CHECK(cudaFree(d_update_shape)));
+    CUDA_CHECK(cudaFree(d_cache));
+    CUDA_CHECK(cudaFree(d_update));
+    CUDA_CHECK(cudaFree(d_out));
+    CUDA_CHECK(cudaFree(d_cache_shape));
+    CUDA_CHECK(cudaFree(d_update_shape));
     if (d_indices) CUDA_CHECK(cudaFree(d_indices));
     free(h_cache); free(h_update); free(h_out);
     if (h_indices) free(h_indices);

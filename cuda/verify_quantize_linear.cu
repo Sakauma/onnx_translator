@@ -378,7 +378,10 @@ int main(int argc, char** argv) {
     
     double *d_x, *d_s, *d_z, *d_out;
     int *d_input_shape = NULL, *d_scale_shape = NULL;
-    CUDA_CHECK(cudaMalloc(&d_x, x_bytes); CUDA_CHECK(cudaMalloc(&d_s, scale_bytes)); CUDA_CHECK(cudaMalloc(&d_z, zp_bytes)); CUDA_CHECK(cudaMalloc(&d_out, x_bytes)));
+    CUDA_CHECK(cudaMalloc(&d_x, x_bytes));
+    CUDA_CHECK(cudaMalloc(&d_s, scale_bytes));
+    CUDA_CHECK(cudaMalloc(&d_z, zp_bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, x_bytes));
     if (input_shape && rank > 0) {
         CUDA_CHECK(cudaMalloc(&d_input_shape, (size_t)rank * sizeof(int)));
         CUDA_CHECK(cudaMemcpy(d_input_shape, input_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice));
@@ -401,7 +404,10 @@ int main(int argc, char** argv) {
     free(h_x); free(h_s); free(h_z); free(h_out);
     if (input_shape) free(input_shape);
     if (scale_shape) free(scale_shape);
-    CUDA_CHECK(cudaFree(d_x); CUDA_CHECK(cudaFree(d_s)); CUDA_CHECK(cudaFree(d_z)); CUDA_CHECK(cudaFree(d_out)));
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_s));
+    CUDA_CHECK(cudaFree(d_z));
+    CUDA_CHECK(cudaFree(d_out));
     if (d_input_shape) CUDA_CHECK(cudaFree(d_input_shape));
     if (d_scale_shape) CUDA_CHECK(cudaFree(d_scale_shape));
     return 0;

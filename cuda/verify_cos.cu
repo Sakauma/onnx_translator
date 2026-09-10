@@ -33,7 +33,8 @@ int main(int argc, char** argv) {
     FILE *fin = fopen(argv[2], "rb"); verify_fread_exact(h_in, 1, bytes, fin); verify_close_file(fin);
     
     float *d_in, *d_out;
-    CUDA_CHECK(cudaMalloc(&d_in, bytes); CUDA_CHECK(cudaMalloc(&d_out, bytes)));
+    CUDA_CHECK(cudaMalloc(&d_in, bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
     CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
     
     cos_kernel<<<(n + 255)/256, 256>>>(d_in, d_out, n);
@@ -42,6 +43,8 @@ int main(int argc, char** argv) {
     CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
     FILE *fout = fopen(argv[3], "wb"); verify_fwrite_exact(h_out, 1, bytes, fout); verify_close_file(fout);
     
-    free(h_in); free(h_out); CUDA_CHECK(cudaFree(d_in)); CUDA_CHECK(cudaFree(d_out));
+    free(h_in); free(h_out);
+    CUDA_CHECK(cudaFree(d_in));
+    CUDA_CHECK(cudaFree(d_out));
     return 0;
 }

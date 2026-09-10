@@ -320,6 +320,17 @@ int main(int argc, char** argv) {
     verify_close_file(fo);
 
     free(h_x); free(h_w); free(h_r); free(h_b); free(h_seq); free(h_init_h); free(h_init_c); free(h_p); free(h_y); free(h_yh); free(h_yc);
-    CUDA_CHECK(cudaFree(d_x); CUDA_CHECK(cudaFree(d_w)); CUDA_CHECK(cudaFree(d_r)); CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_seq)); CUDA_CHECK(cudaFree(d_init_h)); CUDA_CHECK(cudaFree(d_init_c)); CUDA_CHECK(cudaFree(d_p)); CUDA_CHECK(cudaFree(d_y)); CUDA_CHECK(cudaFree(d_yh)); CUDA_CHECK(cudaFree(d_yc)); CUDA_CHECK(cudaFree(d_workspace)));
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_w));
+    CUDA_CHECK(cudaFree(d_r));
+    CUDA_CHECK(cudaFree(d_b));
+    CUDA_CHECK(cudaFree(d_seq));
+    CUDA_CHECK(cudaFree(d_init_h));
+    CUDA_CHECK(cudaFree(d_init_c));
+    CUDA_CHECK(cudaFree(d_p));
+    CUDA_CHECK(cudaFree(d_y));
+    CUDA_CHECK(cudaFree(d_yh));
+    CUDA_CHECK(cudaFree(d_yc));
+    CUDA_CHECK(cudaFree(d_workspace));
     return 0;
 }

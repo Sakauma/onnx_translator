@@ -72,9 +72,12 @@ int main(int argc, char** argv) {
 
     double *d_x, *d_y;
     int64_t* d_i;
-    CUDA_CHECK(cudaMalloc(&d_x, size_x); CUDA_CHECK(cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice)));
-    CUDA_CHECK(cudaMalloc(&d_i, size_i); CUDA_CHECK(cudaMemcpy(d_i, h_i, size_i, cudaMemcpyHostToDevice)));
-    CUDA_CHECK(cudaMalloc(&d_y, size_y); CUDA_CHECK(cudaMemset(d_y, 0, size_y)));
+    CUDA_CHECK(cudaMalloc(&d_x, size_x));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&d_i, size_i));
+    CUDA_CHECK(cudaMemcpy(d_i, h_i, size_i, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&d_y, size_y));
+    CUDA_CHECK(cudaMemset(d_y, 0, size_y));
 
     int threads = 256;
     int blocks = (input_size + threads - 1) / threads;
@@ -85,6 +88,8 @@ int main(int argc, char** argv) {
     FILE* fout = fopen(argv[5], "wb"); verify_fwrite_exact(h_y, 1, size_y, fout); verify_close_file(fout);
 
     free(h_x); free(h_i); free(h_y);
-    CUDA_CHECK(cudaFree(d_x); CUDA_CHECK(cudaFree(d_i)); CUDA_CHECK(cudaFree(d_y)));
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_i));
+    CUDA_CHECK(cudaFree(d_y));
     return 0;
 }

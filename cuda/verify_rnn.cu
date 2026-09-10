@@ -273,6 +273,14 @@ int main(int argc, char** argv) {
     verify_close_file(fo);
 
     free(h_x); free(h_w); free(h_r); free(h_b); free(h_seq); free(h_init); free(h_y); free(h_yh);
-    CUDA_CHECK(cudaFree(d_x); CUDA_CHECK(cudaFree(d_w)); CUDA_CHECK(cudaFree(d_r)); CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_seq)); CUDA_CHECK(cudaFree(d_init)); CUDA_CHECK(cudaFree(d_y)); CUDA_CHECK(cudaFree(d_yh)); CUDA_CHECK(cudaFree(d_workspace)));
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_w));
+    CUDA_CHECK(cudaFree(d_r));
+    CUDA_CHECK(cudaFree(d_b));
+    CUDA_CHECK(cudaFree(d_seq));
+    CUDA_CHECK(cudaFree(d_init));
+    CUDA_CHECK(cudaFree(d_y));
+    CUDA_CHECK(cudaFree(d_yh));
+    CUDA_CHECK(cudaFree(d_workspace));
     return 0;
 }
