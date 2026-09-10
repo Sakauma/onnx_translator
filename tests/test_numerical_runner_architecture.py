@@ -11,11 +11,15 @@
 
 import numpy as np
 import pytest
+from types import SimpleNamespace
 
 from tools.numerical import cli as numerical_cli
+from tools.numerical import runner as numerical_runner
+from tools.numerical import runner_special_outputs
 from tools.numerical.runner_config import resolve_verification_config
 from tools.numerical.runner_cuda_inputs import build_cuda_inputs, resolve_cuda_output_dtype
 from tools.numerical.runner_inputs import prepare_input_samples
+from tools.numerical.runner_special_outputs import SpecialOutputState
 
 
 def test_all_default_slice_plans_prepare_inputs():
@@ -56,6 +60,46 @@ def test_cli_aggregates_plan_exception_and_runs_remaining_plan(monkeypatch, caps
     output = capsys.readouterr().out
     assert "preparation exploded" in output
     assert "numerical verification failed for: ['broken']" in output
+
+
+def test_single_output_missing_cuda_result_stops_plan(monkeypatch):
+    sample = np.asarray([1.0], dtype=np.float32)
+    monkeypatch.setattr(numerical_runner, "prepare_input_samples", lambda *_args: [sample])
+    monkeypatch.setattr(
+        numerical_runner,
+        "run_nps_forward",
+        lambda *_args: SimpleNamespace(output=sample, topk_indices=None),
+    )
+    monkeypatch.setattr(numerical_runner, "build_cuda_params", lambda *_args: b"")
+    monkeypatch.setattr(numerical_runner, "build_cuda_inputs", lambda *_args: [sample])
+    monkeypatch.setattr(numerical_runner, "run_cuda_ground_truth", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match=r"no output \[add\]"):
+        numerical_runner.verify_op(object, "add", [(1,)], ["float32"], "float32", iterations=3)
+
+
+def test_multi_output_missing_cuda_result_propagates(monkeypatch):
+    sample = np.asarray([1.0], dtype=np.float32)
+    state = SpecialOutputState(
+        op_cls=object,
+        op_name="dynamic_quantize_linear",
+        inputs_np=[sample],
+        dtypes=["float32"],
+        out_dtype="uint8",
+        init_args={},
+        params_bin=b"",
+        nps_out=(np.asarray([1], dtype=np.uint8), np.asarray(1.0), np.asarray(0, dtype=np.uint8)),
+        atol=0.0,
+        rtol=0.0,
+        iteration=0,
+        pass_count=0,
+        stats_abs=[],
+        stats_rel=[],
+    )
+    monkeypatch.setattr(runner_special_outputs, "run_cuda_ground_truth", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match=r"no output \[dynamic_quantize_linear\]"):
+        runner_special_outputs.handle_special_output(state)
 
 
 @pytest.mark.parametrize(

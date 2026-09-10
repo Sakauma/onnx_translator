@@ -107,7 +107,7 @@ def handle_special_output(state):
             target_shape=y_np.shape,
         )
         if cuda_y is None:
-            return SpecialOutputAction.CONTINUE
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         missing_paths = [path for _name, _expected, path in side_specs if not os.path.exists(path)]
         if missing_paths:
@@ -164,7 +164,7 @@ def handle_special_output(state):
             target_shape=y_np.shape,
         )
         if cuda_y is None:
-            return SpecialOutputAction.CONTINUE
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         mask_path = "tmp_dropout_mask.bin"
         if not os.path.exists(mask_path):
@@ -207,7 +207,7 @@ def handle_special_output(state):
             target_shape=y_np.shape,
         )
         if cuda_y is None:
-            return SpecialOutputAction.CONTINUE
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         side_paths = {
             "running_mean": "tmp_batch_norm_running_mean.bin",
@@ -273,7 +273,7 @@ def handle_special_output(state):
             target_shape=y_np.shape,
         )
         if cuda_y is None:
-            return SpecialOutputAction.CONTINUE
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         side_paths = {
             "mean": "tmp_layer_norm_mean.bin",
@@ -348,7 +348,7 @@ def handle_special_output(state):
             target_shape=loss_shape,
         )
         if cuda_loss is None:
-            return SpecialOutputAction.CONTINUE
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         loss_ref = quantize_to_dtype_float32(cuda_loss, out_dtype)
         loss_nps = to_float32(loss_cmp, out_dtype)
@@ -401,7 +401,7 @@ def handle_special_output(state):
             target_shape=(flat_len + 2,),
         )
         if cuda_out is None:
-            return SpecialOutputAction.CONTINUE
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         cuda_flat = np.asarray(cuda_out, dtype=np.float32).reshape(-1)
         cuda_y = np.rint(cuda_flat[:flat_len]).clip(0, 255).astype(np.uint8).reshape(y_np.shape)
@@ -451,7 +451,7 @@ def handle_special_output(state):
             target_shape=(flat_len,),
         )
         if cuda_out is None:
-            return SpecialOutputAction.CONTINUE
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         cuda_flat = np.asarray(cuda_out, dtype=np.float32).reshape(-1)
         offset = 0
@@ -504,7 +504,7 @@ def handle_special_output(state):
             target_shape=values_np.shape,
         )
         if cuda_values is None:
-            return SpecialOutputAction.CONTINUE
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         side_paths = {
             "indices": "tmp_unique_indices.bin",

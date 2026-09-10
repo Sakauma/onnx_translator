@@ -120,7 +120,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         )
 
         if cuda_out is None:
-            continue
+            raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
         # TopK 的 values 走主输出文件，indices 由 verifier 写入独立 sidecar。
         if op_name == "topk":
