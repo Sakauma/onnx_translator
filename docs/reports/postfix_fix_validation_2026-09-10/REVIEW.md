@@ -1,6 +1,6 @@
 # 修复后独立代码审查
 
-审查基线为 `c5882ba16ace037e4ce6bab0a509a917db16df06`，范围覆盖原审计 AUD001–AUD008 对应的生产修改和定向回归。当前结论是：**未发现剩余阻断项，可以进入最终全量门禁；全量门禁结果尚未完成，不在本文中提前宣称通过。**
+审查基线为 `c5882ba16ace037e4ce6bab0a509a917db16df06`，范围覆盖原审计 AUD001–AUD008 对应的生产修改和定向回归。最终全量门禁在仅新增本审查报告的稳定 HEAD `f084e92bab08c8110d7a640360d0a6205c6d6302` 上完成。当前结论是：**未发现剩余阻断项，原审计八项问题均已修复并通过最终验收。**
 
 ## 审查范围
 
@@ -42,11 +42,18 @@
 | harness 非 GPU 定向组 | 67 passed，10 deselected | 0 | `harness_finish_targeted.stdout.log`、`harness_finish_targeted.rc.txt` |
 | 真实 GPU 并发 Add 与 Unique 四输出 | 1 passed | 0 | `harness_finish_gpu.stdout.log`、`harness_finish_gpu.rc.txt` |
 
-## 未完成门禁与限制
+## 最终全量门禁与限制
 
-- 最终 CPU 全量门禁尚未完成。
-- 178 个 CUDA verifier 的 fresh 重编及其后 protocol/concurrency 全组尚未完成。
-- 723 plans × 3 iterations，共 2169 次原生 numerical 验证尚未完成。
-- ONNX ReferenceEvaluator 对零长度 Scan 的自身空堆叠限制仍存在；该项以 schema 推导和产品侧精确 pytest 断言验收。
+最终门禁全部在稳定 HEAD `f084e92bab08c8110d7a640360d0a6205c6d6302` 上执行，运行前 tracked status 为空：
 
-最终发布结论必须以同一稳定 HEAD 上的全量门禁真实 RC、通过数和日志为准。
+| 门禁 | 结果 | RC | 证据 |
+|---|---:|---:|---|
+| CPU 全量、静态检查、严格覆盖、代表模型与图验证 | 482 passed，11 skipped | 0 | `gate_cpu.meta.log`、`gate_cpu.rc`、`gate_cpu.stdout_stderr.log` |
+| CUDA verifier fresh 重编 | 178/178 compiled，0 skipped | 0 | `gate_compile_cuda.meta.log`、`gate_compile_cuda.rc`、`gate_compile_cuda.stdout_stderr.log` |
+| fresh CUDA protocol 全组 | 14 passed | 0 | `gate_protocol.meta.log`、`gate_protocol.rc`、`gate_protocol.stdout_stderr.log` |
+| 真实 GPU 并发 Add 与 Unique 四输出 | 1 passed | 0 | `gate_gpu_harness.meta.log`、`gate_gpu_harness.rc`、`gate_gpu_harness.stdout_stderr.log` |
+| 原生 numerical | 723/723 plans；2169 iterations；0 failed；0 exceptions | 0 | `gate_numerical.meta.log`、`gate_numerical.rc`、`gate_numerical.stdout_stderr.log` |
+
+CPU 全量中的 11 个 skip 均已核对：9 个 CUDA protocol 用例和 1 个真实 GPU harness 用例因 CPU 门禁发生在 fresh CUDA 编译之前而跳过，随后均由上述 fresh GPU 门禁通过；另 1 个是 ONNX 17 明确不支持的 Celu float16 情况。
+
+ONNX ReferenceEvaluator 对零长度 Scan 的自身空堆叠限制仍存在；该项以 schema 推导和产品侧精确 pytest 断言验收。完整环境、命令、时间戳及证据说明见同目录的 `VALIDATION.md`。
