@@ -38,7 +38,11 @@ _VERIFIED_VERSION_OVERLAYS = {
         "ScatterElements", "Swish", "TensorScatter",
     },
     25: {"Cast", "QuantizeLinear", "DequantizeLinear"},
-    26: {"BitCast", "CastLike", "CumProd", "Shape", "Size"},
+    26: {
+        "BitCast", "CastLike", "CumProd", "Shape", "Size",
+        "RandomUniform", "Det", "Multinomial", "RNN", "GridSample",
+        "Reshape", "SplitToSequence", "OptionalHasElement", "If",
+    },
 }
 
 
