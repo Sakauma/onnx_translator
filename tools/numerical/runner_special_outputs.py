@@ -40,6 +40,19 @@ def _read_sidecar(path, dtype, shape, op_name):
             os.remove(path)
 
 
+def _read_sidecar_group(specs, op_name):
+    """Read related sidecars atomically and clean every member on failure."""
+    try:
+        return [
+            _read_sidecar(path, dtype, shape, op_name)
+            for path, dtype, shape in specs
+        ]
+    finally:
+        for path, _dtype, _shape in specs:
+            if os.path.exists(path):
+                os.remove(path)
+
+
 class SpecialOutputAction(Enum):
     """告知通用调度器当前迭代是否已被特殊协议消费。"""
 
@@ -137,8 +150,11 @@ def handle_special_output(state):
             )
 
         comparisons = [("Y", y_np, cuda_y)]
-        for name, expected, path in side_specs:
-            cuda_side = _read_sidecar(path, np.float64, expected.shape, op_name)
+        side_values = _read_sidecar_group(
+            [(path, np.float64, expected.shape) for _name, expected, path in side_specs],
+            op_name,
+        )
+        for (name, expected, _path), cuda_side in zip(side_specs, side_values):
             comparisons.append((name, expected, cuda_side))
 
         ok_all = True
@@ -234,8 +250,13 @@ def handle_special_output(state):
                     os.remove(path)
             raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing)}")
 
-        cuda_running_mean = _read_sidecar(side_paths["running_mean"], np.float64, running_mean_np.shape, op_name)
-        cuda_running_var = _read_sidecar(side_paths["running_var"], np.float64, running_var_np.shape, op_name)
+        cuda_running_mean, cuda_running_var = _read_sidecar_group(
+            [
+                (side_paths["running_mean"], np.float64, running_mean_np.shape),
+                (side_paths["running_var"], np.float64, running_var_np.shape),
+            ],
+            op_name,
+        )
 
         comparisons = [
             ("y", y_np, cuda_y),
@@ -297,8 +318,13 @@ def handle_special_output(state):
                     os.remove(path)
             raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing)}")
 
-        cuda_mean = _read_sidecar(side_paths["mean"], np.float64, mean_np.shape, op_name)
-        cuda_inv_std = _read_sidecar(side_paths["inv_std"], np.float64, inv_std_np.shape, op_name)
+        cuda_mean, cuda_inv_std = _read_sidecar_group(
+            [
+                (side_paths["mean"], np.float64, mean_np.shape),
+                (side_paths["inv_std"], np.float64, inv_std_np.shape),
+            ],
+            op_name,
+        )
 
         stash_dtype = nn.onnx_dtype_mapping.get(int(init_args.get("stash_type", 1)), "float32")
         comparisons = [
@@ -523,9 +549,14 @@ def handle_special_output(state):
                     os.remove(path)
             raise RuntimeError(f"CUDA verifier sidecar missing [{op_name}]: {', '.join(missing)}")
 
-        cuda_indices = _read_sidecar(side_paths["indices"], np.int64, indices_np.shape, op_name)
-        cuda_inverse = _read_sidecar(side_paths["inverse"], np.int64, inverse_np.shape, op_name)
-        cuda_counts = _read_sidecar(side_paths["counts"], np.int64, counts_np.shape, op_name)
+        cuda_indices, cuda_inverse, cuda_counts = _read_sidecar_group(
+            [
+                (side_paths["indices"], np.int64, indices_np.shape),
+                (side_paths["inverse"], np.int64, inverse_np.shape),
+                (side_paths["counts"], np.int64, counts_np.shape),
+            ],
+            op_name,
+        )
 
         if out_dtype == "int64":
             values_ok = np.array_equal(values_np.astype(np.int64), cuda_values.astype(np.int64))
