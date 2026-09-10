@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -51,11 +52,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (fread(params, sizeof(int32_t), 2, fp) != 2) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "read params failed\n");
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     int32_t size = params[0];
     int32_t periodic = params[1];
@@ -71,12 +72,13 @@ int main(int argc, char** argv) {
     }
 
     float* d_output = NULL;
-    cudaMalloc(&d_output, out_len * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&d_output, out_len * sizeof(float)));
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     hamming_window_kernel<<<blocks, threads>>>(d_output, size, periodic);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -84,13 +86,13 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t write_count = fwrite(h_output, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (write_count != out_len) {
         fprintf(stderr, "write output failed\n");
         return 1;
     }
 
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_output));
     free(h_output);
     return 0;
 }

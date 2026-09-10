@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,7 +32,7 @@ static int read_elem_size(const char* params_path) {
     }
     int elem_size = 0;
     size_t r = fread(&elem_size, sizeof(int), 1, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (r != 1 || elem_size <= 0) {
         fprintf(stderr, "read params failed\n");
         return -1;
@@ -68,7 +69,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t r = fread(h_input, 1, nbytes, fi);
-    fclose(fi);
+    verify_close_file(fi);
     if (r != nbytes) {
         fprintf(stderr, "fread mismatch\n");
         return 1;
@@ -76,16 +77,17 @@ int main(int argc, char** argv) {
 
     uint8_t* d_input = NULL;
     uint8_t* d_output = NULL;
-    cudaMalloc(&d_input, nbytes);
-    cudaMalloc(&d_output, nbytes);
-    cudaMemcpy(d_input, h_input, nbytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_input, nbytes));
+    CUDA_CHECK(cudaMalloc(&d_output, nbytes));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, nbytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((nbytes + (size_t)threads - 1) / (size_t)threads);
     bitcast_copy_kernel<<<blocks, threads>>>(d_input, d_output, nbytes);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_output, d_output, nbytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, nbytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -93,14 +95,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t w = fwrite(h_output, 1, nbytes, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (w != nbytes) {
         fprintf(stderr, "fwrite mismatch\n");
         return 1;
     }
 
-    cudaFree(d_input);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_input);
     free(h_output);
     return 0;

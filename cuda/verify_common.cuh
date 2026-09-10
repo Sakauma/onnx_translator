@@ -55,4 +55,35 @@ static inline void verify_write_file(const char* path, const void* data, size_t 
     }
 }
 
+static inline void verify_fread_exact(void* data, size_t size, size_t count, FILE* fp) {
+    if (!fp) {
+        fprintf(stderr, "read failed: invalid file handle\n");
+        exit(4);
+    }
+    size_t got = fread(data, size, count, fp);
+    if (got != count) {
+        fprintf(stderr, "read failed: expected %zu elements, got %zu\n", count, got);
+        exit(4);
+    }
+}
+
+static inline void verify_fwrite_exact(const void* data, size_t size, size_t count, FILE* fp) {
+    if (!fp) {
+        fprintf(stderr, "write failed: invalid file handle\n");
+        exit(5);
+    }
+    size_t wrote = fwrite(data, size, count, fp);
+    if (wrote != count) {
+        fprintf(stderr, "write failed: expected %zu elements, wrote %zu\n", count, wrote);
+        exit(5);
+    }
+}
+
+static inline void verify_close_file(FILE* fp) {
+    if (!fp || fclose(fp) != 0) {
+        fprintf(stderr, "close file failed\n");
+        exit(5);
+    }
+}
+
 #endif

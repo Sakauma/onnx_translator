@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct GatherElementsParams {
     int M;
@@ -51,7 +52,7 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(p_path, "rb");
     if (!fp) { fprintf(stderr, "open params failed\n"); return 1; }
     size_t pr = fread(&p, sizeof(GatherElementsParams), 1, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (pr != 1) { fprintf(stderr, "read params failed\n"); return 1; }
     if (p.axis != 1) { fprintf(stderr, "This verifier only supports axis=1 for 2D.\n"); return 1; }
 
@@ -75,31 +76,32 @@ int main(int argc, char** argv) {
 
     size_t rd = fread(h_data, sizeof(float), out_len, fd);
     size_t ri = fread(h_idx, sizeof(long long), out_len, fi);
-    fclose(fd); fclose(fi);
+    verify_close_file(fd); verify_close_file(fi);
     if (rd != out_len || ri != out_len) { fprintf(stderr, "fread mismatch\n"); return 1; }
 
     float *d_data=NULL, *d_out=NULL;
     long long* d_idx=NULL;
-    cudaMalloc(&d_data, bytes);
-    cudaMalloc(&d_idx, idx_bytes);
-    cudaMalloc(&d_out, bytes);
-    cudaMemcpy(d_data, h_data, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_idx, h_idx, idx_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_data, bytes));
+    CUDA_CHECK(cudaMalloc(&d_idx, idx_bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
+    CUDA_CHECK(cudaMemcpy(d_data, h_data, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_idx, h_idx, idx_bytes, cudaMemcpyHostToDevice));
 
     int threads=256;
     int blocks=(int)((out_len + threads -1)/threads);
     gatherelements_axis1_2d<<<blocks,threads>>>(d_data, d_idx, d_out, M, N);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) { fprintf(stderr, "open output failed\n"); return 1; }
     size_t w = fwrite(h_out, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (w != out_len) { fprintf(stderr, "fwrite mismatch\n"); return 1; }
 
-    cudaFree(d_data); cudaFree(d_idx); cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_data); CUDA_CHECK(cudaFree(d_idx)); CUDA_CHECK(cudaFree(d_out)));
     free(h_data); free(h_idx); free(h_out);
     return 0;
 }

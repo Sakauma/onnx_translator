@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 // 实现 `clip_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void clip_kernel(
@@ -74,36 +75,37 @@ int main(int argc, char** argv) {
         printf("fread size mismatch\n");
         return 1;
     }
-    fclose(fx);
-    fclose(fmin);
-    fclose(fmax);
+    verify_close_file(fx);
+    verify_close_file(fmin);
+    verify_close_file(fmax);
 
     // ---- device ----
     float *d_x = NULL, *d_min = NULL, *d_max = NULL, *d_out = NULL;
-    cudaMalloc(&d_x, bytes);
-    cudaMalloc(&d_min, sizeof(float));
-    cudaMalloc(&d_max, sizeof(float));
-    cudaMalloc(&d_out, bytes);
+    CUDA_CHECK(cudaMalloc(&d_x, bytes));
+    CUDA_CHECK(cudaMalloc(&d_min, sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_max, sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
 
-    cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_min, h_min, sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_max, h_max, sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_min, h_min, sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_max, h_max, sizeof(float), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((n + threads - 1) / threads);
     clip_kernel<<<blocks, threads>>>(d_x, d_min, d_max, d_out, n);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
-    fwrite(h_out, sizeof(float), n, fo);
-    fclose(fo);
+    verify_fwrite_exact(h_out, sizeof(float), n, fo);
+    verify_close_file(fo);
 
-    cudaFree(d_x);
-    cudaFree(d_min);
-    cudaFree(d_max);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_min));
+    CUDA_CHECK(cudaFree(d_max));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_x);
     free(h_min);
     free(h_max);

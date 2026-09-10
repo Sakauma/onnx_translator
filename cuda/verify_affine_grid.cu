@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <vector>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct AffineGridParams {
     int32_t spatial_rank;
@@ -90,10 +91,10 @@ int main(int argc, char** argv) {
     }
     if (fread(&p, sizeof(AffineGridParams), 1, fp) != 1) {
         fprintf(stderr, "read params failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     if (p.spatial_rank != 2 && p.spatial_rank != 3) {
         fprintf(stderr, "invalid spatial rank\n");
@@ -113,44 +114,46 @@ int main(int argc, char** argv) {
     }
     if (fread(h_theta.data(), sizeof(float), theta_len, fp) != theta_len) {
         fprintf(stderr, "read theta failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     float* d_theta = NULL;
     float* d_out = NULL;
-    cudaMalloc((void**)&d_theta, theta_len * sizeof(float));
-    cudaMalloc((void**)&d_out, out_len * sizeof(float));
-    cudaMemcpy(d_theta, h_theta.data(), theta_len * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_theta, theta_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&d_out, out_len * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_theta, h_theta.data(), theta_len * sizeof(float), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + threads - 1) / threads);
     if (p.spatial_rank == 2) {
         affine_grid_2d_kernel<<<blocks, threads>>>(d_theta, d_out, p, out_len);
+        CUDA_CHECK_LAUNCH();
     } else {
         affine_grid_3d_kernel<<<blocks, threads>>>(d_theta, d_out, p, out_len);
+        CUDA_CHECK_LAUNCH();
     }
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out.data(), d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     fp = fopen(out_path, "wb");
     if (!fp) {
         fprintf(stderr, "open out failed\n");
-        cudaFree(d_theta);
-        cudaFree(d_out);
+        CUDA_CHECK(cudaFree(d_theta));
+        CUDA_CHECK(cudaFree(d_out));
         return 1;
     }
     if (fwrite(h_out.data(), sizeof(float), out_len, fp) != out_len) {
         fprintf(stderr, "write out failed\n");
-        fclose(fp);
-        cudaFree(d_theta);
-        cudaFree(d_out);
+        verify_close_file(fp);
+        CUDA_CHECK(cudaFree(d_theta));
+        CUDA_CHECK(cudaFree(d_out));
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
-    cudaFree(d_theta);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_theta));
+    CUDA_CHECK(cudaFree(d_out));
     return 0;
 }

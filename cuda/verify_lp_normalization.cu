@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -51,10 +52,10 @@ static int read_lp_norm_params(const char* params_path, LpNormParams* params) {
     int32_t values[4];
     if (fread(values, sizeof(int32_t), 4, fp) != 4) {
         fprintf(stderr, "read params failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
     params->outer = values[0];
     params->inner = values[1];
     params->remaining = values[2];
@@ -98,47 +99,48 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(input_path, "rb");
     if (!fp || fread(h_input, sizeof(double), out_len, fp) != out_len) {
         fprintf(stderr, "read input failed\n");
-        if (fp) fclose(fp);
+        if (fp) verify_close_file(fp);
         free(h_input);
         free(h_output);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     double* d_input = NULL;
     double* d_output = NULL;
-    cudaMalloc((void**)&d_input, bytes);
-    cudaMalloc((void**)&d_output, bytes);
-    cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_input, bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_output, bytes));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     lp_norm_kernel<<<blocks, threads>>>(d_input, d_output, params, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost));
 
     fp = fopen(out_path, "wb");
     if (!fp) {
         fprintf(stderr, "open output failed\n");
-        cudaFree(d_input);
-        cudaFree(d_output);
+        CUDA_CHECK(cudaFree(d_input));
+        CUDA_CHECK(cudaFree(d_output));
         free(h_input);
         free(h_output);
         return 1;
     }
     size_t write_count = fwrite(h_output, sizeof(double), out_len, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (write_count != out_len) {
         fprintf(stderr, "write output failed\n");
-        cudaFree(d_input);
-        cudaFree(d_output);
+        CUDA_CHECK(cudaFree(d_input));
+        CUDA_CHECK(cudaFree(d_output));
         free(h_input);
         free(h_output);
         return 1;
     }
 
-    cudaFree(d_input);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_input);
     free(h_output);
     return 0;

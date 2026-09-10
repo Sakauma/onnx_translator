@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +48,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t read_count = fread(h_input, sizeof(int32_t), out_len, input_fp);
-    fclose(input_fp);
+    verify_close_file(input_fp);
     if (read_count != out_len) {
         fprintf(stderr, "read input failed\n");
         return 1;
@@ -55,16 +56,17 @@ int main(int argc, char** argv) {
 
     int32_t* d_input = NULL;
     int32_t* d_output = NULL;
-    cudaMalloc(&d_input, bytes);
-    cudaMalloc(&d_output, bytes);
-    cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_input, bytes));
+    CUDA_CHECK(cudaMalloc(&d_output, bytes));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     bitwise_not_kernel<<<blocks, threads>>>(d_input, d_output, out_len);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost));
 
     FILE* out_fp = fopen(out_path, "wb");
     if (!out_fp) {
@@ -72,14 +74,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t written = fwrite(h_output, sizeof(int32_t), out_len, out_fp);
-    fclose(out_fp);
+    verify_close_file(out_fp);
     if (written != out_len) {
         fprintf(stderr, "write output failed\n");
         return 1;
     }
 
-    cudaFree(d_input);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_input);
     free(h_output);
     return 0;

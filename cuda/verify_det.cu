@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -49,11 +50,11 @@ int main(int argc, char** argv) {
     int32_t params[2] = {0, 0};
     FILE* fp = fopen(params_path, "rb");
     if (!fp || fread(params, sizeof(int32_t), 2, fp) != 2) {
-        if (fp) fclose(fp);
+        if (fp) verify_close_file(fp);
         fprintf(stderr, "read params failed\n");
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     int32_t batch = params[0];
     int32_t n = params[1];
@@ -72,32 +73,33 @@ int main(int argc, char** argv) {
 
     FILE* fi = fopen(input_path, "rb");
     if (!fi || fread(h_input, sizeof(float), input_len, fi) != input_len) {
-        if (fi) fclose(fi);
+        if (fi) verify_close_file(fi);
         fprintf(stderr, "read input failed\n");
         return 1;
     }
-    fclose(fi);
+    verify_close_file(fi);
 
     float* d_input = NULL;
     float* d_output = NULL;
-    cudaMalloc(&d_input, input_len * sizeof(float));
-    cudaMalloc(&d_output, out_len * sizeof(float));
-    cudaMemcpy(d_input, h_input, input_len * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_input, input_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_output, out_len * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, input_len * sizeof(float), cudaMemcpyHostToDevice));
 
     det_kernel<<<batch, 1>>>(d_input, d_output, batch, n);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo || fwrite(h_output, sizeof(float), out_len, fo) != out_len) {
-        if (fo) fclose(fo);
+        if (fo) verify_close_file(fo);
         fprintf(stderr, "write output failed\n");
         return 1;
     }
-    fclose(fo);
+    verify_close_file(fo);
 
-    cudaFree(d_input);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_input);
     free(h_output);
     return 0;

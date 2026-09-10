@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 
 // 实现 `atan_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
@@ -40,29 +41,30 @@ int main(int argc, char** argv) {
     FILE* fi = fopen(argv[2], "rb");
     if (!fi) { fprintf(stderr, "open input failed\n"); return 1; }
     size_t r = fread(h_in, sizeof(float), n, fi);
-    fclose(fi);
+    verify_close_file(fi);
     if (r != n) { fprintf(stderr, "fread mismatch\n"); return 1; }
 
     float *d_in = NULL, *d_out = NULL;
-    cudaMalloc(&d_in, bytes);
-    cudaMalloc(&d_out, bytes);
-    cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_in, bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
+    CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((n + threads - 1) / threads);
     atan_kernel<<<blocks, threads>>>(d_in, d_out, n);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(argv[3], "wb");
     if (!fo) { fprintf(stderr, "open output failed\n"); return 1; }
     size_t w = fwrite(h_out, sizeof(float), n, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (w != n) { fprintf(stderr, "fwrite mismatch\n"); return 1; }
 
-    cudaFree(d_in);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_in));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_in);
     free(h_out);
     return 0;

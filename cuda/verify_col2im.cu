@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -91,7 +92,7 @@ static int read_vector(const char* path, std::vector<T>& data) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t count = fread(data.data(), sizeof(T), data.size(), fp);
-    fclose(fp);
+    verify_close_file(fp);
     return count == data.size();
 }
 
@@ -103,16 +104,16 @@ static int parse_params(const char* path, Col2ImParams* params) {
     long bytes = ftell(fp);
     rewind(fp);
     if (bytes <= 0 || bytes % (long)sizeof(int32_t) != 0) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     size_t count = (size_t)bytes / sizeof(int32_t);
     std::vector<int32_t> raw(count);
     if (fread(raw.data(), sizeof(int32_t), count, fp) != count) {
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     if (count < 6) return 0;
     params->batch = raw[0];
@@ -177,15 +178,16 @@ int main(int argc, char** argv) {
 
     double* d_input = NULL;
     double* d_output = NULL;
-    cudaMalloc((void**)&d_input, expected_input_len * sizeof(double));
-    cudaMalloc((void**)&d_output, out_len * sizeof(double));
-    cudaMemcpy(d_input, h_input.data(), expected_input_len * sizeof(double), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_input, expected_input_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void**)&d_output, out_len * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input.data(), expected_input_len * sizeof(double), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     col2im_kernel<<<blocks, threads>>>(d_input, d_output, params, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_output.data(), d_output, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_output.data(), d_output, out_len * sizeof(double), cudaMemcpyDeviceToHost));
 
     FILE* fp = fopen(out_path, "wb");
     if (!fp) {
@@ -194,12 +196,12 @@ int main(int argc, char** argv) {
     }
     if (fwrite(h_output.data(), sizeof(double), out_len, fp) != out_len) {
         fprintf(stderr, "write output failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 6;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
-    cudaFree(d_input);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_output));
     return 0;
 }

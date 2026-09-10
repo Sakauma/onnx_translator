@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -101,7 +102,7 @@ static int read_params(const char* path, DropoutParams* params) {
         return 0;
     }
     int ok = fread(params, sizeof(DropoutParams), 1, fp) == 1;
-    fclose(fp);
+    verify_close_file(fp);
     return ok;
 }
 
@@ -112,7 +113,7 @@ static int read_f32_file(const char* path, float* data, size_t n) {
         return 0;
     }
     size_t got = fread(data, sizeof(float), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return got == n;
 }
 
@@ -123,7 +124,7 @@ static int write_f32_file(const char* path, const float* data, size_t n) {
         return 0;
     }
     size_t wrote = fwrite(data, sizeof(float), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 
@@ -134,7 +135,7 @@ static int write_u8_file(const char* path, const uint8_t* data, size_t n) {
         return 0;
     }
     size_t wrote = fwrite(data, sizeof(uint8_t), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 
@@ -155,14 +156,15 @@ int main(int argc, char** argv) {
     float* d_x = NULL;
     float* d_y = NULL;
     uint8_t* d_mask = NULL;
-    cudaMalloc(&d_x, n * sizeof(float));
-    cudaMalloc(&d_y, n * sizeof(float));
-    cudaMalloc(&d_mask, n * sizeof(uint8_t));
-    cudaMemcpy(d_x, h_x, n * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_x, n * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_y, n * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_mask, n * sizeof(uint8_t)));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, n * sizeof(float), cudaMemcpyHostToDevice));
 
     dropout_kernel<<<1, 1>>>(d_x, d_y, d_mask, params);
-    cudaMemcpy(h_y, d_y, n * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_mask, d_mask, n * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, n * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_mask, d_mask, n * sizeof(uint8_t), cudaMemcpyDeviceToHost));
 
     int ok = write_f32_file(argv[4], h_y, n);
     ok = ok && write_u8_file("tmp_dropout_mask.bin", h_mask, n);
@@ -170,8 +172,8 @@ int main(int argc, char** argv) {
     free(h_x);
     free(h_y);
     free(h_mask);
-    cudaFree(d_x);
-    cudaFree(d_y);
-    cudaFree(d_mask);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_y));
+    CUDA_CHECK(cudaFree(d_mask));
     return ok ? 0 : 1;
 }

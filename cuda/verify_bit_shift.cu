@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,11 +48,11 @@ static int read_direction(const char* params_path, int32_t* direction) {
         return 0;
     }
     if (fread(direction, sizeof(int32_t), 1, fp) != 1) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "read params failed\n");
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
     return *direction == 0 || *direction == 1;
 }
 
@@ -91,8 +92,8 @@ int main(int argc, char** argv) {
     }
     size_t lhs_read = fread(h_lhs, sizeof(int32_t), out_len, lhs_fp);
     size_t rhs_read = fread(h_rhs, sizeof(int32_t), out_len, rhs_fp);
-    fclose(lhs_fp);
-    fclose(rhs_fp);
+    verify_close_file(lhs_fp);
+    verify_close_file(rhs_fp);
     if (lhs_read != out_len || rhs_read != out_len) {
         fprintf(stderr, "read input failed\n");
         return 1;
@@ -101,18 +102,19 @@ int main(int argc, char** argv) {
     int32_t* d_lhs = NULL;
     int32_t* d_rhs = NULL;
     int32_t* d_output = NULL;
-    cudaMalloc(&d_lhs, bytes);
-    cudaMalloc(&d_rhs, bytes);
-    cudaMalloc(&d_output, bytes);
-    cudaMemcpy(d_lhs, h_lhs, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_rhs, h_rhs, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_lhs, bytes));
+    CUDA_CHECK(cudaMalloc(&d_rhs, bytes));
+    CUDA_CHECK(cudaMalloc(&d_output, bytes));
+    CUDA_CHECK(cudaMemcpy(d_lhs, h_lhs, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_rhs, h_rhs, bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     bit_shift_kernel<<<blocks, threads>>>(d_lhs, d_rhs, d_output, direction, out_len);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost));
 
     FILE* out_fp = fopen(out_path, "wb");
     if (!out_fp) {
@@ -120,15 +122,15 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t written = fwrite(h_output, sizeof(int32_t), out_len, out_fp);
-    fclose(out_fp);
+    verify_close_file(out_fp);
     if (written != out_len) {
         fprintf(stderr, "write output failed\n");
         return 1;
     }
 
-    cudaFree(d_lhs);
-    cudaFree(d_rhs);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_lhs));
+    CUDA_CHECK(cudaFree(d_rhs));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_lhs);
     free(h_rhs);
     free(h_output);

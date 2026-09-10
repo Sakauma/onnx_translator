@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 // 实现 `conv_transpose_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void conv_transpose_kernel(const double* X, const double* W, const double* B, double* Y,
@@ -69,8 +70,8 @@ int main(int argc, char** argv) {
     int p[17];
     FILE* fp = fopen(argv[5], "rb");
     if (!fp) return 2;
-    fread(p, sizeof(int), 17, fp);
-    fclose(fp);
+    verify_fread_exact(p, sizeof(int), 17, fp);
+    verify_close_file(fp);
 
     int N = p[0], IC = p[1], IH = p[2], IW = p[3];
     int MPG = p[4], KH = p[5], KW = p[6];
@@ -87,20 +88,20 @@ int main(int argc, char** argv) {
     double* h_b = NULL;
     double* h_y = (double*)malloc(size_y);
 
-    FILE* fx = fopen(argv[2], "rb"); fread(h_x, 1, size_x, fx); fclose(fx);
-    FILE* fw = fopen(argv[3], "rb"); fread(h_w, 1, size_w, fw); fclose(fw);
+    FILE* fx = fopen(argv[2], "rb"); verify_fread_exact(h_x, 1, size_x, fx); verify_close_file(fx);
+    FILE* fw = fopen(argv[3], "rb"); verify_fread_exact(h_w, 1, size_w, fw); verify_close_file(fw);
     if (strcmp(argv[4], "null") != 0) {
         h_b = (double*)malloc(size_b);
-        FILE* fb = fopen(argv[4], "rb"); fread(h_b, 1, size_b, fb); fclose(fb);
+        FILE* fb = fopen(argv[4], "rb"); verify_fread_exact(h_b, 1, size_b, fb); verify_close_file(fb);
     }
 
     double *d_x, *d_w, *d_b = NULL, *d_y;
-    cudaMalloc(&d_x, size_x); cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_w, size_w); cudaMemcpy(d_w, h_w, size_w, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_y, size_y);
+    CUDA_CHECK(cudaMalloc(&d_x, size_x); CUDA_CHECK(cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_w, size_w); CUDA_CHECK(cudaMemcpy(d_w, h_w, size_w, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_y, size_y));
     if (h_b) {
-        cudaMalloc(&d_b, size_b);
-        cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMalloc(&d_b, size_b));
+        CUDA_CHECK(cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice));
     }
 
     int threads = 256;
@@ -108,12 +109,13 @@ int main(int argc, char** argv) {
     conv_transpose_kernel<<<blocks, threads>>>(d_x, d_w, d_b, d_y,
         N, IC, IH, IW, MPG, KH, KW, OC, OH, OW,
         p[10], p[11], p[12], p[13], p[14], p[15], group);
+        CUDA_CHECK_LAUNCH();
 
-    cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost);
-    FILE* fout = fopen(argv[6], "wb"); fwrite(h_y, 1, size_y, fout); fclose(fout);
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost));
+    FILE* fout = fopen(argv[6], "wb"); verify_fwrite_exact(h_y, 1, size_y, fout); verify_close_file(fout);
 
     free(h_x); free(h_w); if (h_b) free(h_b); free(h_y);
-    cudaFree(d_x); cudaFree(d_w); if (d_b) cudaFree(d_b); cudaFree(d_y);
+    CUDA_CHECK(cudaFree(d_x); CUDA_CHECK(cudaFree(d_w)); if (d_b) CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_y)));
 
     return 0;
 }

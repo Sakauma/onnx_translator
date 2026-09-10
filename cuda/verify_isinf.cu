@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -41,11 +42,11 @@ static int read_isinf_params(const char* params_path, int* detect_pos, int* dete
     }
     int32_t values[2];
     if (fread(values, sizeof(int32_t), 2, fp) != 2) {
-        fclose(fp);
+        verify_close_file(fp);
         fprintf(stderr, "read params failed\n");
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
     *detect_pos = values[0] != 0;
     *detect_neg = values[1] != 0;
     return 1;
@@ -85,7 +86,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t ri = fread(h_input, sizeof(float), n, fi);
-    fclose(fi);
+    verify_close_file(fi);
     if (ri != n) {
         fprintf(stderr, "read input failed\n");
         return 1;
@@ -93,16 +94,17 @@ int main(int argc, char** argv) {
 
     float* d_input = NULL;
     unsigned char* d_output = NULL;
-    cudaMalloc(&d_input, in_bytes);
-    cudaMalloc(&d_output, out_bytes);
-    cudaMemcpy(d_input, h_input, in_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_input, in_bytes));
+    CUDA_CHECK(cudaMalloc(&d_output, out_bytes));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, in_bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((n + (size_t)threads - 1) / (size_t)threads);
     isinf_kernel<<<blocks, threads>>>(d_input, d_output, detect_pos, detect_neg, n);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_output, d_output, out_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -110,14 +112,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t wo = fwrite(h_output, sizeof(unsigned char), n, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wo != n) {
         fprintf(stderr, "write output failed\n");
         return 1;
     }
 
-    cudaFree(d_input);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_input);
     free(h_output);
     return 0;

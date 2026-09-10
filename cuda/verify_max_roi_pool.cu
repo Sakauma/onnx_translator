@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <float.h>
 #include <math.h>
 #include <stdint.h>
@@ -90,14 +91,14 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(argv[4], "rb");
     if (!fp) return 2;
     if (fread(p, sizeof(int32_t), 7, fp) != 7) {
-        fclose(fp);
+        verify_close_file(fp);
         return 3;
     }
     if (fread(&spatial_scale, sizeof(float), 1, fp) != 1) {
-        fclose(fp);
+        verify_close_file(fp);
         return 4;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     int N = p[0], C = p[1], H = p[2], W = p[3];
     int num_rois = p[4], pooled_h = p[5], pooled_w = p[6];
@@ -113,36 +114,37 @@ int main(int argc, char** argv) {
     FILE* fx = fopen(argv[2], "rb");
     FILE* fr = fopen(argv[3], "rb");
     if (!fx || !fr) return 7;
-    fread(h_x, sizeof(double), x_len, fx);
-    fread(h_rois, sizeof(double), rois_len, fr);
-    fclose(fx);
-    fclose(fr);
+    verify_fread_exact(h_x, sizeof(double), x_len, fx);
+    verify_fread_exact(h_rois, sizeof(double), rois_len, fr);
+    verify_close_file(fx);
+    verify_close_file(fr);
 
     double* d_x = NULL;
     double* d_rois = NULL;
     double* d_y = NULL;
-    cudaMalloc(&d_x, x_len * sizeof(double));
-    cudaMalloc(&d_rois, rois_len * sizeof(double));
-    cudaMalloc(&d_y, out_len * sizeof(double));
-    cudaMemcpy(d_x, h_x, x_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_rois, h_rois, rois_len * sizeof(double), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_x, x_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_rois, rois_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_y, out_len * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, x_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_rois, h_rois, rois_len * sizeof(double), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + threads - 1) / threads);
     max_roi_pool_kernel<<<blocks, threads>>>(d_x, d_rois, d_y, N, C, H, W, num_rois, pooled_h, pooled_w, spatial_scale);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_y, d_y, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, out_len * sizeof(double), cudaMemcpyDeviceToHost));
     FILE* fo = fopen(argv[5], "wb");
     if (!fo) return 8;
-    fwrite(h_y, sizeof(double), out_len, fo);
-    fclose(fo);
+    verify_fwrite_exact(h_y, sizeof(double), out_len, fo);
+    verify_close_file(fo);
 
     free(h_x);
     free(h_rois);
     free(h_y);
-    cudaFree(d_x);
-    cudaFree(d_rois);
-    cudaFree(d_y);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_rois));
+    CUDA_CHECK(cudaFree(d_y));
     return 0;
 }

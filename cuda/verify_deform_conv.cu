@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -145,7 +146,7 @@ static int read_vector(const char* path, std::vector<T>& data) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t count = fread(data.data(), sizeof(T), data.size(), fp);
-    fclose(fp);
+    verify_close_file(fp);
     return count == data.size();
 }
 
@@ -170,10 +171,10 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(params_path, "rb");
     if (!fp) return 2;
     if (fread(&p, sizeof(DeformConvParams), 1, fp) != 1) {
-        fclose(fp);
+        verify_close_file(fp);
         return 3;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     if (out_len != (size_t)p.n * (size_t)p.oc * (size_t)p.oh * (size_t)p.ow) return 4;
     size_t x_len = (size_t)p.n * (size_t)p.ic * (size_t)p.ih * (size_t)p.iw;
@@ -192,38 +193,39 @@ int main(int argc, char** argv) {
     if (p.has_mask && (strcmp(mask_path, "null") == 0 || !read_vector(mask_path, h_mask))) return 7;
 
     double *d_x = NULL, *d_w = NULL, *d_offset = NULL, *d_bias = NULL, *d_mask = NULL, *d_out = NULL;
-    cudaMalloc((void**)&d_x, x_len * sizeof(double));
-    cudaMalloc((void**)&d_w, w_len * sizeof(double));
-    cudaMalloc((void**)&d_offset, offset_len * sizeof(double));
-    cudaMalloc((void**)&d_out, out_len * sizeof(double));
-    cudaMemcpy(d_x, h_x.data(), x_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_w, h_w.data(), w_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_offset, h_offset.data(), offset_len * sizeof(double), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_x, x_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void**)&d_w, w_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void**)&d_offset, offset_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void**)&d_out, out_len * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x.data(), x_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_w, h_w.data(), w_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_offset, h_offset.data(), offset_len * sizeof(double), cudaMemcpyHostToDevice));
     if (p.has_bias) {
-        cudaMalloc((void**)&d_bias, h_bias.size() * sizeof(double));
-        cudaMemcpy(d_bias, h_bias.data(), h_bias.size() * sizeof(double), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMalloc((void**)&d_bias, h_bias.size() * sizeof(double)));
+        CUDA_CHECK(cudaMemcpy(d_bias, h_bias.data(), h_bias.size() * sizeof(double), cudaMemcpyHostToDevice));
     }
     if (p.has_mask) {
-        cudaMalloc((void**)&d_mask, h_mask.size() * sizeof(double));
-        cudaMemcpy(d_mask, h_mask.data(), h_mask.size() * sizeof(double), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMalloc((void**)&d_mask, h_mask.size() * sizeof(double)));
+        CUDA_CHECK(cudaMemcpy(d_mask, h_mask.data(), h_mask.size() * sizeof(double), cudaMemcpyHostToDevice));
     }
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     deform_conv_kernel<<<blocks, threads>>>(d_x, d_w, d_offset, d_bias, d_mask, d_out, p, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out.data(), d_out, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, out_len * sizeof(double), cudaMemcpyDeviceToHost));
 
     fp = fopen(out_path, "wb");
     if (!fp) return 8;
-    fwrite(h_out.data(), sizeof(double), out_len, fp);
-    fclose(fp);
+    verify_fwrite_exact(h_out.data(), sizeof(double), out_len, fp);
+    verify_close_file(fp);
 
-    cudaFree(d_x);
-    cudaFree(d_w);
-    cudaFree(d_offset);
-    cudaFree(d_out);
-    if (d_bias) cudaFree(d_bias);
-    if (d_mask) cudaFree(d_mask);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_w));
+    CUDA_CHECK(cudaFree(d_offset));
+    CUDA_CHECK(cudaFree(d_out));
+    if (d_bias) CUDA_CHECK(cudaFree(d_bias));
+    if (d_mask) CUDA_CHECK(cudaFree(d_mask));
     return 0;
 }

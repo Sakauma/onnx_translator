@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <vector>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct GridSampleParams {
     int32_t batch;
@@ -190,10 +191,10 @@ int main(int argc, char** argv) {
     }
     if (fread(&p, sizeof(GridSampleParams), 1, fp) != 1) {
         fprintf(stderr, "read params failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     size_t input_len = (size_t)p.batch * p.channels * p.height * p.width;
     size_t grid_len = (size_t)p.batch * p.out_h * p.out_w * 2;
@@ -208,10 +209,10 @@ int main(int argc, char** argv) {
     }
     if (fread(h_input.data(), sizeof(double), input_len, fp) != input_len) {
         fprintf(stderr, "read input failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     fp = fopen(grid_path, "rb");
     if (!fp) {
@@ -220,46 +221,47 @@ int main(int argc, char** argv) {
     }
     if (fread(h_grid.data(), sizeof(double), grid_len, fp) != grid_len) {
         fprintf(stderr, "read grid failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     double* d_input = NULL;
     double* d_grid = NULL;
     double* d_out = NULL;
-    cudaMalloc((void**)&d_input, input_len * sizeof(double));
-    cudaMalloc((void**)&d_grid, grid_len * sizeof(double));
-    cudaMalloc((void**)&d_out, out_len * sizeof(double));
-    cudaMemcpy(d_input, h_input.data(), input_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_grid, h_grid.data(), grid_len * sizeof(double), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_input, input_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void**)&d_grid, grid_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void**)&d_out, out_len * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input.data(), input_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_grid, h_grid.data(), grid_len * sizeof(double), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + threads - 1) / threads);
     grid_sample_kernel<<<blocks, threads>>>(d_input, d_grid, d_out, p, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out.data(), d_out, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, out_len * sizeof(double), cudaMemcpyDeviceToHost));
 
     fp = fopen(out_path, "wb");
     if (!fp) {
         fprintf(stderr, "open out failed\n");
-        cudaFree(d_input);
-        cudaFree(d_grid);
-        cudaFree(d_out);
+        CUDA_CHECK(cudaFree(d_input));
+        CUDA_CHECK(cudaFree(d_grid));
+        CUDA_CHECK(cudaFree(d_out));
         return 1;
     }
     if (fwrite(h_out.data(), sizeof(double), out_len, fp) != out_len) {
         fprintf(stderr, "write out failed\n");
-        fclose(fp);
-        cudaFree(d_input);
-        cudaFree(d_grid);
-        cudaFree(d_out);
+        verify_close_file(fp);
+        CUDA_CHECK(cudaFree(d_input));
+        CUDA_CHECK(cudaFree(d_grid));
+        CUDA_CHECK(cudaFree(d_out));
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
-    cudaFree(d_input);
-    cudaFree(d_grid);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_grid));
+    CUDA_CHECK(cudaFree(d_out));
     return 0;
 }

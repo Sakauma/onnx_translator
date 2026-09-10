@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -78,15 +79,15 @@ static int read_layer_norm_params(const char* params_path, LayerNormParams* para
     int32_t ints[5];
     if (fread(ints, sizeof(int32_t), 5, fp) != 5) {
         fprintf(stderr, "read params ints failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     if (fread(&params->epsilon, sizeof(float), 1, fp) != 1) {
         fprintf(stderr, "read epsilon failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     params->row_count = ints[0];
     params->normalized_size = ints[1];
@@ -104,7 +105,7 @@ static int read_double_array(const char* path, double* data, size_t count, const
         return 0;
     }
     size_t read_count = fread(data, sizeof(double), count, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (read_count != count) {
         fprintf(stderr, "read %s failed\n", label);
         return 0;
@@ -120,7 +121,7 @@ static int write_double_array(const char* path, const double* data, size_t count
         return 0;
     }
     size_t write_count = fwrite(data, sizeof(double), count, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (write_count != count) {
         fprintf(stderr, "write %s output failed\n", label);
         return 0;
@@ -194,35 +195,36 @@ int main(int argc, char** argv) {
     double* d_out = NULL;
     double* d_mean = NULL;
     double* d_inv_std = NULL;
-    cudaMalloc((void**)&d_x, x_bytes);
-    cudaMalloc((void**)&d_scale, param_bytes);
-    cudaMalloc((void**)&d_bias, param_bytes);
-    cudaMalloc((void**)&d_out, x_bytes);
-    cudaMalloc((void**)&d_mean, stats_bytes);
-    cudaMalloc((void**)&d_inv_std, stats_bytes);
-    cudaMemcpy(d_x, h_x, x_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_scale, h_scale, param_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_bias, h_bias, param_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_x, x_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_scale, param_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_bias, param_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_out, x_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_mean, stats_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_inv_std, stats_bytes));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, x_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_scale, h_scale, param_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_bias, h_bias, param_bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     layer_norm_kernel<<<blocks, threads>>>(d_x, d_scale, d_bias, d_out, d_mean, d_inv_std, params, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost));
     if (params.emit_stats) {
-        cudaMemcpy(h_mean, d_mean, stats_bytes, cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_inv_std, d_inv_std, stats_bytes, cudaMemcpyDeviceToHost);
+        CUDA_CHECK(cudaMemcpy(h_mean, d_mean, stats_bytes, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(h_inv_std, d_inv_std, stats_bytes, cudaMemcpyDeviceToHost));
     }
 
     FILE* fp = fopen(out_path, "wb");
     if (!fp) {
         fprintf(stderr, "open output failed\n");
-        cudaFree(d_x);
-        cudaFree(d_scale);
-        cudaFree(d_bias);
-        cudaFree(d_out);
-        cudaFree(d_mean);
-        cudaFree(d_inv_std);
+        CUDA_CHECK(cudaFree(d_x));
+        CUDA_CHECK(cudaFree(d_scale));
+        CUDA_CHECK(cudaFree(d_bias));
+        CUDA_CHECK(cudaFree(d_out));
+        CUDA_CHECK(cudaFree(d_mean));
+        CUDA_CHECK(cudaFree(d_inv_std));
         free(h_x);
         free(h_scale);
         free(h_bias);
@@ -232,15 +234,15 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t write_count = fwrite(h_out, sizeof(double), out_len, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (write_count != out_len) {
         fprintf(stderr, "write output failed\n");
-        cudaFree(d_x);
-        cudaFree(d_scale);
-        cudaFree(d_bias);
-        cudaFree(d_out);
-        cudaFree(d_mean);
-        cudaFree(d_inv_std);
+        CUDA_CHECK(cudaFree(d_x));
+        CUDA_CHECK(cudaFree(d_scale));
+        CUDA_CHECK(cudaFree(d_bias));
+        CUDA_CHECK(cudaFree(d_out));
+        CUDA_CHECK(cudaFree(d_mean));
+        CUDA_CHECK(cudaFree(d_inv_std));
         free(h_x);
         free(h_scale);
         free(h_bias);
@@ -254,12 +256,12 @@ int main(int argc, char** argv) {
         int sidecar_ok = write_double_array("tmp_layer_norm_mean.bin", h_mean, (size_t)params.row_count, "mean");
         sidecar_ok = sidecar_ok && write_double_array("tmp_layer_norm_inv_std.bin", h_inv_std, (size_t)params.row_count, "inv_std");
         if (!sidecar_ok) {
-            cudaFree(d_x);
-            cudaFree(d_scale);
-            cudaFree(d_bias);
-            cudaFree(d_out);
-            cudaFree(d_mean);
-            cudaFree(d_inv_std);
+            CUDA_CHECK(cudaFree(d_x));
+            CUDA_CHECK(cudaFree(d_scale));
+            CUDA_CHECK(cudaFree(d_bias));
+            CUDA_CHECK(cudaFree(d_out));
+            CUDA_CHECK(cudaFree(d_mean));
+            CUDA_CHECK(cudaFree(d_inv_std));
             free(h_x);
             free(h_scale);
             free(h_bias);
@@ -270,12 +272,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    cudaFree(d_x);
-    cudaFree(d_scale);
-    cudaFree(d_bias);
-    cudaFree(d_out);
-    cudaFree(d_mean);
-    cudaFree(d_inv_std);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_scale));
+    CUDA_CHECK(cudaFree(d_bias));
+    CUDA_CHECK(cudaFree(d_out));
+    CUDA_CHECK(cudaFree(d_mean));
+    CUDA_CHECK(cudaFree(d_inv_std));
     free(h_x);
     free(h_scale);
     free(h_bias);

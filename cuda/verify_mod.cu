@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 
 // 实现 `python_mod` 的 CUDA 验证辅助逻辑，为参考计算准备参数或中间结果。
@@ -54,31 +55,32 @@ int main(int argc, char** argv) {
 
     size_t ra = fread(h_a, sizeof(float), out_len, fa);
     size_t rb = fread(h_b, sizeof(float), out_len, fb);
-    fclose(fa); fclose(fb);
+    verify_close_file(fa); verify_close_file(fb);
     if (ra != (size_t)out_len || rb != (size_t)out_len) { printf("fread mismatch\n"); return 1; }
 
     float *d_a=nullptr, *d_b=nullptr, *d_out=nullptr;
-    cudaMalloc(&d_a, bytes);
-    cudaMalloc(&d_b, bytes);
-    cudaMalloc(&d_out, bytes);
+    CUDA_CHECK(cudaMalloc(&d_a, bytes));
+    CUDA_CHECK(cudaMalloc(&d_b, bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
 
-    cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (out_len + threads - 1) / threads;
     mod_kernel<<<blocks, threads>>>(d_a, d_b, d_out, out_len);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) { printf("open output failed\n"); return 1; }
     size_t wo = fwrite(h_out, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wo != (size_t)out_len) { printf("fwrite mismatch\n"); return 1; }
 
-    cudaFree(d_a); cudaFree(d_b); cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_a); CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_out)));
     free(h_a); free(h_b); free(h_out);
     return 0;
 }

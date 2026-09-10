@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -99,14 +100,14 @@ static int read_mvn_params(const char* params_path, MvnParams* params) {
     int32_t header[2];
     if (fread(header, sizeof(int32_t), 2, fp) != 2) {
         fprintf(stderr, "read params header failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     params->rank = header[0];
     params->num_axes = header[1];
     if (params->rank <= 0 || params->rank > MVN_MAX_NDIM || params->num_axes <= 0 || params->num_axes > MVN_MAX_NDIM) {
         fprintf(stderr, "invalid params header\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     for (int i = 0; i < MVN_MAX_NDIM; i++) {
@@ -115,15 +116,15 @@ static int read_mvn_params(const char* params_path, MvnParams* params) {
     }
     if (fread(params->shape, sizeof(int32_t), (size_t)params->rank, fp) != (size_t)params->rank) {
         fprintf(stderr, "read shape failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     if (fread(params->axes, sizeof(int32_t), (size_t)params->num_axes, fp) != (size_t)params->num_axes) {
         fprintf(stderr, "read axes failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     for (int i = 0; i < params->rank; i++) {
         if (params->shape[i] <= 0) return 0;
@@ -179,7 +180,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t read_count = fread(h_input, sizeof(double), out_len, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (read_count != out_len) {
         fprintf(stderr, "read input failed\n");
         free(h_input);
@@ -189,38 +190,39 @@ int main(int argc, char** argv) {
 
     double* d_input = NULL;
     double* d_output = NULL;
-    cudaMalloc((void**)&d_input, bytes);
-    cudaMalloc((void**)&d_output, bytes);
-    cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_input, bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_output, bytes));
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     mvn_kernel<<<blocks, threads>>>(d_input, d_output, params, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost));
 
     fp = fopen(out_path, "wb");
     if (!fp) {
         fprintf(stderr, "open output failed\n");
-        cudaFree(d_input);
-        cudaFree(d_output);
+        CUDA_CHECK(cudaFree(d_input));
+        CUDA_CHECK(cudaFree(d_output));
         free(h_input);
         free(h_output);
         return 1;
     }
     size_t write_count = fwrite(h_output, sizeof(double), out_len, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (write_count != out_len) {
         fprintf(stderr, "write output failed\n");
-        cudaFree(d_input);
-        cudaFree(d_output);
+        CUDA_CHECK(cudaFree(d_input));
+        CUDA_CHECK(cudaFree(d_output));
         free(h_input);
         free(h_output);
         return 1;
     }
 
-    cudaFree(d_input);
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_output));
     free(h_input);
     free(h_output);
     return 0;

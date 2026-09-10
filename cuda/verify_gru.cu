@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -239,14 +240,14 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(argv[8], "rb");
     if (!fp) return 2;
     if (fread(p, sizeof(int32_t), 10 + MAX_ACTIVATIONS, fp) != 10 + MAX_ACTIVATIONS) {
-        fclose(fp);
+        verify_close_file(fp);
         return 3;
     }
     if (fread(fp_values, sizeof(float), 2 * MAX_ACTIVATIONS + 1, fp) != 2 * MAX_ACTIVATIONS + 1) {
-        fclose(fp);
+        verify_close_file(fp);
         return 3;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     int seq_len = p[0], batch = p[1], input_size = p[2], num_dirs = p[3], hidden = p[4], direction = p[5], layout = p[6], linear_before_reset = p[7];
     RecurrentRuntimeParams runtime;
@@ -276,46 +277,47 @@ int main(int argc, char** argv) {
     double* h_yh = (double*)malloc(h_len * sizeof(double));
     if (!h_x || !h_w || !h_r || !h_b || !h_seq || !h_init || !h_y || !h_yh) return 5;
 
-    FILE* f = fopen(argv[2], "rb"); fread(h_x, sizeof(double), x_len, f); fclose(f);
-    f = fopen(argv[3], "rb"); fread(h_w, sizeof(double), w_len, f); fclose(f);
-    f = fopen(argv[4], "rb"); fread(h_r, sizeof(double), r_len, f); fclose(f);
-    f = fopen(argv[5], "rb"); fread(h_b, sizeof(double), b_len, f); fclose(f);
-    f = fopen(argv[6], "rb"); fread(h_seq, sizeof(int64_t), (size_t)batch, f); fclose(f);
-    f = fopen(argv[7], "rb"); fread(h_init, sizeof(double), h_len, f); fclose(f);
+    FILE* f = fopen(argv[2], "rb"); verify_fread_exact(h_x, sizeof(double), x_len, f); verify_close_file(f);
+    f = fopen(argv[3], "rb"); verify_fread_exact(h_w, sizeof(double), w_len, f); verify_close_file(f);
+    f = fopen(argv[4], "rb"); verify_fread_exact(h_r, sizeof(double), r_len, f); verify_close_file(f);
+    f = fopen(argv[5], "rb"); verify_fread_exact(h_b, sizeof(double), b_len, f); verify_close_file(f);
+    f = fopen(argv[6], "rb"); verify_fread_exact(h_seq, sizeof(int64_t), (size_t)batch, f); verify_close_file(f);
+    f = fopen(argv[7], "rb"); verify_fread_exact(h_init, sizeof(double), h_len, f); verify_close_file(f);
 
     double *d_x, *d_w, *d_r, *d_b, *d_init, *d_y, *d_yh, *d_workspace;
     int64_t* d_seq;
-    cudaMalloc(&d_x, x_len * sizeof(double));
-    cudaMalloc(&d_w, w_len * sizeof(double));
-    cudaMalloc(&d_r, r_len * sizeof(double));
-    cudaMalloc(&d_b, b_len * sizeof(double));
-    cudaMalloc(&d_seq, (size_t)batch * sizeof(int64_t));
-    cudaMalloc(&d_init, h_len * sizeof(double));
-    cudaMalloc(&d_y, out_len * sizeof(double));
-    cudaMalloc(&d_yh, h_len * sizeof(double));
-    cudaMalloc(&d_workspace, (h_len + 3 * (size_t)batch * hidden) * sizeof(double));
-    cudaMemcpy(d_x, h_x, x_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_w, h_w, w_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_r, h_r, r_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, h_b, b_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_seq, h_seq, (size_t)batch * sizeof(int64_t), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_init, h_init, h_len * sizeof(double), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_x, x_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_w, w_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_r, r_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_b, b_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_seq, (size_t)batch * sizeof(int64_t)));
+    CUDA_CHECK(cudaMalloc(&d_init, h_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_y, out_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_yh, h_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_workspace, (h_len + 3 * (size_t)batch * hidden) * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, x_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_w, h_w, w_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_r, h_r, r_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_b, h_b, b_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_seq, h_seq, (size_t)batch * sizeof(int64_t), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_init, h_init, h_len * sizeof(double), cudaMemcpyHostToDevice));
 
     gru_kernel<<<1, 1>>>(d_x, d_w, d_r, d_b, d_seq, d_init, d_y, d_yh, d_workspace, seq_len, batch, input_size, num_dirs, hidden, direction, layout, linear_before_reset, runtime);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_y, d_y, out_len * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_yh, d_yh, h_len * sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, out_len * sizeof(double), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_yh, d_yh, h_len * sizeof(double), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(argv[9], "wb");
     if (!fo) return 6;
-    fwrite(h_y, sizeof(double), out_len, fo);
-    fclose(fo);
+    verify_fwrite_exact(h_y, sizeof(double), out_len, fo);
+    verify_close_file(fo);
     fo = fopen("tmp_gru_y_h.bin", "wb");
     if (!fo) return 7;
-    fwrite(h_yh, sizeof(double), h_len, fo);
-    fclose(fo);
+    verify_fwrite_exact(h_yh, sizeof(double), h_len, fo);
+    verify_close_file(fo);
 
     free(h_x); free(h_w); free(h_r); free(h_b); free(h_seq); free(h_init); free(h_y); free(h_yh);
-    cudaFree(d_x); cudaFree(d_w); cudaFree(d_r); cudaFree(d_b); cudaFree(d_seq); cudaFree(d_init); cudaFree(d_y); cudaFree(d_yh); cudaFree(d_workspace);
+    CUDA_CHECK(cudaFree(d_x); CUDA_CHECK(cudaFree(d_w)); CUDA_CHECK(cudaFree(d_r)); CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_seq)); CUDA_CHECK(cudaFree(d_init)); CUDA_CHECK(cudaFree(d_y)); CUDA_CHECK(cudaFree(d_yh)); CUDA_CHECK(cudaFree(d_workspace)));
     return 0;
 }

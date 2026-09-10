@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <vector>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct EinsumParams {
     int32_t M;
@@ -64,10 +65,10 @@ int main(int argc, char** argv) {
     }
     if (fread(&p, sizeof(EinsumParams), 1, fp) != 1) {
         fprintf(stderr, "read params failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     if ((size_t)p.M * p.N != out_len) {
         fprintf(stderr, "out_len mismatch\n");
@@ -89,37 +90,38 @@ int main(int argc, char** argv) {
 
     if (fread(h_A.data(), sizeof(float), a_len, fa) != a_len) {
         fprintf(stderr, "read A failed\n");
-        fclose(fa);
-        fclose(fb);
+        verify_close_file(fa);
+        verify_close_file(fb);
         return 1;
     }
     if (fread(h_B.data(), sizeof(float), b_len, fb) != b_len) {
         fprintf(stderr, "read B failed\n");
-        fclose(fa);
-        fclose(fb);
+        verify_close_file(fa);
+        verify_close_file(fb);
         return 1;
     }
-    fclose(fa);
-    fclose(fb);
+    verify_close_file(fa);
+    verify_close_file(fb);
 
     float* d_A = NULL;
     float* d_B = NULL;
     float* d_C = NULL;
 
-    cudaMalloc(&d_A, a_len * sizeof(float));
-    cudaMalloc(&d_B, b_len * sizeof(float));
-    cudaMalloc(&d_C, out_len * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&d_A, a_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_B, b_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_C, out_len * sizeof(float)));
 
-    cudaMemcpy(d_A, h_A.data(), a_len * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B, h_B.data(), b_len * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_A, h_A.data(), a_len * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_B, h_B.data(), b_len * sizeof(float), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + threads - 1) / threads);
     einsum_ij_jk_to_ik_kernel<<<blocks, threads>>>(d_A, d_B, d_C, p.M, p.K, p.N);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     std::vector<float> h_C(out_len);
-    cudaMemcpy(h_C.data(), d_C, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -128,13 +130,13 @@ int main(int argc, char** argv) {
     }
     if (fwrite(h_C.data(), sizeof(float), out_len, fo) != out_len) {
         fprintf(stderr, "write out failed\n");
-        fclose(fo);
+        verify_close_file(fo);
         return 1;
     }
-    fclose(fo);
+    verify_close_file(fo);
 
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
+    CUDA_CHECK(cudaFree(d_A));
+    CUDA_CHECK(cudaFree(d_B));
+    CUDA_CHECK(cudaFree(d_C));
     return 0;
 }

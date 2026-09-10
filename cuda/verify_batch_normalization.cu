@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -98,20 +99,20 @@ static int read_batch_norm_params(const char* params_path, BatchNormParams* para
     int32_t dims[4];
     if (fread(dims, sizeof(int32_t), 4, fp) != 4) {
         fprintf(stderr, "read params dims failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     if (fread(&params->epsilon, sizeof(float), 1, fp) != 1) {
         fprintf(stderr, "read epsilon failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     if (fread(&params->momentum, sizeof(float), 1, fp) != 1) {
         fprintf(stderr, "read momentum failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     params->batch = dims[0];
     params->channels = dims[1];
@@ -128,7 +129,7 @@ static int read_double_array(const char* path, double* data, size_t count, const
         return 0;
     }
     size_t read_count = fread(data, sizeof(double), count, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (read_count != count) {
         fprintf(stderr, "read %s failed\n", label);
         return 0;
@@ -144,7 +145,7 @@ static int write_double_array(const char* path, const double* data, size_t count
         return 0;
     }
     size_t write_count = fwrite(data, sizeof(double), count, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (write_count != count) {
         fprintf(stderr, "write %s output failed\n", label);
         return 0;
@@ -229,34 +230,36 @@ int main(int argc, char** argv) {
     double* d_out = NULL;
     double* d_running_mean = NULL;
     double* d_running_var = NULL;
-    cudaMalloc((void**)&d_x, x_bytes);
-    cudaMalloc((void**)&d_scale, param_bytes);
-    cudaMalloc((void**)&d_bias, param_bytes);
-    cudaMalloc((void**)&d_mean, param_bytes);
-    cudaMalloc((void**)&d_var, param_bytes);
-    cudaMalloc((void**)&d_out, x_bytes);
-    cudaMalloc((void**)&d_running_mean, param_bytes);
-    cudaMalloc((void**)&d_running_var, param_bytes);
-    cudaMemcpy(d_x, h_x, x_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_scale, h_scale, param_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_bias, h_bias, param_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_mean, h_mean, param_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_var, h_var, param_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_x, x_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_scale, param_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_bias, param_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_mean, param_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_var, param_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_out, x_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_running_mean, param_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_running_var, param_bytes));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, x_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_scale, h_scale, param_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_bias, h_bias, param_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_mean, h_mean, param_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_var, h_var, param_bytes, cudaMemcpyHostToDevice));
 
     if (params.training_mode) {
         batch_norm_training_kernel<<<params.channels, 1>>>(
             d_x, d_scale, d_bias, d_mean, d_var, d_out, d_running_mean, d_running_var, params
         );
+        CUDA_CHECK_LAUNCH();
     } else {
         int threads = 256;
         int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
         batch_norm_kernel<<<blocks, threads>>>(d_x, d_scale, d_bias, d_mean, d_var, d_out, params, out_len);
+        CUDA_CHECK_LAUNCH();
     }
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost));
     if (params.training_mode) {
-        cudaMemcpy(h_running_mean, d_running_mean, param_bytes, cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_running_var, d_running_var, param_bytes, cudaMemcpyDeviceToHost);
+        CUDA_CHECK(cudaMemcpy(h_running_mean, d_running_mean, param_bytes, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(h_running_var, d_running_var, param_bytes, cudaMemcpyDeviceToHost));
     }
 
     int write_ok = write_double_array(out_path, h_out, out_len, "y");
@@ -265,14 +268,14 @@ int main(int argc, char** argv) {
         write_ok = write_ok && write_double_array("tmp_batch_norm_running_var.bin", h_running_var, (size_t)params.channels, "running_var");
     }
     if (!write_ok) {
-        cudaFree(d_x);
-        cudaFree(d_scale);
-        cudaFree(d_bias);
-        cudaFree(d_mean);
-        cudaFree(d_var);
-        cudaFree(d_out);
-        cudaFree(d_running_mean);
-        cudaFree(d_running_var);
+        CUDA_CHECK(cudaFree(d_x));
+        CUDA_CHECK(cudaFree(d_scale));
+        CUDA_CHECK(cudaFree(d_bias));
+        CUDA_CHECK(cudaFree(d_mean));
+        CUDA_CHECK(cudaFree(d_var));
+        CUDA_CHECK(cudaFree(d_out));
+        CUDA_CHECK(cudaFree(d_running_mean));
+        CUDA_CHECK(cudaFree(d_running_var));
         free(h_x);
         free(h_scale);
         free(h_bias);
@@ -284,14 +287,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    cudaFree(d_x);
-    cudaFree(d_scale);
-    cudaFree(d_bias);
-    cudaFree(d_mean);
-    cudaFree(d_var);
-    cudaFree(d_out);
-    cudaFree(d_running_mean);
-    cudaFree(d_running_var);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_scale));
+    CUDA_CHECK(cudaFree(d_bias));
+    CUDA_CHECK(cudaFree(d_mean));
+    CUDA_CHECK(cudaFree(d_var));
+    CUDA_CHECK(cudaFree(d_out));
+    CUDA_CHECK(cudaFree(d_running_mean));
+    CUDA_CHECK(cudaFree(d_running_var));
     free(h_x);
     free(h_scale);
     free(h_bias);

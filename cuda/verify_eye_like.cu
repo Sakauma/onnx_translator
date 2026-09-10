@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -43,11 +44,11 @@ int main(int argc, char** argv) {
 
     int params[3] = {0};
     if (fread(params, sizeof(int), 3, fp) != 3) {
-        fclose(fp);
+        verify_close_file(fp);
         printf("read params failed\n");
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     int rows = params[0];
     int cols = params[1];
@@ -71,14 +72,15 @@ int main(int argc, char** argv) {
     }
 
     float* d_output = NULL;
-    cudaMalloc(&d_output, out_bytes);
+    CUDA_CHECK(cudaMalloc(&d_output, out_bytes));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     eye_like_kernel<<<blocks, threads>>>(d_output, rows, cols, k, out_len);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_output, d_output, out_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -86,13 +88,13 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t wo = fwrite(h_output, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wo != out_len) {
         printf("fwrite mismatch\n");
         return 1;
     }
 
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_output));
     free(h_output);
     return 0;
 }

@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -84,11 +85,11 @@ int main(int argc, char** argv) {
     float float_params[2] = {0.0f, 0.0f};
     FILE* fp = fopen(params_path, "rb");
     if (!fp || fread(int_params, sizeof(int32_t), 4, fp) != 4 || fread(float_params, sizeof(float), 2, fp) != 2) {
-        if (fp) fclose(fp);
+        if (fp) verify_close_file(fp);
         fprintf(stderr, "read params failed\n");
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     MelParams params;
     params.bins = int_params[0];
@@ -109,22 +110,23 @@ int main(int argc, char** argv) {
     }
 
     float* d_output = NULL;
-    cudaMalloc(&d_output, out_len * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&d_output, out_len * sizeof(float)));
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     mel_weight_matrix_kernel<<<blocks, threads>>>(d_output, params, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo || fwrite(h_output, sizeof(float), out_len, fo) != out_len) {
-        if (fo) fclose(fo);
+        if (fo) verify_close_file(fo);
         fprintf(stderr, "write output failed\n");
         return 1;
     }
-    fclose(fo);
+    verify_close_file(fo);
 
-    cudaFree(d_output);
+    CUDA_CHECK(cudaFree(d_output));
     free(h_output);
     return 0;
 }

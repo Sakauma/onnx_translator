@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <vector>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct ArgParams {
     int32_t M;
@@ -63,10 +64,10 @@ int main(int argc, char** argv) {
     }
     if (fread(&p, sizeof(ArgParams), 1, fp) != 1) {
         fprintf(stderr, "read params failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     if (p.axis != 1 || p.keepdims != 0 || p.select_last_index != 0) {
         fprintf(stderr, "This verifier only supports axis=1, keepdims=0, select_last_index=0.\n");
@@ -87,26 +88,27 @@ int main(int argc, char** argv) {
     }
     if (fread(h_x.data(), sizeof(float), in_len, fx) != in_len) {
         fprintf(stderr, "read x failed\n");
-        fclose(fx);
+        verify_close_file(fx);
         return 1;
     }
-    fclose(fx);
+    verify_close_file(fx);
 
     float* d_x = NULL;
     int64_t* d_out = NULL;
 
-    cudaMalloc(&d_x, in_len * sizeof(float));
-    cudaMalloc(&d_out, out_len * sizeof(int64_t));
+    CUDA_CHECK(cudaMalloc(&d_x, in_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_out, out_len * sizeof(int64_t)));
 
-    cudaMemcpy(d_x, h_x.data(), in_len * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_x, h_x.data(), in_len * sizeof(float), cudaMemcpyHostToDevice));
 
     int threads = 128;
     int blocks = (p.M + threads - 1) / threads;
     argmax_axis1_2d_kernel<<<blocks, threads>>>(d_x, d_out, p.M, p.N);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     std::vector<int64_t> h_out(out_len);
-    cudaMemcpy(h_out.data(), d_out, out_len * sizeof(int64_t), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, out_len * sizeof(int64_t), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -115,12 +117,12 @@ int main(int argc, char** argv) {
     }
     if (fwrite(h_out.data(), sizeof(int64_t), out_len, fo) != out_len) {
         fprintf(stderr, "write out failed\n");
-        fclose(fo);
+        verify_close_file(fo);
         return 1;
     }
-    fclose(fo);
+    verify_close_file(fo);
 
-    cudaFree(d_x);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_out));
     return 0;
 }

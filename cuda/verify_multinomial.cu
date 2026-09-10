@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,7 +66,7 @@ static int read_params(const char* path, MultinomialParams* params) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     int ok = fread(params, sizeof(MultinomialParams), 1, fp) == 1;
-    fclose(fp);
+    verify_close_file(fp);
     return ok;
 }
 
@@ -74,7 +75,7 @@ static int read_f32_file(const char* path, float* data, size_t n) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t got = fread(data, sizeof(float), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return got == n;
 }
 
@@ -83,7 +84,7 @@ static int write_i64_file(const char* path, const int64_t* data, size_t n) {
     FILE* fp = fopen(path, "wb");
     if (!fp) return 0;
     size_t wrote = fwrite(data, sizeof(int64_t), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 
@@ -92,7 +93,7 @@ static int write_i32_file(const char* path, const int32_t* data, size_t n) {
     FILE* fp = fopen(path, "wb");
     if (!fp) return 0;
     size_t wrote = fwrite(data, sizeof(int32_t), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 
@@ -119,38 +120,39 @@ int main(int argc, char** argv) {
     if (!h_probs) return 1;
     if (!read_f32_file(argv[2], h_probs, input_len)) return 1;
 
-    cudaMalloc(&d_probs, input_len * sizeof(float));
-    cudaMemcpy(d_probs, h_probs, input_len * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc(&d_probs, input_len * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(d_probs, h_probs, input_len * sizeof(float), cudaMemcpyHostToDevice));
 
     if (params.output_dtype_code == 1) {
         h_out_i64 = (int64_t*)calloc(out_len, sizeof(int64_t));
         if (!h_out_i64) return 1;
-        cudaMalloc(&d_out_i64, out_len * sizeof(int64_t));
-        cudaMemset(d_out_i64, 0, out_len * sizeof(int64_t));
+        CUDA_CHECK(cudaMalloc(&d_out_i64, out_len * sizeof(int64_t)));
+        CUDA_CHECK(cudaMemset(d_out_i64, 0, out_len * sizeof(int64_t)));
     } else {
         h_out_i32 = (int32_t*)calloc(out_len, sizeof(int32_t));
         if (!h_out_i32) return 1;
-        cudaMalloc(&d_out_i32, out_len * sizeof(int32_t));
-        cudaMemset(d_out_i32, 0, out_len * sizeof(int32_t));
+        CUDA_CHECK(cudaMalloc(&d_out_i32, out_len * sizeof(int32_t)));
+        CUDA_CHECK(cudaMemset(d_out_i32, 0, out_len * sizeof(int32_t)));
     }
 
     int threads = 128;
     int blocks = (params.batch + threads - 1) / threads;
     multinomial_kernel<<<blocks, threads>>>(d_probs, d_out_i64, d_out_i32, params);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     int ok = 0;
     if (params.output_dtype_code == 1) {
-        cudaMemcpy(h_out_i64, d_out_i64, out_len * sizeof(int64_t), cudaMemcpyDeviceToHost);
+        CUDA_CHECK(cudaMemcpy(h_out_i64, d_out_i64, out_len * sizeof(int64_t), cudaMemcpyDeviceToHost));
         ok = write_i64_file(argv[4], h_out_i64, out_len);
     } else {
-        cudaMemcpy(h_out_i32, d_out_i32, out_len * sizeof(int32_t), cudaMemcpyDeviceToHost);
+        CUDA_CHECK(cudaMemcpy(h_out_i32, d_out_i32, out_len * sizeof(int32_t), cudaMemcpyDeviceToHost));
         ok = write_i32_file(argv[4], h_out_i32, out_len);
     }
 
-    cudaFree(d_probs);
-    if (d_out_i64) cudaFree(d_out_i64);
-    if (d_out_i32) cudaFree(d_out_i32);
+    CUDA_CHECK(cudaFree(d_probs));
+    if (d_out_i64) CUDA_CHECK(cudaFree(d_out_i64));
+    if (d_out_i32) CUDA_CHECK(cudaFree(d_out_i32));
     free(h_probs);
     free(h_out_i64);
     free(h_out_i32);

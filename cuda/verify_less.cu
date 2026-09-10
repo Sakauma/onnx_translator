@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 // 实现 `less_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void less_kernel(const float* a, const float* b, unsigned char* out, size_t n) {
@@ -54,24 +55,25 @@ int main(int argc, char** argv) {
         printf("fread size mismatch: r0=%zu r1=%zu expected=%zu\n", r0, r1, n);
         return 1;
     }
-    fclose(f0);
-    fclose(f1);
+    verify_close_file(f0);
+    verify_close_file(f1);
 
     float *d_a = NULL, *d_b = NULL;
     unsigned char* d_out = NULL;
-    cudaMalloc(&d_a, in_bytes);
-    cudaMalloc(&d_b, in_bytes);
-    cudaMalloc(&d_out, out_bytes);
+    CUDA_CHECK(cudaMalloc(&d_a, in_bytes));
+    CUDA_CHECK(cudaMalloc(&d_b, in_bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, out_bytes));
 
-    cudaMemcpy(d_a, h_a, in_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, h_b, in_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_a, h_a, in_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_b, h_b, in_bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((n + threads - 1) / threads);
     less_kernel<<<blocks, threads>>>(d_a, d_b, d_out, n);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, out_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, out_bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -83,11 +85,11 @@ int main(int argc, char** argv) {
         printf("fwrite size mismatch: w=%zu expected=%zu\n", w, n);
         return 1;
     }
-    fclose(fo);
+    verify_close_file(fo);
 
-    cudaFree(d_a);
-    cudaFree(d_b);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_a));
+    CUDA_CHECK(cudaFree(d_b));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_a);
     free(h_b);
     free(h_out);

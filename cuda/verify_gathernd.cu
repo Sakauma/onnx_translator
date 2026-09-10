@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct GatherNDParams {
     int32_t A; 
@@ -68,7 +69,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t pr = fread(&p, sizeof(GatherNDParams), 1, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (pr != 1) {
         fprintf(stderr, "read params failed\n");
         return 1;
@@ -106,8 +107,8 @@ int main(int argc, char** argv) {
     }
     size_t rd = fread(h_data, sizeof(float), data_len, fd);
     size_t ri = fread(h_idx, sizeof(int64_t), idx_len, fi);
-    fclose(fd);
-    fclose(fi);
+    verify_close_file(fd);
+    verify_close_file(fi);
     if (rd != data_len || ri != idx_len) {
         fprintf(stderr, "fread mismatch\n");
         return 1;
@@ -117,19 +118,20 @@ int main(int argc, char** argv) {
     int64_t* d_idx = NULL;
     float* d_out = NULL;
 
-    cudaMalloc(&d_data, data_bytes);
-    cudaMalloc(&d_idx, idx_bytes);
-    cudaMalloc(&d_out, out_bytes);
+    CUDA_CHECK(cudaMalloc(&d_data, data_bytes));
+    CUDA_CHECK(cudaMalloc(&d_idx, idx_bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, out_bytes));
 
-    cudaMemcpy(d_data, h_data, data_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_idx, h_idx, idx_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_data, h_data, data_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_idx, h_idx, idx_bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((p.I + threads - 1) / threads);
     gathernd_kernel<<<blocks, threads>>>(d_data, d_idx, d_out, p.A, p.B, p.I);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, out_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, out_bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -137,15 +139,15 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t w = fwrite(h_out, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (w != out_len) {
         fprintf(stderr, "fwrite mismatch\n");
         return 1;
     }
 
-    cudaFree(d_data);
-    cudaFree(d_idx);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_data));
+    CUDA_CHECK(cudaFree(d_idx));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_data);
     free(h_idx);
     free(h_out);

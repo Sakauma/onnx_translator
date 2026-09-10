@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -86,7 +87,7 @@ int main(int argc, char** argv) {
 
     int header[3] = {0};
     if (fread(header, sizeof(int), 3, fp) != 3) {
-        fclose(fp);
+        verify_close_file(fp);
         printf("read header failed\n");
         return 1;
     }
@@ -94,23 +95,23 @@ int main(int argc, char** argv) {
     int rank = header[1];
     int axis = header[2];
     if (num_inputs <= 0 || num_inputs > MAX_INPUTS || rank <= 0 || rank > MAX_RANK || axis < 0 || axis >= rank) {
-        fclose(fp);
+        verify_close_file(fp);
         printf("invalid concat params\n");
         return 1;
     }
     if (argc != num_inputs + 4) {
-        fclose(fp);
+        verify_close_file(fp);
         printf("argc/input count mismatch\n");
         return 1;
     }
 
     int shapes[MAX_INPUTS * MAX_RANK] = {0};
     if (fread(shapes, sizeof(int), (size_t)num_inputs * (size_t)rank, fp) != (size_t)num_inputs * (size_t)rank) {
-        fclose(fp);
+        verify_close_file(fp);
         printf("read shapes failed\n");
         return 1;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     int output_shape[MAX_RANK] = {0};
     for (int d = 0; d < rank; ++d) {
@@ -157,7 +158,7 @@ int main(int argc, char** argv) {
             return 1;
         }
         size_t ri = fread(h_inputs + offsets[i], sizeof(float), lengths[i], fi);
-        fclose(fi);
+        verify_close_file(fi);
         if (ri != lengths[i]) {
             printf("fread mismatch\n");
             return 1;
@@ -170,18 +171,18 @@ int main(int argc, char** argv) {
     int* d_output_shape = NULL;
     size_t* d_offsets = NULL;
     int* d_axis_offsets = NULL;
-    cudaMalloc(&d_inputs, total_input_len * sizeof(float));
-    cudaMalloc(&d_output, out_len * sizeof(float));
-    cudaMalloc(&d_shapes, (size_t)num_inputs * (size_t)rank * sizeof(int));
-    cudaMalloc(&d_output_shape, (size_t)rank * sizeof(int));
-    cudaMalloc(&d_offsets, (size_t)num_inputs * sizeof(size_t));
-    cudaMalloc(&d_axis_offsets, (size_t)(num_inputs + 1) * sizeof(int));
+    CUDA_CHECK(cudaMalloc(&d_inputs, total_input_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_output, out_len * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_shapes, (size_t)num_inputs * (size_t)rank * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_output_shape, (size_t)rank * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_offsets, (size_t)num_inputs * sizeof(size_t)));
+    CUDA_CHECK(cudaMalloc(&d_axis_offsets, (size_t)(num_inputs + 1) * sizeof(int)));
 
-    cudaMemcpy(d_inputs, h_inputs, total_input_len * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_shapes, shapes, (size_t)num_inputs * (size_t)rank * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_output_shape, output_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_offsets, offsets, (size_t)num_inputs * sizeof(size_t), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_axis_offsets, axis_offsets, (size_t)(num_inputs + 1) * sizeof(int), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_inputs, h_inputs, total_input_len * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_shapes, shapes, (size_t)num_inputs * (size_t)rank * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_output_shape, output_shape, (size_t)rank * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_offsets, offsets, (size_t)num_inputs * sizeof(size_t), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_axis_offsets, axis_offsets, (size_t)(num_inputs + 1) * sizeof(int), cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
@@ -197,9 +198,10 @@ int main(int argc, char** argv) {
         axis,
         out_len
     );
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, out_len * sizeof(float), cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -207,18 +209,18 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t wo = fwrite(h_output, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wo != out_len) {
         printf("fwrite mismatch\n");
         return 1;
     }
 
-    cudaFree(d_inputs);
-    cudaFree(d_output);
-    cudaFree(d_shapes);
-    cudaFree(d_output_shape);
-    cudaFree(d_offsets);
-    cudaFree(d_axis_offsets);
+    CUDA_CHECK(cudaFree(d_inputs));
+    CUDA_CHECK(cudaFree(d_output));
+    CUDA_CHECK(cudaFree(d_shapes));
+    CUDA_CHECK(cudaFree(d_output_shape));
+    CUDA_CHECK(cudaFree(d_offsets));
+    CUDA_CHECK(cudaFree(d_axis_offsets));
     free(h_inputs);
     free(h_output);
     return 0;

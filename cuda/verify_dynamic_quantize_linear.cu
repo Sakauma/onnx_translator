@@ -72,7 +72,7 @@ static int read_f32_file(const char* path, float* data, size_t n) {
         return 0;
     }
     size_t got = fread(data, sizeof(float), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return got == n;
 }
 
@@ -83,7 +83,7 @@ static int write_f32_file(const char* path, const float* data, size_t n) {
         return 0;
     }
     size_t wrote = fwrite(data, sizeof(float), n, fp);
-    fclose(fp);
+    verify_close_file(fp);
     return wrote == n;
 }
 

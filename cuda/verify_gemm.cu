@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 // 实现 `gemm_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void gemm_kernel(const double* A, const double* B, const double* C, double* Y,
@@ -59,7 +60,7 @@ int main(int argc, char** argv) {
         float alpha, beta;
     } p;
     
-    FILE *fp = fopen(argv[5], "rb"); fread(&p, sizeof(p), 1, fp); fclose(fp);
+    FILE *fp = fopen(argv[5], "rb"); verify_fread_exact(&p, sizeof(p), 1, fp); verify_close_file(fp);
     
     size_t size_a = p.M * p.K * sizeof(double); // approx, depends on trans
     size_t size_b = p.K * p.N * sizeof(double);
@@ -70,8 +71,8 @@ int main(int argc, char** argv) {
     double *h_c = NULL;
     double *h_y = (double*)malloc(size_y);
     
-    FILE *fa = fopen(argv[2], "rb"); fread(h_a, 1, size_a, fa); fclose(fa);
-    FILE *fb = fopen(argv[3], "rb"); fread(h_b, 1, size_b, fb); fclose(fb);
+    FILE *fa = fopen(argv[2], "rb"); verify_fread_exact(h_a, 1, size_a, fa); verify_close_file(fa);
+    FILE *fb = fopen(argv[3], "rb"); verify_fread_exact(h_b, 1, size_b, fb); verify_close_file(fb);
     
     if (p.has_c) {
         // C size depends on type, simplifiction: calculate roughly or read all
@@ -79,17 +80,17 @@ int main(int argc, char** argv) {
         FILE *fc = fopen(argv[4], "rb");
         fseek(fc, 0, SEEK_END); long sz = ftell(fc); fseek(fc, 0, SEEK_SET);
         h_c = (double*)malloc(sz);
-        fread(h_c, 1, sz, fc); fclose(fc);
+        verify_fread_exact(h_c, 1, sz, fc); verify_close_file(fc);
         // GPU malloc logic would need precise size, but cudaMalloc size just needs to be >=
     }
     
     double *d_a, *d_b, *d_c = NULL, *d_y;
-    cudaMalloc(&d_a, size_a); cudaMemcpy(d_a, h_a, size_a, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_b, size_b); cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_y, size_y);
+    CUDA_CHECK(cudaMalloc(&d_a, size_a); CUDA_CHECK(cudaMemcpy(d_a, h_a, size_a, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_b, size_b); CUDA_CHECK(cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_y, size_y));
     if (h_c) {
         // Simple hack: allocate M*N size max
-        cudaMalloc(&d_c, p.M * p.N * sizeof(double)); 
+        CUDA_CHECK(cudaMalloc(&d_c, p.M * p.N * sizeof(double)));
         // We need to know exact size to copy? Not necessarily if we allocate enough.
         // Let's rely on c_type
         size_t sz_c = 0;
@@ -97,24 +98,25 @@ int main(int argc, char** argv) {
         else if(p.c_type==2) sz_c=p.N;
         else if(p.c_type==3) sz_c=p.M;
         else sz_c=p.M*p.N;
-        cudaMemcpy(d_c, h_c, sz_c*sizeof(double), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMemcpy(d_c, h_c, sz_c*sizeof(double), cudaMemcpyHostToDevice));
     }
     
     gemm_kernel<<<(out_len+255)/256, 256>>>(d_a, d_b, d_c, d_y, 
         p.M, p.N, p.K, p.alpha, p.beta, p.transA, p.transB, p.c_type);
+        CUDA_CHECK_LAUNCH();
         
-    cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost);
-    FILE *fout = fopen(argv[6], "wb"); fwrite(h_y, 1, size_y, fout); fclose(fout);
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost));
+    FILE *fout = fopen(argv[6], "wb"); verify_fwrite_exact(h_y, 1, size_y, fout); verify_close_file(fout);
     
     free(h_a); 
     free(h_b); 
     if (h_c) free(h_c); 
     free(h_y);
     
-    cudaFree(d_a); 
-    cudaFree(d_b); 
-    if (d_c) cudaFree(d_c); 
-    cudaFree(d_y);
+    CUDA_CHECK(cudaFree(d_a));
+    CUDA_CHECK(cudaFree(d_b));
+    if (d_c) CUDA_CHECK(cudaFree(d_c));
+    CUDA_CHECK(cudaFree(d_y));
     
     return 0;
 }

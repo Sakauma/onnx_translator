@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -79,15 +80,15 @@ static int read_group_norm_params(const char* params_path, GroupNormParams* para
     int32_t ints[4];
     if (fread(ints, sizeof(int32_t), 4, fp) != 4) {
         fprintf(stderr, "read params ints failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
     if (fread(&params->epsilon, sizeof(float), 1, fp) != 1) {
         fprintf(stderr, "read epsilon failed\n");
-        fclose(fp);
+        verify_close_file(fp);
         return 0;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     params->batch = ints[0];
     params->channels = ints[1];
@@ -110,7 +111,7 @@ static int read_double_array(const char* path, double* data, size_t count, const
         return 0;
     }
     size_t read_count = fread(data, sizeof(double), count, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (read_count != count) {
         fprintf(stderr, "read %s failed\n", label);
         return 0;
@@ -174,27 +175,28 @@ int main(int argc, char** argv) {
     double* d_scale = NULL;
     double* d_bias = NULL;
     double* d_out = NULL;
-    cudaMalloc((void**)&d_x, x_bytes);
-    cudaMalloc((void**)&d_scale, param_bytes);
-    cudaMalloc((void**)&d_bias, param_bytes);
-    cudaMalloc((void**)&d_out, x_bytes);
-    cudaMemcpy(d_x, h_x, x_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_scale, h_scale, param_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_bias, h_bias, param_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_x, x_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_scale, param_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_bias, param_bytes));
+    CUDA_CHECK(cudaMalloc((void**)&d_out, x_bytes));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, x_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_scale, h_scale, param_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_bias, h_bias, param_bytes, cudaMemcpyHostToDevice));
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     group_norm_kernel<<<blocks, threads>>>(d_x, d_scale, d_bias, d_out, params, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost));
 
     FILE* fp = fopen(out_path, "wb");
     if (!fp) {
         fprintf(stderr, "open output failed\n");
-        cudaFree(d_x);
-        cudaFree(d_scale);
-        cudaFree(d_bias);
-        cudaFree(d_out);
+        CUDA_CHECK(cudaFree(d_x));
+        CUDA_CHECK(cudaFree(d_scale));
+        CUDA_CHECK(cudaFree(d_bias));
+        CUDA_CHECK(cudaFree(d_out));
         free(h_x);
         free(h_scale);
         free(h_bias);
@@ -202,13 +204,13 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t write_count = fwrite(h_out, sizeof(double), out_len, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (write_count != out_len) {
         fprintf(stderr, "write output failed\n");
-        cudaFree(d_x);
-        cudaFree(d_scale);
-        cudaFree(d_bias);
-        cudaFree(d_out);
+        CUDA_CHECK(cudaFree(d_x));
+        CUDA_CHECK(cudaFree(d_scale));
+        CUDA_CHECK(cudaFree(d_bias));
+        CUDA_CHECK(cudaFree(d_out));
         free(h_x);
         free(h_scale);
         free(h_bias);
@@ -216,10 +218,10 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    cudaFree(d_x);
-    cudaFree(d_scale);
-    cudaFree(d_bias);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_scale));
+    CUDA_CHECK(cudaFree(d_bias));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_x);
     free(h_scale);
     free(h_bias);

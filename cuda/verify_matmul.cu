@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct MatmulParams {
     int M;
@@ -51,7 +52,7 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(p_path, "rb");
     if (!fp) { printf("open params failed\n"); return 1; }
     size_t pr = fread(&p, sizeof(MatmulParams), 1, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (pr != 1) { printf("read params failed\n"); return 1; }
 
     int M = p.M, K = p.K, N = p.N;
@@ -77,32 +78,33 @@ int main(int argc, char** argv) {
     if (!fa || !fb) { printf("open input failed\n"); return 1; }
     size_t ra = fread(hA, sizeof(float), a_len, fa);
     size_t rb = fread(hB, sizeof(float), b_len, fb);
-    fclose(fa); fclose(fb);
+    verify_close_file(fa); verify_close_file(fb);
     if (ra != a_len || rb != b_len) { printf("fread mismatch\n"); return 1; }
 
     // device
     float *dA = NULL, *dB = NULL, *dC = NULL;
-    cudaMalloc(&dA, a_bytes);
-    cudaMalloc(&dB, b_bytes);
-    cudaMalloc(&dC, c_bytes);
+    CUDA_CHECK(cudaMalloc(&dA, a_bytes));
+    CUDA_CHECK(cudaMalloc(&dB, b_bytes));
+    CUDA_CHECK(cudaMalloc(&dC, c_bytes));
 
-    cudaMemcpy(dA, hA, a_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(dB, hB, b_bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(dA, hA, a_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(dB, hB, b_bytes, cudaMemcpyHostToDevice));
 
     dim3 threads(16, 16);
     dim3 blocks((N + threads.x - 1) / threads.x, (M + threads.y - 1) / threads.y);
     matmul_kernel<<<blocks, threads>>>(dA, dB, dC, M, K, N);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(hC, dC, c_bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(hC, dC, c_bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) { printf("open out failed\n"); return 1; }
     size_t wc = fwrite(hC, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (wc != out_len) { printf("fwrite mismatch\n"); return 1; }
 
-    cudaFree(dA); cudaFree(dB); cudaFree(dC);
+    CUDA_CHECK(cudaFree(dA); CUDA_CHECK(cudaFree(dB)); CUDA_CHECK(cudaFree(dC)));
     free(hA); free(hB); free(hC);
     return 0;
 }

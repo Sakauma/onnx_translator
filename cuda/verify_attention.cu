@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 #include <float.h>
 #include <math.h>
 #include <stdint.h>
@@ -141,7 +142,7 @@ static int read_vector(const char* path, std::vector<T>& data) {
     FILE* fp = fopen(path, "rb");
     if (!fp) return 0;
     size_t count = fread(data.data(), sizeof(T), data.size(), fp);
-    fclose(fp);
+    verify_close_file(fp);
     return count == data.size();
 }
 
@@ -164,10 +165,10 @@ int main(int argc, char** argv) {
     FILE* fp = fopen(params_path, "rb");
     if (!fp) return 2;
     if (fread(&p, sizeof(AttentionParams), 1, fp) != 1) {
-        fclose(fp);
+        verify_close_file(fp);
         return 3;
     }
-    fclose(fp);
+    verify_close_file(fp);
 
     size_t expected = (size_t)p.batch_size * (size_t)p.q_heads * (size_t)p.q_seq * (size_t)p.v_head_size;
     if (out_len != expected || p.q_heads <= 0 || p.kv_heads <= 0 || p.q_heads % p.kv_heads != 0) return 4;
@@ -190,33 +191,34 @@ int main(int argc, char** argv) {
     if (p.has_mask && (strcmp(mask_path, "null") == 0 || !read_vector(mask_path, h_mask))) return 6;
 
     double *d_q = NULL, *d_k = NULL, *d_v = NULL, *d_mask = NULL, *d_out = NULL;
-    cudaMalloc((void**)&d_q, q_len * sizeof(double));
-    cudaMalloc((void**)&d_k, k_len * sizeof(double));
-    cudaMalloc((void**)&d_v, v_len * sizeof(double));
-    cudaMalloc((void**)&d_out, out_len * sizeof(double));
-    cudaMemcpy(d_q, h_q.data(), q_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_k, h_k.data(), k_len * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_v, h_v.data(), v_len * sizeof(double), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMalloc((void**)&d_q, q_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void**)&d_k, k_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void**)&d_v, v_len * sizeof(double)));
+    CUDA_CHECK(cudaMalloc((void**)&d_out, out_len * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_q, h_q.data(), q_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_k, h_k.data(), k_len * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_v, h_v.data(), v_len * sizeof(double), cudaMemcpyHostToDevice));
     if (p.has_mask) {
-        cudaMalloc((void**)&d_mask, mask_len * sizeof(double));
-        cudaMemcpy(d_mask, h_mask.data(), mask_len * sizeof(double), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaMalloc((void**)&d_mask, mask_len * sizeof(double)));
+        CUDA_CHECK(cudaMemcpy(d_mask, h_mask.data(), mask_len * sizeof(double), cudaMemcpyHostToDevice));
     }
 
     int threads = 256;
     int blocks = (int)((out_len + (size_t)threads - 1) / (size_t)threads);
     attention_kernel<<<blocks, threads>>>(d_q, d_k, d_v, d_mask, d_out, p, out_len);
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_out.data(), d_out, out_len * sizeof(double), cudaMemcpyDeviceToHost);
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_out.data(), d_out, out_len * sizeof(double), cudaMemcpyDeviceToHost));
 
     fp = fopen(out_path, "wb");
     if (!fp) return 7;
-    fwrite(h_out.data(), sizeof(double), out_len, fp);
-    fclose(fp);
+    verify_fwrite_exact(h_out.data(), sizeof(double), out_len, fp);
+    verify_close_file(fp);
 
-    cudaFree(d_q);
-    cudaFree(d_k);
-    cudaFree(d_v);
-    cudaFree(d_out);
-    if (d_mask) cudaFree(d_mask);
+    CUDA_CHECK(cudaFree(d_q));
+    CUDA_CHECK(cudaFree(d_k));
+    CUDA_CHECK(cudaFree(d_v));
+    CUDA_CHECK(cudaFree(d_out));
+    if (d_mask) CUDA_CHECK(cudaFree(d_mask));
     return 0;
 }

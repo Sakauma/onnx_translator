@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 __device__ long long read_a_zp(const double* zp, int size, int row, int idx) {
     if (zp == NULL || size <= 0) return 0;
@@ -62,8 +63,8 @@ int main(int argc, char** argv) {
     int p[5];
     FILE* fp = fopen(argv[6], "rb");
     if (!fp) return 2;
-    fread(p, sizeof(int), 5, fp);
-    fclose(fp);
+    verify_fread_exact(p, sizeof(int), 5, fp);
+    verify_close_file(fp);
 
     int M = p[0], K = p[1], N = p[2];
     int a_zp_size = p[3], b_zp_size = p[4];
@@ -79,25 +80,26 @@ int main(int argc, char** argv) {
     double* h_b_zp = (double*)malloc(size_b_zp);
     int32_t* h_y = (int32_t*)malloc(size_y);
 
-    FILE* f = fopen(argv[2], "rb"); fread(h_a, 1, size_a, f); fclose(f);
-    f = fopen(argv[3], "rb"); fread(h_b, 1, size_b, f); fclose(f);
-    f = fopen(argv[4], "rb"); fread(h_a_zp, 1, size_a_zp, f); fclose(f);
-    f = fopen(argv[5], "rb"); fread(h_b_zp, 1, size_b_zp, f); fclose(f);
+    FILE* f = fopen(argv[2], "rb"); verify_fread_exact(h_a, 1, size_a, f); verify_close_file(f);
+    f = fopen(argv[3], "rb"); verify_fread_exact(h_b, 1, size_b, f); verify_close_file(f);
+    f = fopen(argv[4], "rb"); verify_fread_exact(h_a_zp, 1, size_a_zp, f); verify_close_file(f);
+    f = fopen(argv[5], "rb"); verify_fread_exact(h_b_zp, 1, size_b_zp, f); verify_close_file(f);
 
     double *d_a, *d_b, *d_a_zp, *d_b_zp;
     int32_t* d_y;
-    cudaMalloc(&d_a, size_a); cudaMemcpy(d_a, h_a, size_a, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_b, size_b); cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_a_zp, size_a_zp); cudaMemcpy(d_a_zp, h_a_zp, size_a_zp, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_b_zp, size_b_zp); cudaMemcpy(d_b_zp, h_b_zp, size_b_zp, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_y, size_y);
+    CUDA_CHECK(cudaMalloc(&d_a, size_a); CUDA_CHECK(cudaMemcpy(d_a, h_a, size_a, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_b, size_b); CUDA_CHECK(cudaMemcpy(d_b, h_b, size_b, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_a_zp, size_a_zp); CUDA_CHECK(cudaMemcpy(d_a_zp, h_a_zp, size_a_zp, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_b_zp, size_b_zp); CUDA_CHECK(cudaMemcpy(d_b_zp, h_b_zp, size_b_zp, cudaMemcpyHostToDevice)));
+    CUDA_CHECK(cudaMalloc(&d_y, size_y));
 
     matmul_integer_kernel<<<(out_len + 255) / 256, 256>>>(d_a, d_b, d_a_zp, d_b_zp, d_y, M, K, N, a_zp_size, b_zp_size);
+    CUDA_CHECK_LAUNCH();
 
-    cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost);
-    f = fopen(argv[7], "wb"); fwrite(h_y, 1, size_y, f); fclose(f);
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost));
+    f = fopen(argv[7], "wb"); verify_fwrite_exact(h_y, 1, size_y, f); verify_close_file(f);
 
     free(h_a); free(h_b); free(h_a_zp); free(h_b_zp); free(h_y);
-    cudaFree(d_a); cudaFree(d_b); cudaFree(d_a_zp); cudaFree(d_b_zp); cudaFree(d_y);
+    CUDA_CHECK(cudaFree(d_a); CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_a_zp)); CUDA_CHECK(cudaFree(d_b_zp)); CUDA_CHECK(cudaFree(d_y)));
     return 0;
 }

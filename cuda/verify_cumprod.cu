@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 struct CumProdParams {
     int32_t N;
@@ -72,7 +73,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t pr = fread(&p, sizeof(CumProdParams), 1, fp);
-    fclose(fp);
+    verify_close_file(fp);
     if (pr != 1) {
         fprintf(stderr, "read params failed\n");
         return 1;
@@ -98,7 +99,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t r = fread(h_in, sizeof(float), out_len, fi);
-    fclose(fi);
+    verify_close_file(fi);
     if (r != out_len) {
         fprintf(stderr, "fread mismatch\n");
         return 1;
@@ -107,15 +108,16 @@ int main(int argc, char** argv) {
     float* d_in = NULL;
     float* d_out = NULL;
 
-    cudaMalloc(&d_in, bytes);
-    cudaMalloc(&d_out, bytes);
+    CUDA_CHECK(cudaMalloc(&d_in, bytes));
+    CUDA_CHECK(cudaMalloc(&d_out, bytes));
 
-    cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
 
     cumprod_kernel<<<1, 1>>>(d_in, d_out, p.N, p.exclusive, p.reverse);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost));
 
     FILE* fo = fopen(out_path, "wb");
     if (!fo) {
@@ -123,14 +125,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     size_t w = fwrite(h_out, sizeof(float), out_len, fo);
-    fclose(fo);
+    verify_close_file(fo);
     if (w != out_len) {
         fprintf(stderr, "fwrite mismatch\n");
         return 1;
     }
 
-    cudaFree(d_in);
-    cudaFree(d_out);
+    CUDA_CHECK(cudaFree(d_in));
+    CUDA_CHECK(cudaFree(d_out));
     free(h_in);
     free(h_out);
     return 0;

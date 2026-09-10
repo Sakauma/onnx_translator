@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "verify_common.cuh"
 
 // 实现 `average_pool_kernel` CUDA 参考 kernel，将线程索引映射到张量元素并计算期望输出。
 __global__ void average_pool_kernel(const double* X, double* Y,
@@ -58,8 +59,8 @@ int main(int argc, char** argv) {
     int p[15];
     FILE* fp = fopen(argv[3], "rb");
     if (!fp) return 2;
-    fread(p, sizeof(int), 15, fp);
-    fclose(fp);
+    verify_fread_exact(p, sizeof(int), 15, fp);
+    verify_close_file(fp);
 
     size_t size_x = (size_t)p[0] * p[1] * p[2] * p[3] * sizeof(double);
     size_t size_y = (size_t)out_len * sizeof(double);
@@ -68,27 +69,28 @@ int main(int argc, char** argv) {
 
     FILE* fx = fopen(argv[2], "rb");
     if (!fx) return 3;
-    fread(h_x, 1, size_x, fx);
-    fclose(fx);
+    verify_fread_exact(h_x, 1, size_x, fx);
+    verify_close_file(fx);
 
     double *d_x, *d_y;
-    cudaMalloc(&d_x, size_x);
-    cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_y, size_y);
+    CUDA_CHECK(cudaMalloc(&d_x, size_x));
+    CUDA_CHECK(cudaMemcpy(d_x, h_x, size_x, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&d_y, size_y));
 
     average_pool_kernel<<<(out_len + 255) / 256, 256>>>(d_x, d_y,
         p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
         p[8], p[9], p[10], p[11], p[12], p[13], p[14]);
+        CUDA_CHECK_LAUNCH();
 
-    cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(h_y, d_y, size_y, cudaMemcpyDeviceToHost));
     FILE* fout = fopen(argv[4], "wb");
     if (!fout) return 4;
-    fwrite(h_y, 1, size_y, fout);
-    fclose(fout);
+    verify_fwrite_exact(h_y, 1, size_y, fout);
+    verify_close_file(fout);
 
     free(h_x);
     free(h_y);
-    cudaFree(d_x);
-    cudaFree(d_y);
+    CUDA_CHECK(cudaFree(d_x));
+    CUDA_CHECK(cudaFree(d_y));
     return 0;
 }
