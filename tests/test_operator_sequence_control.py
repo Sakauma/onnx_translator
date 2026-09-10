@@ -573,17 +573,83 @@ def test_imported_control_flow_propagates_all_model_opsets(monkeypatch, tmp_path
             [branch_output],
         )
 
-    graph = helper.make_graph(
+    loop_body = helper.make_graph(
+        [
+            helper.make_node("Identity", ["cond_in"], ["cond_out"]),
+            helper.make_node(
+                "Binarizer", ["state_in"], ["state_out"],
+                domain="ai.onnx.ml", threshold=0.5,
+            ),
+        ],
+        "loop_ml",
+        [
+            helper.make_tensor_value_info("iter", TensorProto.INT64, []),
+            helper.make_tensor_value_info("cond_in", TensorProto.BOOL, []),
+            helper.make_tensor_value_info("state_in", TensorProto.FLOAT, [3]),
+        ],
+        [
+            helper.make_tensor_value_info("cond_out", TensorProto.BOOL, []),
+            helper.make_tensor_value_info("state_out", TensorProto.FLOAT, [3]),
+        ],
+    )
+    scan_body = helper.make_graph(
         [helper.make_node(
-            "If", ["cond"], ["y"],
-            then_branch=ml_branch("then_ml"), else_branch=ml_branch("else_ml"),
+            "Binarizer", ["scan_item"], ["scan_item_out"],
+            domain="ai.onnx.ml", threshold=0.5,
         )],
+        "scan_ml",
+        [helper.make_tensor_value_info("scan_item", TensorProto.FLOAT, [3])],
+        [helper.make_tensor_value_info("scan_item_out", TensorProto.FLOAT, [3])],
+    )
+    sequence_map_body = helper.make_graph(
+        [helper.make_node(
+            "Binarizer", ["sequence_item"], ["sequence_item_out"],
+            domain="ai.onnx.ml", threshold=0.5,
+        )],
+        "sequence_map_ml",
+        [helper.make_tensor_value_info("sequence_item", TensorProto.FLOAT, [3])],
+        [helper.make_tensor_value_info("sequence_item_out", TensorProto.FLOAT, [3])],
+    )
+
+    graph = helper.make_graph(
+        [
+            helper.make_node(
+                "If", ["cond"], ["y"],
+                then_branch=ml_branch("then_ml"), else_branch=ml_branch("else_ml"),
+            ),
+            helper.make_node(
+                "Loop", ["loop_m", "loop_cond", "loop_state"], ["loop_final"],
+                body=loop_body,
+            ),
+            helper.make_node(
+                "Scan", ["scan_x"], ["scan_y"], body=scan_body,
+                num_scan_inputs=1,
+            ),
+            helper.make_node(
+                "SequenceMap", ["sequence_x"], ["sequence_y"],
+                body=sequence_map_body,
+            ),
+        ],
         "nested_ml_domain",
         [
             helper.make_tensor_value_info("cond", TensorProto.BOOL, []),
             helper.make_tensor_value_info("x", TensorProto.FLOAT, [3]),
+            helper.make_tensor_value_info("loop_m", TensorProto.INT64, []),
+            helper.make_tensor_value_info("loop_cond", TensorProto.BOOL, []),
+            helper.make_tensor_value_info("loop_state", TensorProto.FLOAT, [3]),
+            helper.make_tensor_value_info("scan_x", TensorProto.FLOAT, [2, 3]),
+            helper.make_tensor_sequence_value_info(
+                "sequence_x", TensorProto.FLOAT, [3]
+            ),
         ],
-        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [3])],
+        [
+            helper.make_tensor_value_info("y", TensorProto.FLOAT, [3]),
+            helper.make_tensor_value_info("loop_final", TensorProto.FLOAT, [3]),
+            helper.make_tensor_value_info("scan_y", TensorProto.FLOAT, [2, 3]),
+            helper.make_tensor_sequence_value_info(
+                "sequence_y", TensorProto.FLOAT, [3]
+            ),
+        ],
     )
     model = helper.make_model(
         graph,
@@ -597,14 +663,51 @@ def test_imported_control_flow_propagates_all_model_opsets(monkeypatch, tmp_path
     onnx.checker.check_model(model)
 
     imported = ONNXImport(str(model_path), strict=True)
-    if_op = imported[0]
-    assert if_op.opset_imports == {"": 17, "ai.onnx.ml": 1}
-    runtime = Graph(imported, ["cond", "x"], ["y"])
+    assert [op.__class__.__name__ for op in imported] == [
+        "If", "Loop", "Scan", "SequenceMap",
+    ]
+    assert all(
+        op.opset_imports == {"": 17, "ai.onnx.ml": 1}
+        for op in imported
+    )
+
+    if_op, loop_op, scan_op, sequence_map_op = imported
+    runtime = Graph([if_op], ["cond", "x"], ["y"])
     actual = runtime.forward(
         Tensor(dtype="bool", data=np.array(True, dtype=np.bool_)),
         Tensor(3, dtype="float32", data=np.array([0.2, 0.5, 0.8], dtype=np.float32)),
     )
     np.testing.assert_array_equal(actual.data, np.array([0.0, 0.0, 1.0], dtype=np.float32))
+
+    loop_actual = loop_op.forward(
+        Tensor(dtype="int64", data=np.array(1, dtype=np.int64)),
+        Tensor(dtype="bool", data=np.array(True, dtype=np.bool_)),
+        Tensor(3, dtype="float32", data=np.array([0.2, 0.5, 0.8], dtype=np.float32)),
+    )["tensor"]
+    np.testing.assert_array_equal(
+        loop_actual.data, np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    )
+
+    scan_actual = scan_op.forward(Tensor(
+        2, 3, dtype="float32",
+        data=np.array([[0.2, 0.5, 0.8], [0.9, 0.1, 0.6]], dtype=np.float32),
+    ))["tensor"]
+    np.testing.assert_array_equal(
+        scan_actual.data,
+        np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 1.0]], dtype=np.float32),
+    )
+
+    sequence_actual = sequence_map_op.forward([
+        Tensor(3, dtype="float32", data=np.array([0.2, 0.5, 0.8], dtype=np.float32)),
+        Tensor(3, dtype="float32", data=np.array([0.9, 0.1, 0.6], dtype=np.float32)),
+    ])["tensor"]
+    assert len(sequence_actual) == 2
+    np.testing.assert_array_equal(
+        sequence_actual[0].data, np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    )
+    np.testing.assert_array_equal(
+        sequence_actual[1].data, np.array([1.0, 0.0, 1.0], dtype=np.float32)
+    )
 
 def test_if_uses_propagated_default_domain_version(monkeypatch):
     _disable_c_backend(monkeypatch)
