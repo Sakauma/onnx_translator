@@ -30,8 +30,11 @@ void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale
 
     // 计算 Scale 和 ZeroPoint
     // Q_max = 255, Q_min = 0
-    double scale = (max_val - min_val) / 255.0;
-    if (scale == 0.0) scale = 1.0; // 避免除以 0
+    // ONNX 将 scale 作为 float32 输出；zero point 和量化数据必须使用同一个
+    // 已物化的 float32 值，避免不可见的 double 精度改变舍入结果。
+    float scale_f32 = (float)((max_val - min_val) / 255.0);
+    if (scale_f32 == 0.0f) scale_f32 = 1.0f; // 避免除以 0
+    double scale = (double)scale_f32;
 
     double zp_double = 0.0 - min_val / scale;
     // Saturate ZP to [0, 255]
@@ -42,7 +45,7 @@ void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale
     uint8_t zp = (uint8_t)zp_double;
 
     // 写入参数输出
-    set_tensor_value_from_float(y_scale, 0, scale);
+    set_tensor_value_from_float(y_scale, 0, (double)scale_f32);
     // 直接写入 uint8 原始数据到 scalar tensor
     // 假设 y_zp 是 uint8 类型
     if (y_zp->dtype == DTYPE_UINT8) {

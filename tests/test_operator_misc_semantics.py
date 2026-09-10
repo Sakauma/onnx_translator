@@ -298,6 +298,53 @@ def test_c_backend_dynamic_quantize_linear_outputs_match_onnx_reference():
         _assert_tensor_matches(actual_tensor, expected_value, rtol=1e-7, atol=1e-7)
 
 
+# 量化公式必须使用已物化的 float32 scale，保证三个输出可以端到端分解。
+def test_c_backend_dynamic_quantize_linear_uses_published_float32_scale(monkeypatch):
+    if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+        pytest.skip("C backend library is not built")
+
+    x = np.array([-1.0, 0.0, 1.0], dtype=np.float32)
+    scale_oracle = np.array((np.max(x) - np.min(x)) / np.float32(255.0), dtype=np.float32)
+    zero_point_oracle = np.array(
+        np.clip(np.rint(np.float32(0.0) - np.min(x) / scale_oracle), 0, 255),
+        dtype=np.uint8,
+    )
+    y_oracle = np.clip(
+        np.rint(x / scale_oracle) + zero_point_oracle.astype(np.float32),
+        0,
+        255,
+    ).astype(np.uint8)
+
+    expected = _onnx_reference(
+        "DynamicQuantizeLinear",
+        [x],
+        [TensorProto.FLOAT],
+        {},
+        [x.shape, (), ()],
+        [TensorProto.UINT8, TensorProto.FLOAT, TensorProto.UINT8],
+    )
+    np.testing.assert_array_equal(expected[0], y_oracle)
+    np.testing.assert_array_equal(expected[1], scale_oracle)
+    np.testing.assert_array_equal(expected[2], zero_point_oracle)
+
+    op = DynamicQuantizeLinear(["x"], ["y", "scale", "zero_point"])
+    c_forward = op.lib.dynamic_quantize_linear_forward
+    calls = []
+
+    def counted_c_forward(*args):
+        calls.append(True)
+        return c_forward(*args)
+
+    monkeypatch.setattr(op.lib, "dynamic_quantize_linear_forward", counted_c_forward)
+    actual = op.forward(_tensor(x, "float32"))["tensor"]
+
+    assert calls == [True]
+    for actual_tensor, oracle_value in zip(actual, (y_oracle, scale_oracle, zero_point_oracle)):
+        assert actual_tensor.data.dtype == np.asarray(oracle_value).dtype
+        assert actual_tensor.data.shape == np.asarray(oracle_value).shape
+        np.testing.assert_array_equal(actual_tensor.data, oracle_value)
+
+
 # 精确半点必须按 nearest-even 计算 zero point；同时用调用计数证明走到真实 C 入口。
 def test_c_backend_dynamic_quantize_linear_halfway_zero_point_uses_ties_to_even(monkeypatch):
     if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
