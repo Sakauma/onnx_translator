@@ -728,7 +728,14 @@ def _value_from_reference(value, type_proto):
     if type_proto.HasField("optional_type"):
         if value is None:
             return None
-        return _value_from_reference(value, type_proto.optional_type.elem_type)
+        if not isinstance(value, (list, tuple)) or len(value) != 1:
+            raise TypeError(
+                "ReferenceEvaluator optional value must be a one-element container"
+            )
+        element = value[0]
+        if element is None:
+            return None
+        return _value_from_reference(element, type_proto.optional_type.elem_type)
     return value
 
 def _tensor_to_numpy(value):

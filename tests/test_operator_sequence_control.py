@@ -489,7 +489,7 @@ def test_if_preserves_sequence_and_optional_output_kinds(monkeypatch):
     )
     optional_output = helper.make_value_info("optional", optional_info)
     empty_branch = helper.make_graph(
-        [helper.make_node("Optional", [], ["optional"])],
+        [helper.make_node("Optional", [], ["optional"], type=optional_info)],
         "empty",
         [],
         [optional_output],
@@ -510,6 +510,44 @@ def test_if_preserves_sequence_and_optional_output_kinds(monkeypatch):
     assert isinstance(present, Tensor)
     np.testing.assert_array_equal(present.data, np.array([1.0, 2.0], dtype=np.float32))
     assert optional_if.forward(Tensor(dtype="bool", data=np.array(False)))["tensor"] is None
+
+    sequence_type = helper.make_sequence_type_proto(
+        helper.make_tensor_type_proto(TensorProto.FLOAT, None)
+    )
+    optional_sequence_type = helper.make_optional_type_proto(sequence_type)
+    optional_sequence_output = helper.make_value_info(
+        "optional_sequence", optional_sequence_type
+    )
+    present_sequence_branch = helper.make_graph(
+        [
+            helper.make_node("Constant", [], ["scalar"], value=scalar),
+            helper.make_node("Constant", [], ["vector"], value=vector),
+            helper.make_node("SequenceConstruct", ["scalar", "vector"], ["sequence"]),
+            helper.make_node("Optional", ["sequence"], ["optional_sequence"]),
+        ],
+        "present_sequence",
+        [],
+        [optional_sequence_output],
+    )
+    empty_sequence_branch = helper.make_graph(
+        [helper.make_node(
+            "Optional", [], ["optional_sequence"], type=optional_sequence_type
+        )],
+        "empty_sequence",
+        [],
+        [optional_sequence_output],
+    )
+    optional_sequence_if = If(
+        ["cond"], ["optional_sequence"],
+        then_branch=present_sequence_branch, else_branch=empty_sequence_branch,
+    )
+    present_sequence = optional_sequence_if.forward(
+        Tensor(dtype="bool", data=np.array(True))
+    )["tensor"]
+    assert [item.size for item in present_sequence] == [(), (2,)]
+    assert optional_sequence_if.forward(
+        Tensor(dtype="bool", data=np.array(False))
+    )["tensor"] is None
     optional_graph = Graph(
         [optional_if, OptionalHasElement(["optional"], ["has"])],
         input_name=["cond"],
