@@ -298,7 +298,7 @@ def test_independent_onnx17_gap_ops(monkeypatch, tmp_path):
             helper.make_tensor_value_info("selected", TensorProto.INT64, [2, 3]),
         ],
     )
-    onnx.save(helper.make_model(graph), model_path)
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
 
     ops = ONNXImport(str(model_path), strict=True)
 
@@ -455,7 +455,7 @@ def test_onnx17_probability_loss_and_spectral_ops(monkeypatch, tmp_path):
             helper.make_tensor_value_info("blackman", TensorProto.INT32, [5]),
         ],
     )
-    onnx.save(helper.make_model(graph), model_path)
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
 
     ops = ONNXImport(str(model_path), strict=True)
 
@@ -582,7 +582,7 @@ def test_onnx17_recurrent_ops(monkeypatch, tmp_path):
             helper.make_tensor_value_info("lstm_c", TensorProto.FLOAT, [1, 1, 1]),
         ],
     )
-    onnx.save(helper.make_model(graph), model_path)
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
 
     ops = ONNXImport(str(model_path), strict=True)
 
@@ -718,7 +718,7 @@ def test_onnx17_unpool_and_string_normalizer_ops(monkeypatch, tmp_path):
             helper.make_tensor_value_info("tfidf", TensorProto.FLOAT, [2]),
         ],
     )
-    onnx.save(helper.make_model(graph), model_path)
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
 
     ops = ONNXImport(str(model_path), strict=True)
 

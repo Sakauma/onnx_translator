@@ -368,7 +368,7 @@ def test_additional_onnx17_official_ops(monkeypatch, tmp_path):
             helper.make_tensor_value_info("prelu", TensorProto.FLOAT, [2, 3]),
         ],
     )
-    onnx.save(helper.make_model(graph), model_path)
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
 
     ops = ONNXImport(str(model_path), strict=True)
 

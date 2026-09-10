@@ -492,7 +492,7 @@ def test_reshape_and_pad_shape_inference_cover_onnx_edge_cases(monkeypatch, tmp_
         ],
         [helper.make_tensor_value_info("y", TensorProto.FLOAT, [0, 3])],
     )
-    onnx.save(helper.make_model(graph), model_path)
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
 
     ops = ONNXImport(str(model_path), strict=True)
 

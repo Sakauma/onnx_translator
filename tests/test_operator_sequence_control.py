@@ -78,7 +78,7 @@ def test_onnx17_sequence_ops(monkeypatch, tmp_path):
             helper.make_tensor_sequence_value_info("split_seq", TensorProto.FLOAT, None),
         ],
     )
-    onnx.save(helper.make_model(graph), model_path)
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
 
     ops = ONNXImport(str(model_path), strict=True)
 
@@ -117,7 +117,7 @@ def test_onnx17_optional_ops(monkeypatch, tmp_path):
             helper.make_tensor_value_info("y", TensorProto.FLOAT, [2]),
         ],
     )
-    onnx.save(helper.make_model(graph), model_path)
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
 
     ops = ONNXImport(str(model_path), strict=True)
 
@@ -249,7 +249,7 @@ def test_onnx17_control_flow_ops(monkeypatch, tmp_path):
             helper.make_tensor_sequence_value_info("mapped_seq", TensorProto.FLOAT, None),
         ],
     )
-    onnx.save(helper.make_model(graph), model_path)
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
 
     ops = ONNXImport(str(model_path), strict=True)
 
