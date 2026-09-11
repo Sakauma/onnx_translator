@@ -99,21 +99,23 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if special_action is SpecialOutputAction.CONTINUE:
             continue
 
-        # Ordinary outputs still carry a public storage-dtype contract.  Check
-        # it before scalar normalization or comparison-time decoding/casting so
-        # numerically equal values cannot hide a wrong runtime dtype.  Logical
-        # low-precision types intentionally use their project storage dtype
-        # (for example bfloat16 uses uint16 and float8 uses uint8).
-        try:
-            nps_out = require_array(
-                nps_out,
-                name=f"{op_name} NPS output",
-                dtype=DTYPE_TO_NUMPY[out_dtype],
-            )
-        except (KeyError, OutputContractError) as exc:
-            print(f"  ❌ Iter {i} FAILED")
-            print(f"     Output contract mismatch: {exc}")
-            break
+        # Ordinary non-integer outputs carry a public storage-dtype contract.
+        # Check it before scalar normalization or comparison-time decoding so
+        # numerically equal values cannot hide a wrong runtime dtype.  Integer
+        # outputs retain compare_integer_output's exact wire and dtype checks.
+        # Logical low-precision types intentionally use their project storage
+        # dtype (for example bfloat16 uses uint16 and float8 uses uint8).
+        if out_dtype not in INTEGER_DTYPES:
+            try:
+                nps_out = require_array(
+                    nps_out,
+                    name=f"{op_name} NPS output",
+                    dtype=DTYPE_TO_NUMPY[out_dtype],
+                )
+            except (KeyError, OutputContractError) as exc:
+                print(f"  ❌ Iter {i} FAILED")
+                print(f"     Output contract mismatch: {exc}")
+                break
 
         # 标量统一物化成单元素数组，因为 CUDA 文件协议只传输张量缓冲区。
         expected_shape = nps_out.shape

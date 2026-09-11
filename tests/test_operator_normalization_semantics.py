@@ -85,6 +85,31 @@ def _rms_norm_formula(x, scale, axis, epsilon):
     return x / np.sqrt(mean_square + epsilon) * scale
 
 
+# 按 LayerNormalization-17 的 FLOAT stash 契约逐步物化 stage one，再以输入类型执行仿射阶段。
+def _layer_norm_float_stash_formula(x, scale, bias, axis, epsilon):
+    normalized_axis = axis if axis >= 0 else axis + x.ndim
+    rows = int(np.prod(x.shape[:normalized_axis], dtype=np.int64)) if normalized_axis > 0 else 1
+    columns = int(np.prod(x.shape[normalized_axis:], dtype=np.int64))
+    work = x.astype(np.float32).reshape(rows, columns)
+    total = np.zeros((rows, 1), dtype=np.float32)
+    for column in range(columns):
+        total = np.asarray(total + work[:, column:column + 1], dtype=np.float32)
+    mean = np.asarray(total / np.float32(columns), dtype=np.float32)
+    differences = np.asarray(work - mean, dtype=np.float32)
+    square_sum = np.zeros_like(mean)
+    for column in range(columns):
+        square = np.asarray(differences[:, column:column + 1] * differences[:, column:column + 1], dtype=np.float32)
+        square_sum = np.asarray(square_sum + square, dtype=np.float32)
+    variance = np.asarray(square_sum / np.float32(columns), dtype=np.float32)
+    inv_std = np.asarray(
+        np.float32(1.0) / np.asarray(np.sqrt(np.asarray(variance + np.float32(epsilon), dtype=np.float32)), dtype=np.float32),
+        dtype=np.float32,
+    )
+    normalized = np.asarray(differences * inv_std, dtype=np.float32).reshape(x.shape).astype(x.dtype)
+    y = (normalized * scale).astype(x.dtype)
+    return (y + bias).astype(x.dtype)
+
+
 # 按 ONNX LRN schema 公式独立计算输出，避免依赖本地 reference 中的通道循环缺陷。
 def _lrn_formula(x, size, alpha, beta, bias):
     data = np.asarray(x, dtype=np.float64)
@@ -221,17 +246,11 @@ def test_c_backend_normalization_ops_match_onnx_reference_mixed_precision():
     layer_x = ((np.arange(2 * 3 * 4, dtype=np.float64).reshape(2, 3, 4) / 7.0) - 1.0).astype(np.float64)
     layer_scale = np.array([1.0, 0.5, 1.5, -0.5], dtype=np.float64)
     layer_bias = np.array([0.1, -0.2, 0.3, 0.0], dtype=np.float64)
-    layer_expected = _onnx_reference(
-        "LayerNormalization",
-        [layer_x, layer_scale, layer_bias],
-        [TensorProto.DOUBLE] * 3,
-        {"axis": -1, "epsilon": 1e-4, "stash_type": 1},
-        [layer_x.shape],
-    )[0]
+    layer_expected = _layer_norm_float_stash_formula(layer_x, layer_scale, layer_bias, axis=-1, epsilon=1e-4)
     layer_actual = LayerNormalization(["x", "scale", "b"], ["y"], axis=-1, epsilon=1e-4, stash_type=1, dtype="float64").forward(
         _tensor(layer_x, "float64"), _tensor(layer_scale, "float64"), _tensor(layer_bias, "float64")
     )["tensor"]
-    np.testing.assert_allclose(layer_actual.data, layer_expected, rtol=1e-10, atol=1e-10)
+    np.testing.assert_array_equal(layer_actual.data, layer_expected)
 
 
 # 验证 LayerNormalization 的 mean/inv_std 多输出由 C 后端承载，并覆盖后缀 axis 与低精度写回。
