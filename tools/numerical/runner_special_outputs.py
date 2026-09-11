@@ -28,6 +28,11 @@ from .output_contracts import (
 )
 
 
+# ONNX ReferenceEvaluator's explicit zero-range profile, materialized once as
+# float32 so boundary plans can compare the public scalar output bit-for-bit.
+DQL_ZERO_REFERENCE_SCALE = np.float32(1.0) / np.float32(255.0)
+
+
 class SpecialOutputAction(Enum):
     """告知通用调度器当前迭代是否已被特殊协议消费。"""
 
@@ -443,11 +448,37 @@ def handle_special_output(state):
         cuda_scale = cuda_flat[flat_len].reshape(())
         cuda_zp = np.asarray(cuda_zp_wire, dtype=np.uint8).reshape(())
 
-        y_ok = np.array_equal(y_np, cuda_y)
+        profile_input = np.asarray(inputs_np[0])
+        zero_reference_profile = bool(
+            profile_input.size > 0
+            and np.all(np.isfinite(profile_input))
+            and np.all(profile_input == 0.0)
+        )
+        if init_args.get("dql_zero_reference_profile") and not zero_reference_profile:
+            print(f"  ❌ Iter {i} FAILED")
+            print("     DynamicQuantizeLinear zero-reference profile received invalid input")
+            return SpecialOutputAction.STOP
+
+        if zero_reference_profile:
+
+            expected_y = np.zeros(profile_input.shape, dtype=np.uint8)
+            expected_zp = np.array(0, dtype=np.uint8)
+            expected_scale_bits = np.asarray(DQL_ZERO_REFERENCE_SCALE).view(np.uint32).item()
+            y_ok = np.array_equal(y_np, expected_y) and np.array_equal(cuda_y, expected_y)
+            scale_ok = (
+                scale_np.view(np.uint32).item() == expected_scale_bits
+                and np.asarray(cuda_scale, dtype=np.float32).view(np.uint32).item()
+                == expected_scale_bits
+            )
+            zp_ok = np.array_equal(zp_np, expected_zp) and np.array_equal(cuda_zp, expected_zp)
+        else:
+            y_ok = np.array_equal(y_np, cuda_y)
+            scale_abs = float(abs(float(scale_np) - float(cuda_scale)))
+            scale_ok = scale_abs <= 1e-7 + 1e-6 * abs(float(cuda_scale))
+            zp_ok = int(zp_np) == int(cuda_zp)
+
         scale_abs = float(abs(float(scale_np) - float(cuda_scale)))
         scale_rel = scale_abs / max(abs(float(cuda_scale)), 1e-12)
-        scale_ok = scale_abs <= 1e-7 + 1e-6 * abs(float(cuda_scale))
-        zp_ok = int(zp_np) == int(cuda_zp)
 
         y_abs = float(np.max(np.abs(y_np.astype(np.int16) - cuda_y.astype(np.int16)))) if y_np.size else 0.0
         zp_abs = float(abs(int(zp_np) - int(cuda_zp)))
@@ -463,7 +494,14 @@ def handle_special_output(state):
             if not y_ok:
                 print(f"     y mismatch, max uint8 diff: {y_abs:.0f}")
             if not scale_ok:
-                print(f"     y_scale mismatch: CUDA={float(cuda_scale):.9g}, C={float(scale_np):.9g}")
+                if zero_reference_profile:
+                    print(
+                        "     y_scale reference-profile mismatch: "
+                        f"expected={float(DQL_ZERO_REFERENCE_SCALE):.9g}, "
+                        f"CUDA={float(cuda_scale):.9g}, C={float(scale_np):.9g}"
+                    )
+                else:
+                    print(f"     y_scale mismatch: CUDA={float(cuda_scale):.9g}, C={float(scale_np):.9g}")
             if not zp_ok:
                 print(f"     y_zero_point mismatch: CUDA={int(cuda_zp)}, C={int(zp_np)}")
             return SpecialOutputAction.STOP

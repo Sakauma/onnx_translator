@@ -38,7 +38,7 @@ def test_dynamic_quantize_linear_float32_stage_rounding_is_bit_exact():
     np.testing.assert_array_equal(zero_point.data, np.array(2, dtype=np.uint8))
 
 
-# 常规、极小正规数与既有全零分支覆盖修复前后都应稳定的 DQL 数值边界。
+# 常规、极小正规数与 ReferenceEvaluator 全零兼容分支的 DQL 数值边界。
 @pytest.mark.parametrize(
     "x,expected_y,expected_scale,expected_zero_point",
     [
@@ -57,7 +57,7 @@ def test_dynamic_quantize_linear_float32_stage_rounding_is_bit_exact():
         (
             np.zeros(3, dtype=np.float32),
             np.zeros(3, dtype=np.uint8),
-            np.float32(1.0),
+            np.float32(1.0) / np.float32(255.0),
             np.uint8(0),
         ),
     ],

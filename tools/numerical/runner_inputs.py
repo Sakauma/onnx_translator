@@ -856,6 +856,11 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
             init_args.get("input_values", np.linspace(-3.0, 6.0, int(np.prod(shapes[0])), dtype=np.float32)),
             dtype=np.float32,
         ).reshape(shapes[0])
+        if init_args.get("dql_zero_reference_profile"):
+            if values.size == 0 or not np.all(np.isfinite(values)) or not np.all(values == 0.0):
+                raise ValueError(
+                    "DynamicQuantizeLinear zero-reference plan requires finite, non-empty, all-zero input"
+                )
         inputs_np[0] = values
 
     if op_name == "split":

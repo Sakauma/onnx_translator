@@ -788,6 +788,11 @@ def build_default_plans():
     (NonMaxSuppression, "non_max_suppression", [(1, 3, 4), (1, 2, 3), (1,), (1,), (1,)], ["float16", "float16", "int64", "float16", "float16"], "int64", {"center_point_box": 0, "max_output_value": 3, "iou_threshold_value": 0.5, "score_threshold_value": 0.95, "boxes_values": [0.0, 0.0, 1.0, 1.0, 0.0, 2.0, 1.0, 3.0, 0.0, 4.0, 1.0, 5.0], "scores_values": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]}),
     (Dropout, "dropout", [(2, 3), (1,), (1,)], ["float32", "float32", "bool"], "float32", {"ratio_value": 0.5, "training_mode_value": 1, "seed": 0, "input_values": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]}),
     (DynamicQuantizeLinear, "dynamic_quantize_linear", [(2, 4)], ["float32"], "uint8", {"input_values": [-3.0, -1.25, -0.1, 0.0, 0.2, 1.7, 3.4, 6.0]}),
+    # ONNX ReferenceEvaluator resolves a finite non-empty zero range to 1/255.
+    # Mark these plans explicitly so the special-output verifier checks that
+    # profile independently instead of accepting C/CUDA agreement alone.
+    (DynamicQuantizeLinear, "dynamic_quantize_linear", [(2, 4)], ["float32"], "uint8", {"input_values": [0.0] * 8, "dql_zero_reference_profile": True}),
+    (DynamicQuantizeLinear, "dynamic_quantize_linear", [(2, 4)], ["float32"], "uint8", {"input_values": [0.0, -0.0, -0.0, 0.0, -0.0, 0.0, 0.0, -0.0], "dql_zero_reference_profile": True}),
     (Split, "split", [(2, 6), (3,)], ["float32", "int64"], "float32", {"axis": 1, "split_value": [1, 3, 2], "num_outputs": 3, "input_values": [-3.0, -2.5, -1.0, -0.25, 0.0, 0.5, 1.25, 2.0, 3.5, 4.0, 5.25, 6.0]}),
     (Unique, "unique", [(8,)], ["int64"], "int64", {"sorted": 0, "input_values": [3, 1, 3, 2, 1, 3, -1, 2]}),
     (Unique, "unique", [(8,)], ["float32"], "float32", {"sorted": 1, "input_values": [2.0, -1.0, 2.0, 0.5, -1.0, 3.0, 0.5, 4.0]}),

@@ -348,7 +348,7 @@ def test_c_backend_dynamic_quantize_linear_uses_published_float32_scale(monkeypa
     zero_y, zero_scale, zero_point = op.forward(_tensor(zero_input, "float32"))["tensor"]
     assert calls == [True, True]
     np.testing.assert_array_equal(zero_y.data, np.zeros(4, dtype=np.uint8))
-    np.testing.assert_array_equal(zero_scale.data, np.array(1.0, dtype=np.float32))
+    np.testing.assert_array_equal(zero_scale.data, np.array(np.float32(1.0) / np.float32(255.0), dtype=np.float32))
     np.testing.assert_array_equal(zero_point.data, np.array(0, dtype=np.uint8))
 
 

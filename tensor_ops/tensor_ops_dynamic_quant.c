@@ -19,9 +19,11 @@ void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale
     if (!x || !y || !y_scale || !y_zp) return;
     float min_val = FLT_MAX;
     float max_val = -FLT_MAX;
+    int all_zero = x->size > 0;
 
     for (size_t i = 0; i < x->size; i++) {
         float val = get_value_as_float(x, i);
+        if (!isfinite(val) || val != 0.0f) all_zero = 0;
         if (val < min_val) min_val = val;
         if (val > max_val) max_val = val;
     }
@@ -33,7 +35,9 @@ void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale
     // ONNX 将 scale 作为 float32 输出；zero point 和量化数据必须使用同一个
     // 已物化的 float32 值，避免不可见的 double 精度改变舍入结果。
     float range_f32 = max_val - min_val;
-    float scale_f32 = range_f32 / 255.0f;
+    // ONNX 1.21 ReferenceEvaluator 对非空全零 FLOAT 输入使用 1/255。
+    // 该兼容分支不得覆盖非零常量或非零 range 的 float32 下溢路径。
+    float scale_f32 = all_zero ? (1.0f / 255.0f) : (range_f32 / 255.0f);
     if (scale_f32 == 0.0f) scale_f32 = 1.0f; // 避免除以 0
 
     float zp_float = 0.0f - min_val / scale_f32;

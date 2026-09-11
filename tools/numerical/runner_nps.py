@@ -64,6 +64,7 @@ def _operator_init_args(op_name: str, init_args: dict, out_dtype: str) -> tuple[
     op_init_args.pop("input_values", None)
     op_init_args.pop("scale_values", None)
     op_init_args.pop("zero_point_values", None)
+    op_init_args.pop("dql_zero_reference_profile", None)
     controls = {
         "omit_zero_point": int(op_init_args.pop("omit_zero_point", 0)),
         "emit_log_prob": int(op_init_args.pop("emit_log_prob", 0)),

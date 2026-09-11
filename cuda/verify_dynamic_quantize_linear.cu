@@ -99,6 +99,14 @@ int main(int argc, char** argv) {
     if (!h_x || !h_out) return 1;
     if (!read_f32_file(argv[2], h_x, n)) return 1;
 
+    int all_zero = n > 0;
+    for (size_t i = 0; i < n; ++i) {
+        if (!isfinite(h_x[i]) || h_x[i] != 0.0f) {
+            all_zero = 0;
+            break;
+        }
+    }
+
     const int threads = 256;
     int blocks = (int)((n + threads - 1) / threads);
     float* d_x = NULL;
@@ -130,7 +138,9 @@ int main(int argc, char** argv) {
     max_val = fmaxf(max_val, 0.0f);
 
     DynamicQuantParams params;
-    params.scale = (max_val - min_val) / 255.0f;
+    // Match ONNX 1.21 ReferenceEvaluator only for non-empty, finite +/-zero input.
+    // Nonzero constants and nonzero ranges that underflow retain the normal path.
+    params.scale = all_zero ? (1.0f / 255.0f) : ((max_val - min_val) / 255.0f);
     if (params.scale == 0.0f) {
         params.scale = 1.0f;
     }
