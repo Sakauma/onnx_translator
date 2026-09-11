@@ -610,7 +610,7 @@ def _factory_086_nonmaxsuppression(node, import_context):
 def _factory_087_resize(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
     onnx_graph_list = []
-    mode, coord_mode, nearest_mode = "nearest", "asymmetric", "round_prefer_floor"
+    mode, coord_mode, nearest_mode = "nearest", "half_pixel", "round_prefer_floor"
     cubic_coeff_a, exclude_outside, extrapolation_value = -0.75, 0, 0.0
     for attr in node.attribute:
         if attr.name == "mode": mode = attr.s.decode('utf-8')

@@ -510,7 +510,9 @@ class LayerNormalization(Ops):
         self.axis = axis
         self.epsilon = epsilon
         self.stash_type = stash_type
-        self.stash_dtype = nn.onnx_dtype_mapping.get(stash_type, "float32")
+        if stash_type not in (1, 16):
+            raise ValueError(f"LayerNormalization stash_type must be FLOAT (1) or BFLOAT16 (16), got {stash_type}")
+        self.stash_dtype = nn.onnx_dtype_mapping[stash_type]
         self.dtype = dtype
         self.version = version
         
@@ -528,6 +530,24 @@ class LayerNormalization(Ops):
                 self._has_layer_norm_stats_c_backend = True
             except AttributeError:
                 self._has_layer_norm_stats_c_backend = False
+            try:
+                self.lib.layer_norm_float_stash_forward.argtypes = [
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                    ctypes.POINTER(CTensor), ctypes.c_int, ctypes.c_float
+                ]
+                self.lib.layer_norm_float_stash_multi_output_forward.argtypes = [
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                    ctypes.POINTER(CTensor), ctypes.POINTER(CTensor), ctypes.POINTER(CTensor),
+                    ctypes.c_int, ctypes.c_float
+                ]
+                self._has_layer_norm_float_stash_c_backend = True
+            except AttributeError:
+                self._has_layer_norm_float_stash_c_backend = False
+
+    def _select_outputs(self, outputs):
+        if len(self.outputs) <= 1:
+            return outputs[0]
+        return tuple(value if name else None for name, value in zip(self.outputs, outputs))
 
     # 执行 `LayerNormalization` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, x, scale=None, B=None):
@@ -548,6 +568,9 @@ class LayerNormalization(Ops):
             and (B is None or B.dtype in nn.DTYPE_MAP)
             and (scale is None or int(np.prod(scale.size, dtype=np.int64)) == col_number)
             and (B is None or int(np.prod(B.size, dtype=np.int64)) == col_number)
+            and self.stash_dtype == "float32"
+            and x.dtype in {"float32", "float64"}
+            and getattr(self, "_has_layer_norm_float_stash_c_backend", False)
         )
         if (
             can_use_c_backend
@@ -564,7 +587,7 @@ class LayerNormalization(Ops):
             )
             output_shape_c = (ctypes.c_int * len(x.size))(*x.size)
             out_c = self.lib.create_tensor(output_shape_c, len(x.size), nn.DTYPE_MAP[self.dtype])
-            self.lib.layer_norm_forward(x_c, scale_c, b_c, out_c, ctypes.c_int(axis), ctypes.c_float(self.epsilon))
+            self.lib.layer_norm_float_stash_forward(x_c, scale_c, b_c, out_c, ctypes.c_int(axis), ctypes.c_float(self.epsilon))
             y_data = self._ctensor_to_numpy(out_c, self.dtype)
             self.lib.free_tensor(x_c)
             if scale is not None:
@@ -589,7 +612,7 @@ class LayerNormalization(Ops):
             out_c = self.lib.create_tensor(output_shape_c, len(x.size), nn.DTYPE_MAP[self.dtype])
             mean_c = self.lib.create_tensor(reduction_shape_c, len(reduction_shape), nn.DTYPE_MAP[self.stash_dtype])
             inv_std_c = self.lib.create_tensor(reduction_shape_c, len(reduction_shape), nn.DTYPE_MAP[self.stash_dtype])
-            self.lib.layer_norm_multi_output_forward(
+            self.lib.layer_norm_float_stash_multi_output_forward(
                 x_c, scale_c, b_c, out_c, mean_c, inv_std_c, ctypes.c_int(axis), ctypes.c_float(self.epsilon)
             )
             y_data = self._ctensor_to_numpy(out_c, self.dtype)
@@ -608,25 +631,45 @@ class LayerNormalization(Ops):
                 Tensor(*reduction_shape, dtype=self.stash_dtype, data=mean_data),
                 Tensor(*reduction_shape, dtype=self.stash_dtype, data=inv_std_data),
             )
-            selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
-            return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
-        stash_np_dtype = np.float32 if self.stash_dtype == "bfloat16" else nn.DTYPE_TO_NUMPY.get(self.stash_dtype, np.float32)
-        work = x_data.astype(stash_np_dtype, copy=False).reshape(row_number, col_number)
-        mean = np.mean(work, axis=1, keepdims=True)
-        inv_std = np.reciprocal(np.sqrt(np.mean((work - mean) ** 2, axis=1, keepdims=True) + self.epsilon))
-        normalized = ((work - mean) * inv_std).reshape(x_data.shape)
+            return {"tensor": self._select_outputs(outputs), "parameters": None}
+        def stash(value):
+            value = np.asarray(value, dtype=np.float32)
+            if self.stash_dtype == "bfloat16":
+                return _bfloat16_bits_to_float32(_float32_to_bfloat16_bits(value))
+            return value
+
+        work = stash(x_data).reshape(row_number, col_number)
+        sum_value = stash(np.zeros((row_number, 1), dtype=np.float32))
+        for col in range(col_number):
+            sum_value = stash(sum_value + work[:, col:col + 1])
+        mean = stash(sum_value / stash(np.float32(col_number)))
+        differences = stash(work - mean)
+        square_sum = stash(np.zeros((row_number, 1), dtype=np.float32))
+        for col in range(col_number):
+            square_sum = stash(square_sum + stash(differences[:, col:col + 1] * differences[:, col:col + 1]))
+        variance = stash(square_sum / stash(np.float32(col_number)))
+        inv_std = stash(stash(np.float32(1.0)) / stash(np.sqrt(stash(variance + stash(np.float32(self.epsilon))))))
+        normalized = stash(differences * inv_std).reshape(x_data.shape)
+        normalized_storage = _cast_numeric_to_dtype(normalized, x.dtype)
+        normalized = (
+            _bfloat16_bits_to_float32(normalized_storage)
+            if x.dtype == "bfloat16" else np.asarray(normalized_storage)
+        )
+        def materialize_x_dtype(value):
+            storage = _cast_numeric_to_dtype(value, x.dtype)
+            return _bfloat16_bits_to_float32(storage) if x.dtype == "bfloat16" else np.asarray(storage)
+
         if scale is not None:
-            normalized = normalized * _tensor_data_as_numeric(scale)
+            normalized = materialize_x_dtype(normalized * _tensor_data_as_numeric(scale))
         if B is not None:
-            normalized = normalized + _tensor_data_as_numeric(B)
+            normalized = materialize_x_dtype(normalized + _tensor_data_as_numeric(B))
 
         reduction_shape = tuple(x_data.shape[:axis]) + (1,) * (rank - axis)
         y = Tensor(*x.size, dtype=self.dtype, data=_cast_numeric_to_dtype(normalized, self.dtype))
         mean_tensor = Tensor(*reduction_shape, dtype=self.stash_dtype, data=_cast_numeric_to_dtype(mean.reshape(reduction_shape), self.stash_dtype))
         inv_std_tensor = Tensor(*reduction_shape, dtype=self.stash_dtype, data=_cast_numeric_to_dtype(inv_std.reshape(reduction_shape), self.stash_dtype))
         outputs = (y, mean_tensor, inv_std_tensor)
-        selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
-        return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
+        return {"tensor": self._select_outputs(outputs), "parameters": None}
 
     # 执行 `LayerNormalization` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x, scale=None, B=None):
@@ -640,8 +683,7 @@ class LayerNormalization(Ops):
             Tensor_(*reduction_shape, dtype=self.stash_dtype),
             Tensor_(*reduction_shape, dtype=self.stash_dtype),
         )
-        selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
-        return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
+        return {"tensor": self._select_outputs(outputs), "parameters": None}
 
 
 class Hardmax(Ops):

@@ -10,6 +10,7 @@
 */
 
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 #include "verify_common.cuh"
 #include <math.h>
 #include <stdint.h>
@@ -23,8 +24,36 @@ struct LayerNormParams {
     int32_t has_scale;
     int32_t has_bias;
     int32_t emit_stats;
+    int32_t stash_type;
+    int32_t input_dtype;
     float epsilon;
 };
+
+// 将 float32 按 round-to-nearest-even 物化为 bfloat16，再解码回 float32。
+__device__ static float materialize_bfloat16(float value) {
+    uint32_t bits = __float_as_uint(value);
+    uint32_t exponent = bits & 0x7f800000u;
+    if (exponent == 0x7f800000u) {
+        return __uint_as_float(bits & 0xffff0000u);
+    }
+    uint32_t rounded = bits + 0x7fffu + ((bits >> 16) & 1u);
+    return __uint_as_float(rounded & 0xffff0000u);
+}
+
+__device__ static float stash_value(float value, int32_t stash_type) {
+    return stash_type == 16 ? materialize_bfloat16(value) : value;
+}
+
+// 按输入类型 T 物化 stage-two 的 CastLike、Mul 和 Add。
+__device__ static float materialize_float16(float value) {
+    return __half2float(__float2half_rn(value));
+}
+
+__device__ static float materialize_input_float(float value, int32_t input_dtype) {
+    if (input_dtype == 10) return materialize_float16(value);
+    if (input_dtype == 16) return materialize_bfloat16(value);
+    return value;
+}
 
 // 按 ONNX LayerNormalization 公式对每一行的归一化后缀执行归一化。
 __global__ void layer_norm_kernel(
@@ -44,31 +73,53 @@ __global__ void layer_norm_kernel(
     int col = (int)(tid % (size_t)p.normalized_size);
     size_t base = (size_t)row * (size_t)p.normalized_size;
 
-    double sum = 0.0;
+    float sum = stash_value(0.0f, p.stash_type);
     for (int i = 0; i < p.normalized_size; i++) {
-        sum += x[base + (size_t)i];
+        float value = stash_value((float)x[base + (size_t)i], p.stash_type);
+        sum = stash_value(sum + value, p.stash_type);
     }
-    double mean = sum / (double)p.normalized_size;
+    float divisor = stash_value((float)p.normalized_size, p.stash_type);
+    float mean = stash_value(sum / divisor, p.stash_type);
 
-    double square_sum = 0.0;
+    float square_sum = stash_value(0.0f, p.stash_type);
     for (int i = 0; i < p.normalized_size; i++) {
-        double diff = x[base + (size_t)i] - mean;
-        square_sum += diff * diff;
+        float value = stash_value((float)x[base + (size_t)i], p.stash_type);
+        float diff = stash_value(value - mean, p.stash_type);
+        float square = stash_value(diff * diff, p.stash_type);
+        square_sum = stash_value(square_sum + square, p.stash_type);
     }
-    double variance = square_sum / (double)p.normalized_size;
-    double inv_std = 1.0 / sqrt(variance + (double)p.epsilon);
+    float variance = stash_value(square_sum / divisor, p.stash_type);
+    float epsilon = stash_value(p.epsilon, p.stash_type);
+    float variance_with_epsilon = stash_value(variance + epsilon, p.stash_type);
+    float standard_deviation = stash_value(sqrtf(variance_with_epsilon), p.stash_type);
+    float inv_std = stash_value(stash_value(1.0f, p.stash_type) / standard_deviation, p.stash_type);
     if (p.emit_stats && col == 0) {
         mean_out[row] = mean;
         inv_std_out[row] = inv_std;
     }
 
-    double y = (x[tid] - mean) * inv_std;
-    if (p.has_scale) y *= scale[col];
-    if (p.has_bias) y += bias[col];
-    out[tid] = y;
+    float value = stash_value((float)x[tid], p.stash_type);
+    float normalized = stash_value(stash_value(value - mean, p.stash_type) * inv_std, p.stash_type);
+    if (p.input_dtype == 11) {
+        double y = (double)normalized;
+        if (p.has_scale) y = y * scale[col];
+        if (p.has_bias) y = y + bias[col];
+        out[tid] = y;
+    } else {
+        float y = materialize_input_float(normalized, p.input_dtype);
+        if (p.has_scale) {
+            float scale_value = materialize_input_float((float)scale[col], p.input_dtype);
+            y = materialize_input_float(y * scale_value, p.input_dtype);
+        }
+        if (p.has_bias) {
+            float bias_value = materialize_input_float((float)bias[col], p.input_dtype);
+            y = materialize_input_float(y + bias_value, p.input_dtype);
+        }
+        out[tid] = (double)y;
+    }
 }
 
-// 顺序读取 `[row_count, normalized_size, has_scale, has_bias, emit_stats] + epsilon`，避免结构体 padding 影响二进制兼容。
+// 顺序读取 `[row_count, normalized_size, has_scale, has_bias, emit_stats, stash_type, input_dtype] + epsilon`，避免结构体 padding 影响二进制兼容。
 static int read_layer_norm_params(const char* params_path, LayerNormParams* params) {
     FILE* fp = fopen(params_path, "rb");
     if (!fp) {
@@ -76,8 +127,8 @@ static int read_layer_norm_params(const char* params_path, LayerNormParams* para
         return 0;
     }
 
-    int32_t ints[5];
-    if (fread(ints, sizeof(int32_t), 5, fp) != 5) {
+    int32_t ints[7];
+    if (fread(ints, sizeof(int32_t), 7, fp) != 7) {
         fprintf(stderr, "read params ints failed\n");
         verify_close_file(fp);
         return 0;
@@ -94,6 +145,17 @@ static int read_layer_norm_params(const char* params_path, LayerNormParams* para
     params->has_scale = ints[2];
     params->has_bias = ints[3];
     params->emit_stats = ints[4];
+    params->stash_type = ints[5];
+    params->input_dtype = ints[6];
+    if (params->stash_type != 1 && params->stash_type != 16) {
+        fprintf(stderr, "unsupported stash_type\n");
+        return 0;
+    }
+    if (params->input_dtype != 1 && params->input_dtype != 10
+        && params->input_dtype != 11 && params->input_dtype != 16) {
+        fprintf(stderr, "unsupported input_dtype\n");
+        return 0;
+    }
     return params->row_count > 0 && params->normalized_size > 0;
 }
 

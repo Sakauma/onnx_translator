@@ -145,9 +145,11 @@ def run_nps_forward(op_cls, op_name: str, inputs_tensor: list, init_args: dict, 
         out = op.forward(*valid_tensors)["tensor"]
         nps_out = [tensor.data for tensor in out] if len(outputs) > 1 else out.data
 
-    elif op_name == "layer_normalization" and controls["emit_stats"]:
-        op = op_cls(inputs=[], outputs=["y", "mean", "inv_std"], dtype=out_dtype, **op_init_args)
-        nps_out = [tensor.data for tensor in op.forward(*valid_tensors)["tensor"]]
+    elif op_name == "layer_normalization":
+        outputs = ["y", "mean", "inv_std"] if controls["emit_stats"] else ["y"]
+        op = op_cls(inputs=[], outputs=outputs, dtype=out_dtype, **op_init_args)
+        out = op.forward(*valid_tensors)["tensor"]
+        nps_out = [tensor.data for tensor in out] if controls["emit_stats"] else out.data
 
     elif op_name in {"hann_window", "hamming_window", "blackman_window"}:
         op = op_cls(inputs=[], outputs=[], output_datatype=onnx_dtype_id_from_name(out_dtype), **op_init_args)

@@ -108,13 +108,33 @@ if [ ${#cuda_files[@]} -eq 0 ]; then
 fi
 
 mkdir -p "${CACHE_DIR}"
+IDENTITY_DIR="${CACHE_DIR}/.compile-identities"
+mkdir -p "${IDENTITY_DIR}"
+
+# Cache freshness also depends on the selected compiler.  Resolve symlinks and
+# include both the binary contents and version text so a toolchain switch does
+# not silently reuse an executable produced by the previous NVCC.
+if command -v readlink >/dev/null 2>&1; then
+    NVCC_ID_PATH="$(readlink -f "${NVCC_BIN}" 2>/dev/null || printf '%s' "${NVCC_BIN}")"
+else
+    NVCC_ID_PATH="${NVCC_BIN}"
+fi
+NVCC_ID_CHECKSUM="$(cksum "${NVCC_BIN}")"
+NVCC_ID_VERSION="$("${NVCC_BIN}" --version 2>&1)"
+COMPILER_IDENTITY="path=${NVCC_ID_PATH}
+checksum=${NVCC_ID_CHECKSUM}
+version=${NVCC_ID_VERSION}"
 
 common_headers=("${CUDA_DIR}"/*.cuh)
 
 is_fresh() {
     local output="$1"
-    shift
+    local identity_file="$2"
+    shift 2
     if [ "${FORCE}" -eq 1 ] || [ ! -x "${output}" ]; then
+        return 1
+    fi
+    if [ ! -f "${identity_file}" ] || [ "$(cat "${identity_file}")" != "${COMPILER_IDENTITY}" ]; then
         return 1
     fi
     local dep
@@ -133,16 +153,23 @@ skipped=0
 for file in "${cuda_files[@]}"; do
     filename="$(basename "${file}" .cu)"
     output="${CACHE_DIR}/${filename}"
+    identity_file="${IDENTITY_DIR}/${filename}"
     deps=("${file}" "$0" "${common_headers[@]}")
-    if is_fresh "${output}" "${deps[@]}"; then
+    if is_fresh "${output}" "${identity_file}" "${deps[@]}"; then
         echo "  ${file} -> ${output} (fresh, skipped)"
         skipped=$((skipped + 1))
         continue
     fi
     echo "  ${file} -> ${output}"
+    # Once recompilation starts, the previous identity no longer certifies the
+    # output: a failing compiler may truncate or partially replace that file.
+    rm -f "${identity_file}"
     if ! "${NVCC_BIN}" "${file}" -o "${output}"; then
         failures+=("${file}")
     else
+        identity_tmp="$(mktemp "${IDENTITY_DIR}/${filename}.tmp.XXXXXX")"
+        printf '%s\n' "${COMPILER_IDENTITY}" > "${identity_tmp}"
+        mv -f "${identity_tmp}" "${identity_file}"
         compiled=$((compiled + 1))
     fi
 done

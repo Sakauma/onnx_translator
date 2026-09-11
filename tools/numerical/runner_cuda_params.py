@@ -16,6 +16,7 @@ import nn
 from .dtype import to_float32
 from .runner_params import (
     normalize_slice_parameters,
+    onnx_dtype_id_from_name,
     recurrent_params_binary,
     slice_io_values,
 )
@@ -733,8 +734,14 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
         row_count = int(np.prod(input_shape[:axis])) if axis > 0 else 1
         has_scale = 1 if inputs_np[1] is not None else 0
         has_bias = 1 if inputs_np[2] is not None else 0
+        stash_type = int(init_args.get("stash_type", 1))
+        input_dtype = onnx_dtype_id_from_name(dtypes[0])
         params_bin = (
-            np.array([row_count, normalized_size, has_scale, has_bias, int(init_args.get("emit_stats", 0))], dtype=np.int32).tobytes()
+            np.array(
+                [row_count, normalized_size, has_scale, has_bias,
+                 int(init_args.get("emit_stats", 0)), stash_type, input_dtype],
+                dtype=np.int32,
+            ).tobytes()
             + np.array([float(init_args.get("epsilon", 1e-5))], dtype=np.float32).tobytes()
         )
 

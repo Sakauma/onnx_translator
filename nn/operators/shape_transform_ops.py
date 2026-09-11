@@ -473,6 +473,54 @@ class Slice(Ops):
                 ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)
             ]
 
+    @staticmethod
+    def _resolve_slices(data_shape, starts, ends, axes, steps):
+        """Normalize ONNX Slice parameters, including empty dimensions."""
+        ndim = len(data_shape)
+        if not (len(starts) == len(ends) == len(axes) == len(steps)):
+            raise ValueError("Slice starts, ends, axes, and steps must have the same length")
+
+        normalized = [(0, int(dim), 1) for dim in data_shape]
+        seen_axes = set()
+        for start, end, requested_axis, step in zip(starts, ends, axes, steps):
+            axis = int(requested_axis)
+            axis = axis + ndim if axis < 0 else axis
+            if axis < 0 or axis >= ndim:
+                raise ValueError(f"Slice axis {requested_axis} is out of bounds for rank {ndim}")
+            if axis in seen_axes:
+                raise ValueError(f"Slice axis {requested_axis} appears more than once")
+            seen_axes.add(axis)
+            step = int(step)
+            if step == 0:
+                raise ValueError("Slice step cannot be zero")
+            dim_len = int(data_shape[axis])
+            if dim_len == 0:
+                normalized[axis] = (0, 0, step)
+                continue
+            start = int(start)
+            end = int(end)
+            if start < 0:
+                start += dim_len
+            if end < 0:
+                end += dim_len
+            if step > 0:
+                start = max(0, min(start, dim_len))
+                end = max(0, min(end, dim_len))
+            else:
+                start = max(0, min(start, dim_len - 1))
+                end = max(-1, min(end, dim_len - 1))
+            normalized[axis] = (start, end, step)
+
+        out_shape = []
+        for start, end, step in normalized:
+            if step > 0:
+                length = max(0, (end - start + step - 1) // step)
+            else:
+                length = max(0, (end - start + step + 1) // step)
+            out_shape.append(length)
+        out_shape = tuple(out_shape)
+        return normalized, out_shape
+
     # 执行 `Slice` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
     def forward(self, data: Tensor, starts: Tensor, ends: Tensor, axes: Tensor = None, steps: Tensor = None) -> dict:
         _starts = starts.data.flatten().tolist()
@@ -480,43 +528,10 @@ class Slice(Ops):
         _axes = axes.data.flatten().tolist() if axes is not None else list(range(len(_starts)))
         _steps = steps.data.flatten().tolist() if steps is not None else [1] * len(_starts)
         
+        normalized, out_shape = self._resolve_slices(data.size, _starts, _ends, _axes, _steps)
         ndim = len(data.size)
-        
-        # 扩展参数至完整维度
-        full_starts = [0] * ndim
-        full_ends = list(data.size)
-        full_steps = [1] * ndim
-        
-        for i, axis in enumerate(_axes):
-            if axis < 0: axis += ndim
-            s, e, st = _starts[i], _ends[i], _steps[i]
-            
-            dim_len = data.size[axis]
-            if s < 0: s += dim_len
-            if e < 0: e += dim_len
-            
-            if st > 0:
-                # 正向：区间 [0, dim_len]
-                s = max(0, min(s, dim_len))
-                e = max(0, min(e, dim_len))
-            else:
-                # 反向：区间 [-1, dim_len-1]
-                # end 可以是 -1，表示包含索引 0
-                s = max(0, min(s, dim_len - 1))
-                e = max(-1, min(e, dim_len - 1))
-            
-            full_starts[axis] = s
-            full_ends[axis] = e
-            full_steps[axis] = st
-            
-        out_shape = []
-        for i in range(ndim):
-            if full_steps[i] > 0:
-                length = max(0, (full_ends[i] - full_starts[i] + full_steps[i] - 1) // full_steps[i])
-            else:
-                length = max(0, (full_ends[i] - full_starts[i] + full_steps[i] + 1) // full_steps[i])
-            out_shape.append(length)
-        out_shape = tuple(out_shape)
+        full_starts = [item[0] for item in normalized]
+        full_steps = [item[2] for item in normalized]
             
         if self.lib is not None and data.dtype in nn.DTYPE_MAP and self.dtype in nn.DTYPE_MAP:
             input_c = self._numpy_to_ctensor(np.ascontiguousarray(data.data), data.dtype)
@@ -533,7 +548,7 @@ class Slice(Ops):
             self.lib.free_tensor(output_c)
         else:
             slices = []
-            for start, end, step in zip(full_starts, full_ends, full_steps):
+            for start, end, step in normalized:
                 py_end = None if step < 0 and end == -1 else end
                 slices.append(slice(start, py_end, step))
             out_data = np.asarray(data.data)[tuple(slices)]
@@ -556,36 +571,8 @@ class Slice(Ops):
             _ends = ends.data.astype(np.int64).flatten().tolist()
             _axes = axes.data.astype(np.int64).flatten().tolist() if axes is not None else list(range(len(_starts)))
             _steps = steps.data.astype(np.int64).flatten().tolist() if steps is not None else [1] * len(_starts)
-            ndim = len(data.size)
-            full_starts = [0] * ndim
-            full_ends = list(data.size)
-            full_steps = [1] * ndim
-            for i, axis in enumerate(_axes):
-                if axis < 0:
-                    axis += ndim
-                s, e, st = _starts[i], _ends[i], _steps[i]
-                dim_len = data.size[axis]
-                if s < 0:
-                    s += dim_len
-                if e < 0:
-                    e += dim_len
-                if st > 0:
-                    s = max(0, min(s, dim_len))
-                    e = max(0, min(e, dim_len))
-                else:
-                    s = max(0, min(s, dim_len - 1))
-                    e = max(-1, min(e, dim_len - 1))
-                full_starts[axis] = s
-                full_ends[axis] = e
-                full_steps[axis] = st
-            out_shape = []
-            for i in range(ndim):
-                if full_steps[i] > 0:
-                    length = max(0, (full_ends[i] - full_starts[i] + full_steps[i] - 1) // full_steps[i])
-                else:
-                    length = max(0, (full_ends[i] - full_starts[i] + full_steps[i] + 1) // full_steps[i])
-                out_shape.append(length)
-            output_tensor = Tensor_(*tuple(out_shape), dtype=self.dtype)
+            _, out_shape = self._resolve_slices(data.size, _starts, _ends, _axes, _steps)
+            output_tensor = Tensor_(*out_shape, dtype=self.dtype)
         else:
             output_tensor = Tensor_(*data.size, dtype=self.dtype)
         values = {"tensor": output_tensor, "parameters": None, "graph": None}

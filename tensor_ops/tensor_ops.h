@@ -748,6 +748,11 @@ void layer_norm_forward(const Tensor* input, const Tensor* scale, const Tensor* 
 void layer_norm_multi_output_forward(const Tensor* input, const Tensor* scale, const Tensor* B,
                                      Tensor* output, Tensor* mean_output, Tensor* inv_std_output,
                                      int axis, float epsilon);
+void layer_norm_float_stash_forward(const Tensor* input, const Tensor* scale, const Tensor* B,
+                                    Tensor* output, int axis, float epsilon);
+void layer_norm_float_stash_multi_output_forward(const Tensor* input, const Tensor* scale, const Tensor* B,
+                                                 Tensor* output, Tensor* mean_output, Tensor* inv_std_output,
+                                                 int axis, float epsilon);
 
 // RMSNormalization
 // axis: 从该轴到最后一维计算 root mean square；scale 按 ONNX 单向广播规则映射。

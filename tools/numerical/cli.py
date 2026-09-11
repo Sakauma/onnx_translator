@@ -682,6 +682,7 @@ def build_default_plans():
     (BatchNormalization, "batch_normalization", [(2, 3, 2, 2), (3,), (3,), (3,), (3,)], ["float32", "float32", "float32", "float32", "float32"], "float32", {"epsilon": 1e-4, "momentum": 0.75, "training_mode": 1}),
     (InstanceNormalization, "instance_normalization", [(2, 3, 2, 2), (3,), (3,)], ["float32", "float32", "float32"], "float32", {"epsilon": 1e-4}),
     (LayerNormalization, "layer_normalization", [(2, 3, 4), (4,), (4,)], ["float32", "float32", "float32"], "float32", {"axis": -1, "epsilon": 1e-4, "stash_type": 1}),
+    (LayerNormalization, "layer_normalization", [(1, 3), (3,), (3,)], ["float32", "float32", "float32"], "float32", {"axis": -1, "epsilon": 1e-5, "stash_type": 1, "input_values": [100000000.0, 100000000.0, 100000008.0]}),
     (LayerNormalization, "layer_normalization", [(2, 3, 4), (3, 4), (3, 4)], ["float32", "float32", "float32"], "float32", {"axis": 1, "epsilon": 1e-4, "stash_type": 1}),
     (LayerNormalization, "layer_normalization", [(2, 3, 4), (3, 4), (3, 4)], ["float32", "float32", "float32"], "float32", {"axis": 1, "epsilon": 1e-4, "stash_type": 1, "emit_stats": 1}),
     (LpNormalization, "lp_normalization", [(2, 3, 2, 2)], ["float32"], "float32", {"axis": 1, "p": 2}),

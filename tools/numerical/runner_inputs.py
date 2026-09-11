@@ -405,7 +405,10 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
 
     if op_name == "layer_normalization":
         # LayerNormalization 使用后缀维度 scale/bias，覆盖 C 后端承载的单输出主路径和低精度写回。
-        x_values = np.linspace(-1.8, 1.4, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
+        if "input_values" in init_args:
+            x_values = np.asarray(init_args["input_values"], dtype=np.float32).reshape(shapes[0])
+        else:
+            x_values = np.linspace(-1.8, 1.4, int(np.prod(shapes[0])), dtype=np.float32).reshape(shapes[0])
         scale_values = np.linspace(0.5, 1.7, int(np.prod(shapes[1])), dtype=np.float32).reshape(shapes[1])
         bias_values = np.linspace(-0.3, 0.3, int(np.prod(shapes[2])), dtype=np.float32).reshape(shapes[2])
         inputs_np[0] = from_float32(x_values, dtypes[0])
