@@ -1,0 +1,1 @@
+/home/sakauma/data/miniconda3/envs/egor/bin/python -u tools/cli.py numerical --iterations 3 --skip-plots 

@@ -1,0 +1,208 @@
+diff --git a/cuda/verify_dynamic_quantize_linear.cu b/cuda/verify_dynamic_quantize_linear.cu
+index 2b64262..5256791 100644
+--- a/cuda/verify_dynamic_quantize_linear.cu
++++ b/cuda/verify_dynamic_quantize_linear.cu
+@@ -99,6 +99,14 @@ int main(int argc, char** argv) {
+     if (!h_x || !h_out) return 1;
+     if (!read_f32_file(argv[2], h_x, n)) return 1;
+ 
++    int all_zero = n > 0;
++    for (size_t i = 0; i < n; ++i) {
++        if (!isfinite(h_x[i]) || h_x[i] != 0.0f) {
++            all_zero = 0;
++            break;
++        }
++    }
++
+     const int threads = 256;
+     int blocks = (int)((n + threads - 1) / threads);
+     float* d_x = NULL;
+@@ -130,7 +138,9 @@ int main(int argc, char** argv) {
+     max_val = fmaxf(max_val, 0.0f);
+ 
+     DynamicQuantParams params;
+-    params.scale = (max_val - min_val) / 255.0f;
++    // Match ONNX 1.21 ReferenceEvaluator only for non-empty, finite +/-zero input.
++    // Nonzero constants and nonzero ranges that underflow retain the normal path.
++    params.scale = all_zero ? (1.0f / 255.0f) : ((max_val - min_val) / 255.0f);
+     if (params.scale == 0.0f) {
+         params.scale = 1.0f;
+     }
+diff --git a/tensor_ops/tensor_ops_dynamic_quant.c b/tensor_ops/tensor_ops_dynamic_quant.c
+index 368534f..1f6777c 100644
+--- a/tensor_ops/tensor_ops_dynamic_quant.c
++++ b/tensor_ops/tensor_ops_dynamic_quant.c
+@@ -19,9 +19,11 @@ void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale
+     if (!x || !y || !y_scale || !y_zp) return;
+     float min_val = FLT_MAX;
+     float max_val = -FLT_MAX;
++    int all_zero = x->size > 0;
+ 
+     for (size_t i = 0; i < x->size; i++) {
+         float val = get_value_as_float(x, i);
++        if (!isfinite(val) || val != 0.0f) all_zero = 0;
+         if (val < min_val) min_val = val;
+         if (val > max_val) max_val = val;
+     }
+@@ -33,7 +35,9 @@ void dynamic_quantize_linear_forward(const Tensor* x, Tensor* y, Tensor* y_scale
+     // ONNX 将 scale 作为 float32 输出；zero point 和量化数据必须使用同一个
+     // 已物化的 float32 值，避免不可见的 double 精度改变舍入结果。
+     float range_f32 = max_val - min_val;
+-    float scale_f32 = range_f32 / 255.0f;
++    // ONNX 1.21 ReferenceEvaluator 对非空全零 FLOAT 输入使用 1/255。
++    // 该兼容分支不得覆盖非零常量或非零 range 的 float32 下溢路径。
++    float scale_f32 = all_zero ? (1.0f / 255.0f) : (range_f32 / 255.0f);
+     if (scale_f32 == 0.0f) scale_f32 = 1.0f; // 避免除以 0
+ 
+     float zp_float = 0.0f - min_val / scale_f32;
+diff --git a/tests/test_operator_misc_semantics.py b/tests/test_operator_misc_semantics.py
+index bb8a9bc..c05028b 100644
+--- a/tests/test_operator_misc_semantics.py
++++ b/tests/test_operator_misc_semantics.py
+@@ -348,7 +348,7 @@ def test_c_backend_dynamic_quantize_linear_uses_published_float32_scale(monkeypa
+     zero_y, zero_scale, zero_point = op.forward(_tensor(zero_input, "float32"))["tensor"]
+     assert calls == [True, True]
+     np.testing.assert_array_equal(zero_y.data, np.zeros(4, dtype=np.uint8))
+-    np.testing.assert_array_equal(zero_scale.data, np.array(1.0, dtype=np.float32))
++    np.testing.assert_array_equal(zero_scale.data, np.array(np.float32(1.0) / np.float32(255.0), dtype=np.float32))
+     np.testing.assert_array_equal(zero_point.data, np.array(0, dtype=np.uint8))
+ 
+ 
+diff --git a/tests/test_reaudit_quantization_precision.py b/tests/test_reaudit_quantization_precision.py
+index 5f2f2ea..418ed24 100644
+--- a/tests/test_reaudit_quantization_precision.py
++++ b/tests/test_reaudit_quantization_precision.py
+@@ -38,7 +38,7 @@ def test_dynamic_quantize_linear_float32_stage_rounding_is_bit_exact():
+     np.testing.assert_array_equal(zero_point.data, np.array(2, dtype=np.uint8))
+ 
+ 
+-# 常规、极小正规数与既有全零分支覆盖修复前后都应稳定的 DQL 数值边界。
++# 常规、极小正规数与 ReferenceEvaluator 全零兼容分支的 DQL 数值边界。
+ @pytest.mark.parametrize(
+     "x,expected_y,expected_scale,expected_zero_point",
+     [
+@@ -57,7 +57,7 @@ def test_dynamic_quantize_linear_float32_stage_rounding_is_bit_exact():
+         (
+             np.zeros(3, dtype=np.float32),
+             np.zeros(3, dtype=np.uint8),
+-            np.float32(1.0),
++            np.float32(1.0) / np.float32(255.0),
+             np.uint8(0),
+         ),
+     ],
+diff --git a/tools/numerical/cli.py b/tools/numerical/cli.py
+index fd60826..e6cd02e 100644
+--- a/tools/numerical/cli.py
++++ b/tools/numerical/cli.py
+@@ -788,6 +788,11 @@ def build_default_plans():
+     (NonMaxSuppression, "non_max_suppression", [(1, 3, 4), (1, 2, 3), (1,), (1,), (1,)], ["float16", "float16", "int64", "float16", "float16"], "int64", {"center_point_box": 0, "max_output_value": 3, "iou_threshold_value": 0.5, "score_threshold_value": 0.95, "boxes_values": [0.0, 0.0, 1.0, 1.0, 0.0, 2.0, 1.0, 3.0, 0.0, 4.0, 1.0, 5.0], "scores_values": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]}),
+     (Dropout, "dropout", [(2, 3), (1,), (1,)], ["float32", "float32", "bool"], "float32", {"ratio_value": 0.5, "training_mode_value": 1, "seed": 0, "input_values": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]}),
+     (DynamicQuantizeLinear, "dynamic_quantize_linear", [(2, 4)], ["float32"], "uint8", {"input_values": [-3.0, -1.25, -0.1, 0.0, 0.2, 1.7, 3.4, 6.0]}),
++    # ONNX ReferenceEvaluator resolves a finite non-empty zero range to 1/255.
++    # Mark these plans explicitly so the special-output verifier checks that
++    # profile independently instead of accepting C/CUDA agreement alone.
++    (DynamicQuantizeLinear, "dynamic_quantize_linear", [(2, 4)], ["float32"], "uint8", {"input_values": [0.0] * 8, "dql_zero_reference_profile": True}),
++    (DynamicQuantizeLinear, "dynamic_quantize_linear", [(2, 4)], ["float32"], "uint8", {"input_values": [0.0, -0.0, -0.0, 0.0, -0.0, 0.0, 0.0, -0.0], "dql_zero_reference_profile": True}),
+     (Split, "split", [(2, 6), (3,)], ["float32", "int64"], "float32", {"axis": 1, "split_value": [1, 3, 2], "num_outputs": 3, "input_values": [-3.0, -2.5, -1.0, -0.25, 0.0, 0.5, 1.25, 2.0, 3.5, 4.0, 5.25, 6.0]}),
+     (Unique, "unique", [(8,)], ["int64"], "int64", {"sorted": 0, "input_values": [3, 1, 3, 2, 1, 3, -1, 2]}),
+     (Unique, "unique", [(8,)], ["float32"], "float32", {"sorted": 1, "input_values": [2.0, -1.0, 2.0, 0.5, -1.0, 3.0, 0.5, 4.0]}),
+diff --git a/tools/numerical/runner_inputs.py b/tools/numerical/runner_inputs.py
+index b6c786e..e9fc128 100644
+--- a/tools/numerical/runner_inputs.py
++++ b/tools/numerical/runner_inputs.py
+@@ -856,6 +856,11 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
+             init_args.get("input_values", np.linspace(-3.0, 6.0, int(np.prod(shapes[0])), dtype=np.float32)),
+             dtype=np.float32,
+         ).reshape(shapes[0])
++        if init_args.get("dql_zero_reference_profile"):
++            if values.size == 0 or not np.all(np.isfinite(values)) or not np.all(values == 0.0):
++                raise ValueError(
++                    "DynamicQuantizeLinear zero-reference plan requires finite, non-empty, all-zero input"
++                )
+         inputs_np[0] = values
+ 
+     if op_name == "split":
+diff --git a/tools/numerical/runner_nps.py b/tools/numerical/runner_nps.py
+index a3f28ed..697f02c 100644
+--- a/tools/numerical/runner_nps.py
++++ b/tools/numerical/runner_nps.py
+@@ -64,6 +64,7 @@ def _operator_init_args(op_name: str, init_args: dict, out_dtype: str) -> tuple[
+     op_init_args.pop("input_values", None)
+     op_init_args.pop("scale_values", None)
+     op_init_args.pop("zero_point_values", None)
++    op_init_args.pop("dql_zero_reference_profile", None)
+     controls = {
+         "omit_zero_point": int(op_init_args.pop("omit_zero_point", 0)),
+         "emit_log_prob": int(op_init_args.pop("emit_log_prob", 0)),
+diff --git a/tools/numerical/runner_special_outputs.py b/tools/numerical/runner_special_outputs.py
+index 822a1eb..d38bad0 100644
+--- a/tools/numerical/runner_special_outputs.py
++++ b/tools/numerical/runner_special_outputs.py
+@@ -28,6 +28,11 @@ from .output_contracts import (
+ )
+ 
+ 
++# ONNX ReferenceEvaluator's explicit zero-range profile, materialized once as
++# float32 so boundary plans can compare the public scalar output bit-for-bit.
++DQL_ZERO_REFERENCE_SCALE = np.float32(1.0) / np.float32(255.0)
++
++
+ class SpecialOutputAction(Enum):
+     """告知通用调度器当前迭代是否已被特殊协议消费。"""
+ 
+@@ -443,11 +448,36 @@ def handle_special_output(state):
+         cuda_scale = cuda_flat[flat_len].reshape(())
+         cuda_zp = np.asarray(cuda_zp_wire, dtype=np.uint8).reshape(())
+ 
+-        y_ok = np.array_equal(y_np, cuda_y)
++        zero_reference_profile = bool(init_args.get("dql_zero_reference_profile"))
++        if zero_reference_profile:
++            profile_input = np.asarray(inputs_np[0])
++            if (
++                profile_input.size == 0
++                or not np.all(np.isfinite(profile_input))
++                or not np.all(profile_input == 0.0)
++            ):
++                print(f"  ❌ Iter {i} FAILED")
++                print("     DynamicQuantizeLinear zero-reference profile received invalid input")
++                return SpecialOutputAction.STOP
++
++            expected_y = np.zeros(profile_input.shape, dtype=np.uint8)
++            expected_zp = np.array(0, dtype=np.uint8)
++            expected_scale_bits = np.asarray(DQL_ZERO_REFERENCE_SCALE).view(np.uint32).item()
++            y_ok = np.array_equal(y_np, expected_y) and np.array_equal(cuda_y, expected_y)
++            scale_ok = (
++                scale_np.view(np.uint32).item() == expected_scale_bits
++                and np.asarray(cuda_scale, dtype=np.float32).view(np.uint32).item()
++                == expected_scale_bits
++            )
++            zp_ok = np.array_equal(zp_np, expected_zp) and np.array_equal(cuda_zp, expected_zp)
++        else:
++            y_ok = np.array_equal(y_np, cuda_y)
++            scale_abs = float(abs(float(scale_np) - float(cuda_scale)))
++            scale_ok = scale_abs <= 1e-7 + 1e-6 * abs(float(cuda_scale))
++            zp_ok = int(zp_np) == int(cuda_zp)
++
+         scale_abs = float(abs(float(scale_np) - float(cuda_scale)))
+         scale_rel = scale_abs / max(abs(float(cuda_scale)), 1e-12)
+-        scale_ok = scale_abs <= 1e-7 + 1e-6 * abs(float(cuda_scale))
+-        zp_ok = int(zp_np) == int(cuda_zp)
+ 
+         y_abs = float(np.max(np.abs(y_np.astype(np.int16) - cuda_y.astype(np.int16)))) if y_np.size else 0.0
+         zp_abs = float(abs(int(zp_np) - int(cuda_zp)))
+@@ -463,7 +493,14 @@ def handle_special_output(state):
+             if not y_ok:
+                 print(f"     y mismatch, max uint8 diff: {y_abs:.0f}")
+             if not scale_ok:
+-                print(f"     y_scale mismatch: CUDA={float(cuda_scale):.9g}, C={float(scale_np):.9g}")
++                if zero_reference_profile:
++                    print(
++                        "     y_scale reference-profile mismatch: "
++                        f"expected={float(DQL_ZERO_REFERENCE_SCALE):.9g}, "
++                        f"CUDA={float(cuda_scale):.9g}, C={float(scale_np):.9g}"
++                    )
++                else:
++                    print(f"     y_scale mismatch: CUDA={float(cuda_scale):.9g}, C={float(scale_np):.9g}")
+             if not zp_ok:
+                 print(f"     y_zero_point mismatch: CUDA={int(cuda_zp)}, C={int(zp_np)}")
+             return SpecialOutputAction.STOP

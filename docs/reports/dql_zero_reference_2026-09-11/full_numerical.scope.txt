@@ -1,0 +1,1 @@
+Full default numerical inventory; no CUDA rebuild; three iterations per registered plan; ONNX ReferenceEvaluator compatibility profile for finite non-empty all-zero DynamicQuantizeLinear.

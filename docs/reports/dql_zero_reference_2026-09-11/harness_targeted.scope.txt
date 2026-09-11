@@ -1,0 +1,1 @@
+Non-GPU targeted scope: new DQL zero Reference profile; mocked special-output contracts; runner architecture; numerical harness regressions. Real GPU tests excluded.
