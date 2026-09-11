@@ -1,0 +1,1 @@
+/home/sakauma/data/miniconda3/envs/egor/bin/python -u tools/cli.py verify-graph --model /tmp/onnx_translator_resize_graph_gate_96d070e6f1a2.onnx --task-name post_push_fixes_graph_gate_96d070e6f1a2 --no-clean 

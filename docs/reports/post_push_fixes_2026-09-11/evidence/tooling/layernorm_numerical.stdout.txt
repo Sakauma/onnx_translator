@@ -1,0 +1,34 @@
+🚀 开始数值验证 ...
+🧪 Testing LAYER_NORMALIZATION: ['float32', 'float32', 'float32'] -> float32
+  ✅ Pass (3/3)
+
+🧪 Testing LAYER_NORMALIZATION: ['float32', 'float32', 'float32'] -> float32
+  ✅ Pass (3/3)
+
+🧪 Testing LAYER_NORMALIZATION: ['float32', 'float32', 'float32'] -> float32
+  ✅ Pass (3/3)
+
+🧪 Testing LAYER_NORMALIZATION: ['float32', 'float32', 'float32'] -> float32
+  ✅ Pass (3/3)
+
+🧪 Testing LAYER_NORMALIZATION: ['float16', 'float16', 'float16'] -> float16
+  ✅ Pass (3/3)
+
+🧪 Testing LAYER_NORMALIZATION: ['bfloat16', 'bfloat16', 'bfloat16'] -> bfloat16
+  ✅ Pass (3/3)
+
+🧪 Testing LAYER_NORMALIZATION: ['bfloat16', 'bfloat16', 'bfloat16'] -> bfloat16
+  ✅ Pass (3/3)
+
+🧪 Testing LAYER_NORMALIZATION: ['float16', 'float16', 'float16'] -> float16
+  ✅ Pass (3/3)
+
+🧪 Testing LAYER_NORMALIZATION: ['bfloat16', 'bfloat16', 'bfloat16'] -> bfloat16
+  ✅ Pass (3/3)
+
+
+📈 详细统计报告 (99th Percentile Summary):
+Operator   | Abs (99%)    | Rel (99%)    | Samples 
+--------------------------------------------------
+LAYER_NORMALIZATION | 0.00e+00     | 0.00e+00     | 27      
+--------------------------------------------------

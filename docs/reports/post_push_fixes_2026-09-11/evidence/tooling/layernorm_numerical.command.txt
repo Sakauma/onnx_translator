@@ -1,0 +1,1 @@
+cd /mnt/d/workspace/onnx_translator_bugfix_worktree && env PATH=/home/sakauma/data/miniconda3/envs/egor/bin:/usr/local/cuda/bin:/usr/lib/wsl/lib:/usr/local/bin:/usr/bin:/bin PYTHONPATH=. /home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py numerical --op layer_normalization --iterations 3 --skip-plots
