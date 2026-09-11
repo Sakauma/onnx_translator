@@ -1,3 +1,0 @@
-Compiling 1 CUDA verifier(s) into cache...
-  cuda/verify_layer_normalization.cu -> cache/verify_layer_normalization
-CUDA verifier compilation succeeded. compiled=1 skipped=0

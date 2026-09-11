@@ -1,3 +1,0 @@
-Compiling 1 CUDA verifier(s) into cache...
-  cuda/verify_dynamic_quantize_linear.cu -> cache/verify_dynamic_quantize_linear
-CUDA verifier compilation succeeded. compiled=1 skipped=0

@@ -1,6 +1,0 @@
-head=96d070e6f1a26f61ee0cf727c9616148b8680629
-model=/tmp/onnx_translator_resize_graph_gate_96d070e6f1a2.onnx
-task_name=post_push_fixes_graph_gate_96d070e6f1a2
-result_path=/mnt/d/workspace/onnx_translator_bugfix_worktree/result/post_push_fixes_graph_gate_96d070e6f1a2
-start_utc=2026-09-11T10:04:10Z
-end_utc=2026-09-11T10:04:12Z

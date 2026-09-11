@@ -1,1 +1,0 @@
-/home/sakauma/data/miniconda3/envs/egor/bin/python -u -m pytest -q tests/test_operator_misc_semantics.py -k dynamic_quantize_linear

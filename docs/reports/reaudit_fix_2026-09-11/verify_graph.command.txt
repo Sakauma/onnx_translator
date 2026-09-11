@@ -1,1 +1,0 @@
-wsl.exe -d ubuntu2004 -- bash -lc 'cd /mnt/d/workspace/onnx_translator_bugfix_worktree && PATH=/home/sakauma/data/miniconda3/envs/egor/bin:/usr/local/cuda/bin:/usr/lib/wsl/lib:/usr/local/bin:/usr/bin:/bin /home/sakauma/data/miniconda3/envs/egor/bin/python tools/cli.py verify-graph --model ./onnx_model/model.onnx --task-name reaudit_fix_verify_graph_20260911 --no-clean'

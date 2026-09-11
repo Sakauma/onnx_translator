@@ -230,6 +230,9 @@ bin/
 # Local collaboration instructions
 AGENTS.md
 
+# Local reports
+/docs/reports/
+
 # verification artifacts
 result/
 onnx_model/

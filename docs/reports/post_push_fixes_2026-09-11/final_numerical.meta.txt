@@ -1,8 +1,0 @@
-start_utc=2026-09-11T10:23:27Z
-head=e0a03c6b3e71ba5c9562624f783c3ac6e4165322
-tensor_ops_sha256=6f35ec47feff1a5e833030548a6a6642b7160d698d789ffecae80f2b7202de89
-verifier_count=178
-iterations_per_plan=3
-actual_plan_count=726
-actual_pass_count=726
-end_utc=2026-09-11T10:33:47Z
