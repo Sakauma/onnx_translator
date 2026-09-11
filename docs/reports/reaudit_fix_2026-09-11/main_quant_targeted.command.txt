@@ -1,0 +1,1 @@
+wsl.exe -d ubuntu2004 -- bash -lc 'cd /mnt/d/workspace/onnx_translator && PATH=/home/sakauma/data/miniconda3/envs/egor/bin:/usr/local/cuda/bin:/usr/lib/wsl/lib:/usr/local/bin:/usr/bin:/bin /home/sakauma/data/miniconda3/envs/egor/bin/python -u -m pytest -q -ra tests/test_reaudit_quantization_precision.py tests/test_reaudit_quantization_cuda.py'

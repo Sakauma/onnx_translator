@@ -1,0 +1,8 @@
+command=/home/sakauma/data/miniconda3/envs/egor/bin/python -u tools/cli.py numerical --iterations 3 --skip-plots
+start_utc=2026-09-11T04:08:25Z
+source_sha=8a6f46985ad16265c5abc4283984f62ba98be2e1
+tensor_ops_sha256=602e9c24c5327ca9d466c56a7ee515d903b9615aff4e8404b86f2d91940b0a66
+compiled_verifier_count=178
+inventory_file=numerical_gate.cuda_inventory.txt
+end_utc=2026-09-11T04:17:56Z
+python_rc=1
