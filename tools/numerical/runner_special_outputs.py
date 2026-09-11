@@ -19,6 +19,13 @@ import nn
 from .compare import INTEGER_DTYPES, check_accuracy, compare_integer_output
 from .cuda import CudaSidecarSpec, run_cuda_ground_truth
 from .dtype import quantize_to_dtype_float32, to_float32
+from .output_contracts import (
+    OutputContractError,
+    require_array,
+    require_binary_uint8,
+    require_packed_uint8_field,
+    require_shape,
+)
 
 
 class SpecialOutputAction(Enum):
@@ -143,7 +150,22 @@ def handle_special_output(state):
 
     # Dropout 同时比较数值输出和 bool mask；仅比较 Y 会漏掉随机掩码协议错误。
     if op_name == "dropout":
-        y_np, mask_np = [np.asarray(out) for out in nps_out]
+        try:
+            y_np = require_shape(
+                nps_out[0],
+                name="Dropout NPS y",
+                shape=np.asarray(inputs_np[0]).shape,
+            )
+            mask_np = require_array(
+                nps_out[1],
+                name="Dropout NPS mask",
+                dtype=np.bool_,
+                shape=y_np.shape,
+            )
+        except OutputContractError as exc:
+            print(f"  ❌ Iter {i} FAILED")
+            print(f"     Output contract mismatch: {exc}")
+            return SpecialOutputAction.STOP
         cuda_inputs = [
             np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float32)),
         ]
@@ -157,8 +179,20 @@ def handle_special_output(state):
         )
         if cuda_result is None:
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
-        cuda_y = cuda_result.output
-        cuda_mask = cuda_result.sidecars["tmp_dropout_mask.bin"].astype(np.bool_)
+        try:
+            cuda_y = require_shape(
+                cuda_result.output, name="Dropout CUDA y", shape=y_np.shape
+            )
+            cuda_mask_wire = require_binary_uint8(
+                cuda_result.sidecars["tmp_dropout_mask.bin"],
+                name="Dropout CUDA mask sidecar",
+                shape=mask_np.shape,
+            )
+        except OutputContractError as exc:
+            print(f"  ❌ Iter {i} FAILED")
+            print(f"     Output contract mismatch: {exc}")
+            return SpecialOutputAction.STOP
+        cuda_mask = cuda_mask_wire.astype(np.bool_)
 
         nps_y = to_float32(y_np, out_dtype)
         cuda_y = quantize_to_dtype_float32(cuda_y, out_dtype)
@@ -354,12 +388,7 @@ def handle_special_output(state):
 
     # CUDA 将 y、scale、zero_point 打包进一个 float32 文件，读取后需按段恢复类型。
     if op_name == "dynamic_quantize_linear":
-        y_np, scale_np, zp_np = nps_out
-        y_np = np.asarray(y_np, dtype=np.uint8)
-        scale_np = np.asarray(scale_np, dtype=np.float32).reshape(())
-        zp_np = np.asarray(zp_np, dtype=np.uint8).reshape(())
-
-        flat_len = int(y_np.size)
+        flat_len = int(np.asarray(nps_out[0]).size)
         cuda_inputs = [np.ascontiguousarray(to_float32(inputs_np[0], dtypes[0]).astype(np.float32))]
         cuda_out = run_cuda_ground_truth(
             op_name,
@@ -371,10 +400,48 @@ def handle_special_output(state):
         if cuda_out is None:
             raise RuntimeError(f"CUDA verifier produced no output [{op_name}]")
 
-        cuda_flat = np.asarray(cuda_out, dtype=np.float32).reshape(-1)
-        cuda_y = np.rint(cuda_flat[:flat_len]).clip(0, 255).astype(np.uint8).reshape(y_np.shape)
-        cuda_scale = np.asarray(cuda_flat[flat_len], dtype=np.float32).reshape(())
-        cuda_zp = np.asarray(np.rint(cuda_flat[flat_len + 1]).clip(0, 255), dtype=np.uint8).reshape(())
+        try:
+            y_np = require_array(
+                nps_out[0],
+                name="DynamicQuantizeLinear NPS y",
+                dtype=np.uint8,
+                shape=np.asarray(inputs_np[0]).shape,
+            )
+            scale_np = require_array(
+                nps_out[1],
+                name="DynamicQuantizeLinear NPS y_scale",
+                dtype=np.float32,
+                shape=(),
+                finite=True,
+            )
+            zp_np = require_array(
+                nps_out[2],
+                name="DynamicQuantizeLinear NPS y_zero_point",
+                dtype=np.uint8,
+                shape=(),
+            )
+            cuda_wire = require_array(
+                cuda_out,
+                name="DynamicQuantizeLinear CUDA packed output",
+                dtype=np.float32,
+                shape=(flat_len + 2,),
+                finite=True,
+            )
+            cuda_flat = cuda_wire.reshape(-1)
+            cuda_y_wire = require_packed_uint8_field(
+                cuda_flat[:flat_len], name="DynamicQuantizeLinear CUDA y field"
+            )
+            cuda_zp_wire = require_packed_uint8_field(
+                cuda_flat[flat_len + 1],
+                name="DynamicQuantizeLinear CUDA y_zero_point field",
+            )
+        except OutputContractError as exc:
+            print(f"  ❌ Iter {i} FAILED")
+            print(f"     Output contract mismatch: {exc}")
+            return SpecialOutputAction.STOP
+        cuda_y = cuda_y_wire.astype(np.uint8).reshape(y_np.shape)
+        cuda_scale = cuda_flat[flat_len].reshape(())
+        cuda_zp = np.asarray(cuda_zp_wire, dtype=np.uint8).reshape(())
 
         y_ok = np.array_equal(y_np, cuda_y)
         scale_abs = float(abs(float(scale_np) - float(cuda_scale)))
@@ -471,7 +538,24 @@ def handle_special_output(state):
 
     # Unique 主文件保存 values，其余三个 int64 输出使用独立 sidecar。
     if op_name == "unique":
-        values_np, indices_np, inverse_np, counts_np = [np.asarray(out) for out in nps_out]
+        values_np = np.asarray(nps_out[0])
+        axis = init_args.get("axis")
+        unique_len = values_np.size if axis is None else values_np.shape[int(axis) % values_np.ndim]
+        inverse_shape = np.asarray(inputs_np[0]).shape if axis is None else (np.asarray(inputs_np[0]).shape[int(axis) % np.asarray(inputs_np[0]).ndim],)
+        try:
+            indices_np = require_array(
+                nps_out[1], name="Unique NPS indices", dtype=np.int64, shape=(unique_len,)
+            )
+            inverse_np = require_array(
+                nps_out[2], name="Unique NPS inverse_indices", dtype=np.int64, shape=inverse_shape
+            )
+            counts_np = require_array(
+                nps_out[3], name="Unique NPS counts", dtype=np.int64, shape=(unique_len,)
+            )
+        except OutputContractError as exc:
+            print(f"  ❌ Iter {i} FAILED")
+            print(f"     Output contract mismatch: {exc}")
+            return SpecialOutputAction.STOP
         input_arr = inputs_np[0]
         if dtypes[0] == "int64":
             cuda_inputs = [np.ascontiguousarray(input_arr.astype(np.int64))]
@@ -499,6 +583,21 @@ def handle_special_output(state):
         cuda_inverse = cuda_result.sidecars["tmp_unique_inverse.bin"]
         cuda_counts = cuda_result.sidecars["tmp_unique_counts.bin"]
 
+        try:
+            cuda_indices = require_array(
+                cuda_indices, name="Unique CUDA indices sidecar", dtype=np.int64, shape=indices_np.shape
+            )
+            cuda_inverse = require_array(
+                cuda_inverse, name="Unique CUDA inverse sidecar", dtype=np.int64, shape=inverse_np.shape
+            )
+            cuda_counts = require_array(
+                cuda_counts, name="Unique CUDA counts sidecar", dtype=np.int64, shape=counts_np.shape
+            )
+        except OutputContractError as exc:
+            print(f"  ❌ Iter {i} FAILED")
+            print(f"     Output contract mismatch: {exc}")
+            return SpecialOutputAction.STOP
+
         value_reason = None
         if out_dtype in INTEGER_DTYPES:
             values_ok, _fail_mask, _nps_int, _cuda_int, value_reason = compare_integer_output(
@@ -513,9 +612,9 @@ def handle_special_output(state):
             cuda_values = quantize_to_dtype_float32(cuda_values, out_dtype)
             values_ok, value_abs, value_rel, _fail_mask = check_accuracy(nps_values, cuda_values, atol, rtol, out_dtype)
 
-        indices_ok = np.array_equal(indices_np.astype(np.int64), cuda_indices)
-        inverse_ok = np.array_equal(inverse_np.astype(np.int64), cuda_inverse)
-        counts_ok = np.array_equal(counts_np.astype(np.int64), cuda_counts)
+        indices_ok = np.array_equal(indices_np, cuda_indices)
+        inverse_ok = np.array_equal(inverse_np, cuda_inverse)
+        counts_ok = np.array_equal(counts_np, cuda_counts)
         max_abs = value_abs if value_abs >= 0 else 0.0
         max_rel = value_rel if value_rel >= 0 else 0.0
         state.stats_abs.append(max_abs)

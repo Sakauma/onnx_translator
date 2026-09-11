@@ -273,7 +273,9 @@ static inline uint16_t float_to_float16(float value) {
         shift += (1 - new_exp);
         new_exp = 0; // 编码指数设为 0
     }
-    if (shift >= 24) return sign;
+    // shift==24 is the half-min-subnormal midpoint: guard/sticky/LSB below
+    // must distinguish an exact tie (signed zero) from values just beyond it.
+    if (shift > 24) return sign;
 
     uint32_t mant_10 = full_mant >> shift;
     uint32_t guard = (full_mant >> (shift - 1)) & 1;

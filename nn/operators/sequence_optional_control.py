@@ -332,7 +332,7 @@ class Loop(Ops):
         if trip_count is None and cond is None:
             raise ValueError("Loop without trip count or condition would be unbounded")
         body_inputs = [value.name for value in self.body.input]
-        state_values = [_tensor_to_numpy(value) for value in loop_vars]
+        state_values = [_reference_feed_value(value) for value in loop_vars]
         scan_outputs = None
         iteration = 0
         last_outputs = None
@@ -345,8 +345,14 @@ class Loop(Ops):
             for name, value in zip(body_inputs[2:], state_values):
                 feeds[name] = value
             last_outputs = list(_run_graph_proto(self.body, feeds, outer_scope, self.opset_imports))
+            expected_outputs = len(self.body.output)
+            if len(last_outputs) != expected_outputs:
+                raise RuntimeError(
+                    f"Loop body returned {len(last_outputs)} values for "
+                    f"{expected_outputs} declared outputs"
+                )
             condition = bool(np.asarray(last_outputs[0]).item())
-            state_values = [np.asarray(value) for value in last_outputs[1:1 + len(state_values)]]
+            state_values = last_outputs[1:1 + len(state_values)]
             produced_scan = last_outputs[1 + len(state_values):]
             if scan_outputs is None:
                 scan_outputs = [[] for _ in produced_scan]
@@ -359,14 +365,26 @@ class Loop(Ops):
             final_values = state_values
         if scan_outputs is None:
             scan_value_infos = self.body.output[1 + len(state_values):]
+            symbol_bindings = _graph_symbol_bindings(
+                self.body.input[2:], loop_vars, "Loop body"
+            )
             stacked_scan = []
             for value_info in scan_value_infos:
-                inferred = _graph_value_shape(value_info)
-                np_dtype = nn.DTYPE_TO_NUMPY.get(inferred.dtype, np.float32)
-                stacked_scan.append(np.empty((0, *inferred.size), dtype=np_dtype))
+                element_shape, dtype = _graph_tensor_metadata(
+                    value_info, symbol_bindings, "Loop empty scan output"
+                )
+                stacked_scan.append(
+                    np.empty((0, *element_shape), dtype=nn.DTYPE_TO_NUMPY[dtype])
+                )
         else:
             stacked_scan = [np.stack(bucket, axis=0) for bucket in scan_outputs]
-        outputs = tuple(_tensor_from_numpy(value) for value in final_values + stacked_scan)
+        final_value_infos = self.body.output[1:1 + len(final_values)]
+        converted_states = [
+            _value_from_reference(value, value_info.type)
+            for value, value_info in zip(final_values, final_value_infos)
+        ]
+        converted_scans = [_tensor_from_numpy(value) for value in stacked_scan]
+        outputs = tuple(converted_states + converted_scans)
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
     # 执行 `Loop` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
@@ -426,32 +444,14 @@ class Scan(Ops):
                 f"{value_info.name!r} has no declared tensor type"
             )
 
-        symbol_values = {}
-        for input_info, actual_shape in zip(self.body.input, body_input_shapes):
-            declared_dims = input_info.type.tensor_type.shape.dim
-            if len(declared_dims) != len(actual_shape):
-                continue
-            for dim, actual in zip(declared_dims, actual_shape):
-                if dim.HasField("dim_param") and dim.dim_param:
-                    previous = symbol_values.setdefault(dim.dim_param, int(actual))
-                    if previous != int(actual):
-                        raise ValueError(
-                            f"Scan body symbol {dim.dim_param!r} has conflicting runtime "
-                            f"dimensions {previous} and {actual}"
-                        )
-
-        element_shape = []
-        for dim_index, dim in enumerate(tensor_type.shape.dim):
-            if dim.HasField("dim_value"):
-                element_shape.append(int(dim.dim_value))
-            elif dim.HasField("dim_param") and dim.dim_param in symbol_values:
-                element_shape.append(symbol_values[dim.dim_param])
-            else:
-                raise ValueError(
-                    f"Scan cannot determine dimension {dim_index} of empty output "
-                    f"{value_info.name!r}; declare a concrete dimension or a symbol "
-                    "bound by a body input"
-                )
+        symbol_values = _graph_symbol_bindings(
+            self.body.input,
+            [Tensor_(*shape) for shape in body_input_shapes],
+            "Scan body",
+        )
+        element_shape, dtype = _graph_tensor_metadata(
+            value_info, symbol_values, "Scan empty output"
+        )
 
         output_rank = len(element_shape) + 1
         requested_axis = (
@@ -461,12 +461,6 @@ class Scan(Ops):
         output_axis = self._normalized_axis(requested_axis, output_rank, "output")
         output_shape = list(element_shape)
         output_shape.insert(output_axis, 0)
-        dtype = nn.onnx_dtype_mapping.get(tensor_type.elem_type)
-        if dtype is None or dtype not in nn.DTYPE_TO_NUMPY:
-            raise ValueError(
-                f"Scan cannot construct empty output {value_info.name!r}: "
-                f"unsupported element type {tensor_type.elem_type}"
-            )
         return np.empty(output_shape, dtype=nn.DTYPE_TO_NUMPY[dtype])
 
     # 在外层作用域上下文中执行 `Scan` 的子图逻辑，用于控制流算子解析捕获值。
@@ -523,7 +517,10 @@ class Scan(Ops):
         else:
             for index, bucket in enumerate(collected):
                 values = list(reversed(bucket)) if index < len(self.scan_output_directions) and self.scan_output_directions[index] else bucket
-                axis = self.scan_output_axes[index] if index < len(self.scan_output_axes) else 0
+                requested_axis = self.scan_output_axes[index] if index < len(self.scan_output_axes) else 0
+                axis = self._normalized_axis(
+                    requested_axis, bucket[0].ndim + 1, "output"
+                )
                 scan_outputs.append(np.stack(values, axis=axis))
         outputs = tuple(_tensor_from_numpy(value) for value in states + scan_outputs)
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
@@ -537,10 +534,14 @@ class Scan(Ops):
         for idx, value_info in enumerate(self.body.output[num_states:]):
             elem = _graph_value_shape(value_info)
             scan_input = inputs[num_states + min(idx, self.num_scan_inputs - 1)]
-            axis = self.scan_input_axes[min(idx, len(self.scan_input_axes) - 1)] if self.scan_input_axes else 0
+            requested_axis = self.scan_input_axes[min(idx, len(self.scan_input_axes) - 1)] if self.scan_input_axes else 0
+            axis = self._normalized_axis(requested_axis, len(scan_input.size), "input")
             length = scan_input.size[axis]
-            out_axis = self.scan_output_axes[idx] if idx < len(self.scan_output_axes) else 0
+            requested_out_axis = self.scan_output_axes[idx] if idx < len(self.scan_output_axes) else 0
             shape = list(elem.size)
+            out_axis = self._normalized_axis(
+                requested_out_axis, len(shape) + 1, "output"
+            )
             shape.insert(out_axis, length)
             outputs.append(Tensor_(*shape, dtype=elem.dtype))
         return {"tensor": outputs[0] if len(outputs) == 1 else tuple(outputs), "parameters": None}
@@ -562,19 +563,26 @@ class SequenceMap(Ops):
     # 在外层作用域上下文中执行 `SequenceMap` 的子图逻辑，用于控制流算子解析捕获值。
     def forward_with_context(self, outer_scope, input_sequence, *additional_inputs):
         body_inputs = [value.name for value in self.body.input]
-        collected = None
+        collected = [[] for _ in self.body.output]
         for idx, item in enumerate(input_sequence):
             feeds = {body_inputs[0]: _tensor_to_numpy(item)}
             for name, value in zip(body_inputs[1:], additional_inputs):
                 feeds[name] = _tensor_to_numpy(value[idx]) if isinstance(value, list) else _tensor_to_numpy(value)
-            result = [_tensor_from_numpy(value) for value in _run_graph_proto(
+            reference_values = list(_run_graph_proto(
                 self.body, feeds, outer_scope, self.opset_imports
-            )]
-            if collected is None:
-                collected = [[] for _ in result]
+            ))
+            if len(reference_values) != len(self.body.output):
+                raise RuntimeError(
+                    f"SequenceMap body returned {len(reference_values)} values for "
+                    f"{len(self.body.output)} declared outputs"
+                )
+            result = [
+                _value_from_reference(value, value_info.type)
+                for value, value_info in zip(reference_values, self.body.output)
+            ]
             for bucket, value in zip(collected, result):
                 bucket.append(value)
-        outputs = tuple(collected or [])
+        outputs = tuple(collected)
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
     # 执行 `SequenceMap` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。

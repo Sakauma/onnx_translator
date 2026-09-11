@@ -23,6 +23,7 @@ from .runner_cuda_inputs import build_cuda_inputs, resolve_cuda_output_dtype
 from .runner_cuda_params import build_cuda_params
 from .runner_inputs import prepare_input_samples
 from .runner_nps import run_nps_forward
+from .output_contracts import OutputContractError, require_array, require_shape
 from .runner_special_outputs import (
     SpecialOutputAction,
     SpecialOutputState,
@@ -133,6 +134,40 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         if op_name == "topk":
             cuda_topk_indices = cuda_result.sidecars["tmp_out_idx.bin"]
 
+            try:
+                input_shape = np.asarray(inputs_np[0]).shape
+                axis = int(init_args.get("axis", -1)) % len(input_shape)
+                if len(inputs_np) > 1 and inputs_np[1] is not None:
+                    expected_topk_shape = list(input_shape)
+                    expected_topk_shape[axis] = int(np.asarray(inputs_np[1]).reshape(-1)[0])
+                    expected_topk_shape = tuple(expected_topk_shape)
+                else:
+                    # Some direct verifier regression fixtures predate the explicit K input.
+                    # Live TopK plans always take the schema-derived branch above.
+                    expected_topk_shape = np.asarray(nps_out).shape
+                nps_out = require_shape(
+                    nps_out, name="TopK NPS values", shape=expected_topk_shape
+                )
+                cuda_out = require_shape(
+                    cuda_out, name="TopK CUDA values", shape=expected_topk_shape
+                )
+                nps_topk_indices = require_array(
+                    nps_topk_indices,
+                    name="TopK NPS indices",
+                    dtype=np.int64,
+                    shape=expected_topk_shape,
+                )
+                cuda_topk_indices = require_array(
+                    cuda_topk_indices,
+                    name="TopK CUDA indices sidecar",
+                    dtype=np.int64,
+                    shape=expected_topk_shape,
+                )
+            except OutputContractError as exc:
+                print(f"  ❌ Iter {i} FAILED")
+                print(f"     Output contract mismatch: {exc}")
+                break
+
             if out_dtype in INTEGER_DTYPES:
                 ok_vals, fail_mask, _nps_vals, cuda_out, value_reason = compare_integer_output(
                     nps_out,
@@ -152,10 +187,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 )
                 value_reason = None
 
-            ok_idx = np.array_equal(
-                np.asarray(nps_topk_indices).astype(np.int64),
-                np.asarray(cuda_topk_indices).astype(np.int64)
-            )
+            ok_idx = np.array_equal(nps_topk_indices, cuda_topk_indices)
 
             if max_abs >= 0:
                 stats_abs.append(max_abs)

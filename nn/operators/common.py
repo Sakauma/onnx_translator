@@ -751,6 +751,69 @@ def _reference_feed_value(value):
         return [_reference_feed_value(item) for item in value]
     return _tensor_to_numpy(value)
 
+def _runtime_shape(value):
+    """Return a concrete tensor shape without coercing container values."""
+    if isinstance(value, (Tensor, Tensor_)):
+        return tuple(int(size) for size in value.size)
+    if isinstance(value, np.ndarray):
+        return value.shape
+    return None
+
+def _graph_symbol_bindings(input_infos, values, context):
+    """Bind graph tensor dimension parameters to concrete runtime dimensions."""
+    bindings = {}
+    for input_info, value in zip(input_infos, values):
+        if not input_info.type.HasField("tensor_type"):
+            continue
+        actual_shape = _runtime_shape(value)
+        if actual_shape is None:
+            continue
+        declared_dims = input_info.type.tensor_type.shape.dim
+        if len(declared_dims) != len(actual_shape):
+            continue
+        for dim, actual in zip(declared_dims, actual_shape):
+            if not dim.HasField("dim_param") or not dim.dim_param:
+                continue
+            actual = int(actual)
+            previous = bindings.setdefault(dim.dim_param, actual)
+            if previous != actual:
+                raise ValueError(
+                    f"{context} symbol {dim.dim_param!r} has conflicting runtime "
+                    f"dimensions {previous} and {actual}"
+                )
+    return bindings
+
+def _graph_tensor_metadata(value_info, symbol_bindings, context):
+    """Resolve declared tensor metadata, rejecting dimensions that remain unknown."""
+    if not value_info.type.HasField("tensor_type"):
+        raise ValueError(
+            f"{context} value {value_info.name!r} has no declared tensor type"
+        )
+    tensor_type = value_info.type.tensor_type
+    if not tensor_type.HasField("shape"):
+        raise ValueError(
+            f"{context} value {value_info.name!r} has no declared tensor shape"
+        )
+    dtype = nn.onnx_dtype_mapping.get(tensor_type.elem_type)
+    if dtype is None or dtype not in nn.DTYPE_TO_NUMPY:
+        raise ValueError(
+            f"{context} value {value_info.name!r} has unsupported element type "
+            f"{tensor_type.elem_type}"
+        )
+    shape = []
+    for dim_index, dim in enumerate(tensor_type.shape.dim):
+        if dim.HasField("dim_value"):
+            shape.append(int(dim.dim_value))
+        elif dim.HasField("dim_param") and dim.dim_param in symbol_bindings:
+            shape.append(symbol_bindings[dim.dim_param])
+        else:
+            raise ValueError(
+                f"{context} cannot determine dimension {dim_index} of "
+                f"{value_info.name!r}; declare a concrete dimension or a symbol "
+                "bound by a tensor input"
+            )
+    return tuple(shape), dtype
+
 def _graph_local_value_names(graph_proto):
     """收集由子图自身声明或产生的名称，用于区分外层词法捕获。"""
     names = {value.name for value in graph_proto.input if value.name}

@@ -12,11 +12,25 @@
 #include "tensor_ops_internal.h"
 
 
-// 根据 ONNX precision 属性选择除法精度；0 表示沿用既有默认路径。
-static int quantize_linear_use_double_precision(const Tensor* X, const Tensor* Scale, int precision) {
-    if (precision == 11) return 1;  // ONNX TensorProto.DOUBLE
-    if (precision == 1 || precision == 10 || precision == 16) return 0;  // FLOAT/FLOAT16/BFLOAT16
-    return X->dtype == DTYPE_FLOAT64 || Scale->dtype == DTYPE_FLOAT64;
+// 根据 ONNX precision 属性选择除法精度；0 表示使用 Scale 的 dtype。
+static DataType quantize_linear_division_dtype(const Tensor* Scale, int precision) {
+    if (precision == 11) return DTYPE_FLOAT64;  // ONNX TensorProto.DOUBLE
+    if (precision == 10) return DTYPE_FLOAT16;  // ONNX TensorProto.FLOAT16
+    if (precision == 16) return DTYPE_BFLOAT16; // ONNX TensorProto.BFLOAT16
+    if (precision == 1) return DTYPE_FLOAT32;   // ONNX TensorProto.FLOAT
+    return Scale->dtype;
+}
+
+
+// 将操作数或商物化到 schema 指定的低精度格式，再继续除法或 nearest-even 舍入。
+static float quantize_linear_materialize_float_value(float value, DataType division_dtype) {
+    if (division_dtype == DTYPE_FLOAT16) {
+        return float16_to_float(float_to_float16(value));
+    }
+    if (division_dtype == DTYPE_BFLOAT16) {
+        return bfloat16_to_float(float_to_bfloat16(value));
+    }
+    return value;
 }
 
 
@@ -115,7 +129,8 @@ static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, c
     if (!X || !Scale || !ZeroPoint || !Y) return;
 
     size_t loop_size = Y->size;
-    int use_double_precision = quantize_linear_use_double_precision(X, Scale, precision);
+    DataType division_dtype = quantize_linear_division_dtype(Scale, precision);
+    int use_double_precision = division_dtype == DTYPE_FLOAT64;
     int output_is_float_dtype = quantize_linear_output_is_float_dtype(Y->dtype);
 
     #pragma omp parallel for
@@ -127,16 +142,20 @@ static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, c
             double x_val = get_value_as_double(X, i);
             double s_val = get_value_as_double(Scale, i);
             if (s_val != 0.0) {
-                double scaled = x_val / s_val + zp_val;
-                res = output_is_float_dtype ? scaled : rint(x_val / s_val) + zp_val;
+                double quotient = x_val / s_val;
+                double scaled = quotient + zp_val;
+                res = output_is_float_dtype ? scaled : rint(quotient) + zp_val;
             }
         } else {
             float x_val = get_value_as_float(X, i);
             float s_val = get_value_as_float(Scale, i);
             float zp_float = (float)zp_val;
+            x_val = quantize_linear_materialize_float_value(x_val, division_dtype);
+            s_val = quantize_linear_materialize_float_value(s_val, division_dtype);
             if (s_val != 0.0f) {
-                float scaled = x_val / s_val + zp_float;
-                res = output_is_float_dtype ? (double)scaled : (double)rintf(x_val / s_val) + zp_val;
+                float quotient = quantize_linear_materialize_float_value(x_val / s_val, division_dtype);
+                float scaled = quotient + zp_float;
+                res = output_is_float_dtype ? (double)scaled : (double)rintf(quotient) + zp_val;
             }
         }
         set_quantize_linear_value(Y, i, res, saturate);
