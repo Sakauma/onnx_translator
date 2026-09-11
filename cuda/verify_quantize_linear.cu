@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include "verify_common.cuh"
 #include <math.h>
 
@@ -160,6 +162,17 @@ __device__ int target_dtype_is_float_quantized(int target_dtype_code) {
     return target_dtype_code >= 4 && target_dtype_code <= 7 || target_dtype_code == 12 || target_dtype_code == 13;
 }
 
+// 将操作数与商物化到 QuantizeLinear 选择的除法精度；0/1 保留原 double/float 协议。
+__device__ float materialize_quantize_division_value(float value, int division_mode) {
+    if (division_mode == 2) {
+        return __half2float(__float2half_rn(value));
+    }
+    if (division_mode == 3) {
+        return __bfloat162float(__float2bfloat16_rn(value));
+    }
+    return value;
+}
+
 // 根据输出线性下标映射 per-tensor、per-axis、blocked 或已广播参数下标。
 __device__ size_t qdq_param_index(
     size_t idx,
@@ -226,7 +239,7 @@ __global__ void quantize_kernel(
     int block_size,
     int scale_rank,
     int target_dtype_code,
-    int use_float_math,
+    int division_mode,
     int saturate
 ) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -237,12 +250,14 @@ __global__ void quantize_kernel(
         double z = zp[zp_idx];
         double res = z;
         int output_is_float_dtype = target_dtype_is_float_quantized(target_dtype_code);
-        if (use_float_math) {
-            float sf = (float)s;
+        if (division_mode != 0) {
+            float xf = materialize_quantize_division_value((float)x[idx], division_mode);
+            float sf = materialize_quantize_division_value((float)s, division_mode);
             float zf = (float)z;
             if (sf != 0.0f) {
-                float scaled = (float)x[idx] / sf + zf;
-                res = output_is_float_dtype ? (double)scaled : (double)rintf((float)x[idx] / sf) + z;
+                float quotient = materialize_quantize_division_value(xf / sf, division_mode);
+                float scaled = quotient + zf;
+                res = output_is_float_dtype ? (double)scaled : (double)rintf(quotient) + z;
             }
         } else if (s != 0.0) {
             double scaled = x[idx] / s + z;
@@ -260,7 +275,7 @@ int main(int argc, char** argv) {
     size_t x_bytes = n * sizeof(double);
     
     int target_dtype_code = 1;
-    int use_float_math = 1;
+    int division_mode = 1;
     int saturate = 1;
     int rank = 1;
     int axis = 0;
@@ -283,7 +298,7 @@ int main(int argc, char** argv) {
             verify_fread_exact(params, sizeof(int), param_count, fp);
             if (param_count >= 2) {
                 target_dtype_code = params[0];
-                use_float_math = params[1];
+                division_mode = params[1];
             }
             if (param_count >= 9 && (params[2] == 0 || params[2] == 1)) {
                 saturate = params[2];
@@ -395,7 +410,7 @@ int main(int argc, char** argv) {
     CUDA_CHECK(cudaMemcpy(d_s, h_s, scale_bytes, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_z, h_z, zp_bytes, cudaMemcpyHostToDevice));
 
-    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, scale_count, zp_count, axis_dim, axis_stride, d_input_shape, d_scale_shape, rank, axis, block_size, scale_rank, target_dtype_code, use_float_math, saturate);
+    quantize_kernel<<<(n + 255)/256, 256>>>(d_x, d_s, d_z, d_out, n, scale_count, zp_count, axis_dim, axis_stride, d_input_shape, d_scale_shape, rank, axis, block_size, scale_rank, target_dtype_code, division_mode, saturate);
     CUDA_CHECK_LAUNCH();
     
     CUDA_CHECK(cudaMemcpy(h_out, d_out, x_bytes, cudaMemcpyDeviceToHost));

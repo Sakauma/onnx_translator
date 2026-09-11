@@ -376,13 +376,21 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
             }.get(out_dtype, 0)
             precision = int(init_args.get("precision", 0))
             if precision == 11:  # ONNX TensorProto.DOUBLE
-                use_float_math = 0
-            elif precision in {1, 10, 16}:  # FLOAT/FLOAT16/BFLOAT16 均走 float 参考路径
-                use_float_math = 1
+                division_mode = 0
+            elif precision == 1:  # ONNX TensorProto.FLOAT
+                division_mode = 1
+            elif precision == 10:  # ONNX TensorProto.FLOAT16
+                division_mode = 2
+            elif precision == 16:  # ONNX TensorProto.BFLOAT16
+                division_mode = 3
+            elif dtypes[1] == "float16":
+                division_mode = 2
+            elif dtypes[1] == "bfloat16":
+                division_mode = 3
             else:
-                use_float_math = 0 if "float64" in {dtypes[0], dtypes[1]} else 1
+                division_mode = 0 if dtypes[1] == "float64" else 1
             saturate = int(init_args.get("saturate", 1))
-            params_bin = np.array([target_dtype_code, use_float_math, saturate, *shape_params], dtype=np.int32).tobytes()
+            params_bin = np.array([target_dtype_code, division_mode, saturate, *shape_params], dtype=np.int32).tobytes()
     elif op_name == "matmul":
         M, K = shapes[0]
         K2, N = shapes[1]
