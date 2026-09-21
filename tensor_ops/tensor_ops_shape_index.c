@@ -55,9 +55,8 @@ void transpose_forward(const Tensor* input, Tensor* output, int* perm) {
         // 3. 计算输入的平坦索引
         size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim);
         
-        // 4. 搬运数据
-        double val = get_value_as_double(input, in_idx);
-        set_tensor_value_from_float(output, i, val);
+        // 4. 搬运数据。Transpose 不执行数值运算，同 dtype 时必须保留原始位模式。
+        copy_tensor_element(output, i, input, in_idx);
     }
 }
 

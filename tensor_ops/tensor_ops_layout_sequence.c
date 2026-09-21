@@ -65,17 +65,17 @@ void triangular_forward(const Tensor* input, Tensor* output, int k, int upper) {
         int row = coords[ndim - 2];
         int col = coords[ndim - 1];
         
-        double val = get_value_as_double(input, i);
-        double res = 0.0;
-        
+        int keep = 0;
         if (upper) {
-            if (col - row >= k) res = val;
-            else res = 0.0;
+            keep = col - row >= k;
         } else {
-            if (col - row <= k) res = val;
-            else res = 0.0;
+            keep = col - row <= k;
         }
-        set_tensor_value_from_float(output, i, res);
+        if (keep) {
+            copy_tensor_element(output, i, input, i);
+        } else {
+            set_tensor_value_from_float(output, i, 0.0);
+        }
     }
 }
 
@@ -112,12 +112,12 @@ void depth_to_space_forward(const Tensor* input, Tensor* output, int blocksize, 
                         in_c = c * (blocksize * blocksize) + (dy * blocksize + dx);
                     }
                     
-                    double val = get_val_4d_with_padding(input, n, in_c, in_h, in_w, 0.0);
-                    
+                    int in_coords[4] = {n, in_c, in_h, in_w};
+                    size_t in_idx = get_index_from_coords(in_coords, input->shape, 4);
                     size_t out_idx = ((size_t)n * C_out * H_out * W_out) + 
                                      ((size_t)c * H_out * W_out) + 
                                      ((size_t)h * W_out) + w;
-                    set_tensor_value_from_float(output, out_idx, val);
+                    copy_tensor_element(output, out_idx, input, in_idx);
                 }
             }
         }
@@ -149,12 +149,12 @@ void space_to_depth_forward(const Tensor* input, Tensor* output, int blocksize) 
                     int in_h = h * blocksize + dy;
                     int in_w = w * blocksize + dx;
                     
-                    double val = get_val_4d_with_padding(input, n, in_c, in_h, in_w, 0.0);
-                    
+                    int in_coords[4] = {n, in_c, in_h, in_w};
+                    size_t in_idx = get_index_from_coords(in_coords, input->shape, 4);
                     size_t out_idx = ((size_t)n * C_out * H_out * W_out) + 
                                      ((size_t)c * H_out * W_out) + 
                                      ((size_t)h * W_out) + w;
-                    set_tensor_value_from_float(output, out_idx, val);
+                    copy_tensor_element(output, out_idx, input, in_idx);
                 }
             }
         }
@@ -192,8 +192,7 @@ void reverse_sequence_forward(const Tensor* input, const Tensor* sequence_lens, 
             coords[time_axis] = old_t_idx;
             
             size_t src_idx = get_index_from_coords(coords, input->shape, ndim);
-            double val = get_value_as_double(input, src_idx);
-            set_tensor_value_from_float(output, i, val);
+            copy_tensor_element(output, i, input, src_idx);
         }
     }
 }

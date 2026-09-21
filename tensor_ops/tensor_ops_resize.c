@@ -56,8 +56,8 @@ void resize_forward(const Tensor* input, Tensor* output, float* scales, int coor
                 in_coords[d] = in_idx;
             }
             size_t in_idx = get_index_from_coords(in_coords, input->shape, ndim);
-            double val = get_value_as_double(input, in_idx);
-            set_tensor_value_from_float(output, i, val);
+            // 最近邻只选择一个源元素，不做数值插值；保留同 dtype 的完整位模式。
+            copy_tensor_element(output, i, input, in_idx);
 
         } else {
             // --- Linear Interpolation (N-Linear) ---

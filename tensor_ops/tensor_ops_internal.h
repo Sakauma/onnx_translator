@@ -413,12 +413,20 @@ static inline void copy_tensor_element(Tensor* dst, size_t dst_index, const Tens
     set_tensor_value_from_float(dst, dst_index, get_value_as_double(src, src_index));
 }
 
-// Scatter 类算子共用的写入逻辑：none 直接复制元素，整数 reduction 保持 dtype 位宽回绕。
+// Scatter 类算子共用的写入逻辑：none/max/min 选择并复制元素，整数 add/mul 保持 dtype 位宽回绕。
 static inline void apply_scatter_update(Tensor* data, size_t data_index, const Tensor* updates, size_t update_index, int reduction) {
     if (!data || !updates || !data->data || !updates->data) return;
 
     if (reduction == 0) {
         copy_tensor_element(data, data_index, updates, update_index);
+        return;
+    }
+
+    if (reduction == 3 || reduction == 4) {
+        TensorCompareOp op = reduction == 3 ? TENSOR_COMPARE_GT : TENSOR_COMPARE_LT;
+        if (compare_tensor_values(updates, update_index, data, data_index, op)) {
+            copy_tensor_element(data, data_index, updates, update_index);
+        }
         return;
     }
 
