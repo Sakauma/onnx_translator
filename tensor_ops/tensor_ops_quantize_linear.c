@@ -93,6 +93,59 @@ static uint8_t quantize_float_to_fp8_e5m2(float f, int saturate) {
 }
 
 
+// 将已舍入的量化值按整数 dtype 边界裁剪后写回，避免 Inf/超范围值先转 int64_t 触发未定义行为。
+static void set_quantize_linear_integer_value(Tensor* Y, size_t index, double value) {
+    if (isnan(value)) {
+        // NaN 保持通用写回路径的既有行为；QuantizeLinear schema 未定义该输入的量化结果。
+        set_tensor_value_from_float(Y, index, value);
+        return;
+    }
+
+    if (Y->dtype == DTYPE_INT64) {
+        if (value >= 0x1p63) {
+            ((int64_t*)Y->data)[index] = INT64_MAX;
+        } else if (value <= -0x1p63) {
+            ((int64_t*)Y->data)[index] = INT64_MIN;
+        } else {
+            ((int64_t*)Y->data)[index] = (int64_t)value;
+        }
+        return;
+    }
+    if (Y->dtype == DTYPE_UINT64) {
+        if (value >= 0x1p64) {
+            ((uint64_t*)Y->data)[index] = UINT64_MAX;
+        } else if (value <= 0.0) {
+            ((uint64_t*)Y->data)[index] = 0;
+        } else {
+            ((uint64_t*)Y->data)[index] = (uint64_t)value;
+        }
+        return;
+    }
+
+    double lower = 0.0;
+    double upper = 0.0;
+    switch (Y->dtype) {
+        case DTYPE_INT2:   lower = -2.0;          upper = 1.0;          break;
+        case DTYPE_UINT2:  lower = 0.0;           upper = 3.0;          break;
+        case DTYPE_INT4:   lower = -8.0;          upper = 7.0;          break;
+        case DTYPE_UINT4:  lower = 0.0;           upper = 15.0;         break;
+        case DTYPE_INT8:   lower = -128.0;        upper = 127.0;        break;
+        case DTYPE_UINT8:  lower = 0.0;           upper = 255.0;        break;
+        case DTYPE_INT16:  lower = -32768.0;      upper = 32767.0;      break;
+        case DTYPE_UINT16: lower = 0.0;           upper = 65535.0;      break;
+        case DTYPE_INT32:  lower = -2147483648.0; upper = 2147483647.0; break;
+        case DTYPE_UINT32: lower = 0.0;           upper = 4294967295.0; break;
+        default:
+            set_tensor_value_from_float(Y, index, value);
+            return;
+    }
+
+    if (value < lower) value = lower;
+    if (value > upper) value = upper;
+    set_tensor_value_from_int(Y, index, (int64_t)value);
+}
+
+
 // 将 QuantizeLinear 结果写入目标张量，float8 使用属性控制的专用溢出语义。
 static void set_quantize_linear_value(Tensor* Y, size_t index, double value, int saturate) {
     if (Y->dtype == DTYPE_FLOAT8_E4M3) {
@@ -107,6 +160,8 @@ static void set_quantize_linear_value(Tensor* Y, size_t index, double value, int
         ((uint8_t*)Y->data)[index] = float_to_fp4_e2m1((float)value);
     } else if (Y->dtype == DTYPE_FLOAT8_E8M0) {
         ((uint8_t*)Y->data)[index] = float_to_fp8_e8m0((float)value);
+    } else if (is_integer_dtype(Y->dtype)) {
+        set_quantize_linear_integer_value(Y, index, value);
     } else {
         set_tensor_value_from_float(Y, index, value);
     }
