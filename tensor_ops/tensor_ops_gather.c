@@ -50,8 +50,7 @@ void gather_forward(const Tensor* data, const Tensor* indices, Tensor* output, i
         }
 
         size_t data_idx = get_index_from_coords(data_coords, data->shape, ndim_data);
-        double val = get_value_as_double(data, data_idx);
-        set_tensor_value_from_float(output, i, val);
+        copy_tensor_element(output, i, data, data_idx);
     }
 }
 
@@ -98,8 +97,7 @@ void gather_nd_forward(const Tensor* data, const Tensor* indices, Tensor* output
         }
 
         size_t data_idx = get_index_from_coords(data_coords, data->shape, data->ndim);
-        double val = get_value_as_double(data, data_idx);
-        set_tensor_value_from_float(output, i, val);
+        copy_tensor_element(output, i, data, data_idx);
     }
 }
 
@@ -123,7 +121,6 @@ void gather_elements_forward(const Tensor* data, const Tensor* indices, Tensor* 
         coords[axis] = (int)idx_val;
 
         size_t data_idx = get_index_from_coords(coords, data->shape, ndim);
-        double val = get_value_as_double(data, data_idx);
-        set_tensor_value_from_float(output, i, val);
+        copy_tensor_element(output, i, data, data_idx);
     }
 }
