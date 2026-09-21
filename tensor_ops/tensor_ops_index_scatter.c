@@ -191,6 +191,11 @@ void scatter_elements_forward(Tensor* data, const Tensor* indices, const Tensor*
                         apply_scatter_update(data, data_idx, updates, i, reduction);
                     }
             }
+        } else if (reduction == 3 || reduction == 4) { // Max / Min
+            #pragma omp critical
+            {
+                apply_scatter_update(data, data_idx, updates, i, reduction);
+            }
         }
     }
 }

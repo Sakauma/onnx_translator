@@ -604,7 +604,8 @@ def _factory_138_scatterelements_scatter(node, import_context):
         if attr.name == "axis": axis = attr.i
         elif attr.name == "reduction": reduction = attr.s.decode('utf-8')
     elem_type = get_dtype(node.output[0])
-    onnx_graph_list.append(nn.Operators.ScatterElements(node.input, node.output, axis=axis, reduction=reduction, dtype=onnx_dtype_mapping[elem_type], version="17"))
+    opset = import_context.get_opset(node.domain)
+    onnx_graph_list.append(nn.Operators.ScatterElements(node.input, node.output, axis=axis, reduction=reduction, dtype=onnx_dtype_mapping[elem_type], version=str(opset)))
     return onnx_graph_list[-1]
 
 

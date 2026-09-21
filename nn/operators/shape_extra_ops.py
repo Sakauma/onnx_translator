@@ -634,7 +634,14 @@ class ScatterElements(Ops):
     def __init__(self, inputs, outputs, axis=0, reduction="none", dtype="float32", version="17"):
         super().__init__(inputs, outputs)
         self.axis = axis
-        self.reduction = {"none": 0, "add": 1, "mul": 2}.get(reduction, 0)
+        reduction_codes = {"none": 0, "add": 1, "mul": 2, "max": 3, "min": 4}
+        if reduction not in reduction_codes:
+            raise ValueError(f"ScatterElements reduction {reduction!r} is unsupported")
+        if reduction in {"max", "min"} and int(version) < 18:
+            raise ValueError(
+                f"ScatterElements reduction {reduction!r} requires ONNX opset 18 or newer"
+            )
+        self.reduction = reduction_codes[reduction]
         self.dtype = dtype
         self.version = version
         if self.lib:

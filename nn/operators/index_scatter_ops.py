@@ -67,7 +67,13 @@ class ScatterND(Ops):
     # 初始化 `ScatterND` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, reduction="none", dtype="float32", version="17"):
         super().__init__(inputs, outputs)
-        self.reduction = {"none": 0, "add": 1, "mul": 2}.get(reduction, 0)
+        reduction_codes = {"none": 0, "add": 1, "mul": 2}
+        if reduction not in reduction_codes:
+            raise ValueError(
+                f"ScatterND reduction {reduction!r} is unsupported; "
+                "supported reductions are 'none', 'add', and 'mul'"
+            )
+        self.reduction = reduction_codes[reduction]
         self.dtype = dtype
         self.version = version
 

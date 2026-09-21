@@ -26,6 +26,27 @@ struct ScatterElementsParams {
     int32_t updates_shape[MAX_RANK];
 };
 
+// 使用 CAS 实现 float32 max/min，使多个 update 命中同一输出元素时仍保持归约语义。
+__device__ void atomic_scatter_max(float* address, float value) {
+    int* address_as_int = (int*)address;
+    int old = *address_as_int;
+    while (value > __int_as_float(old)) {
+        int assumed = old;
+        old = atomicCAS(address_as_int, assumed, __float_as_int(value));
+        if (old == assumed) return;
+    }
+}
+
+__device__ void atomic_scatter_min(float* address, float value) {
+    int* address_as_int = (int*)address;
+    int old = *address_as_int;
+    while (value < __int_as_float(old)) {
+        int assumed = old;
+        old = atomicCAS(address_as_int, assumed, __float_as_int(value));
+        if (old == assumed) return;
+    }
+}
+
 // 按 updates 坐标与 indices 指定的目标 axis 坐标，写入或归约到输出张量。
 __global__ void scatter_elements_kernel(
     float* output,
@@ -71,6 +92,10 @@ __global__ void scatter_elements_kernel(
         output[output_index] += updates[tid];
     } else if (p.reduction == 2) {
         output[output_index] *= updates[tid];
+    } else if (p.reduction == 3) {
+        atomic_scatter_max(&output[output_index], updates[tid]);
+    } else if (p.reduction == 4) {
+        atomic_scatter_min(&output[output_index], updates[tid]);
     } else {
         output[output_index] = updates[tid];
     }
@@ -92,7 +117,8 @@ static int read_scatter_elements_params(const char* params_path, ScatterElements
     params->rank = header[0];
     params->axis = header[1];
     params->reduction = header[2];
-    if (params->rank <= 0 || params->rank > MAX_RANK || params->axis < 0 || params->axis >= params->rank) {
+    if (params->rank <= 0 || params->rank > MAX_RANK || params->axis < 0 || params->axis >= params->rank ||
+        params->reduction < 0 || params->reduction > 4) {
         verify_close_file(fp);
         fprintf(stderr, "invalid params\n");
         return 0;
