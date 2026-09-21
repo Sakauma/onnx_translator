@@ -271,6 +271,21 @@ class Tensor_:
     def __repr__(self):
         return f"Tensor_(size={self.size!r}, dtype={self.dtype!r})"
 
+
+class Sequence_:
+    """图构建阶段的未知长度序列元数据。
+
+    普通 ``list`` 继续表示元素和长度均已知的序列；该类型只用于控制流输出等
+    无法静态确定长度的情况，避免把未知序列误当成空序列。
+    """
+
+    def __init__(self, element):
+        self.element = element
+        self.length = None
+
+    def __repr__(self):
+        return f"Sequence_(element={self.element!r}, length=None)"
+
 class Ops:
     """内部算子的公共基类，统一 C 后端加载和张量桥接协议。
 

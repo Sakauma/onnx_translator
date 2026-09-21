@@ -11,6 +11,60 @@
 
 from .common import *
 
+
+def _tensor_metadata(value):
+    if isinstance(value, Tensor_):
+        return value
+    if isinstance(value, Tensor):
+        return Tensor_(*value.size, dtype=value.dtype)
+    return None
+
+
+def _merge_control_metadata(left, right):
+    """Merge values that may reach the same carried output across zero or more steps."""
+    left_tensor = _tensor_metadata(left)
+    right_tensor = _tensor_metadata(right)
+    if left_tensor is not None and right_tensor is not None:
+        if left_tensor.dtype != right_tensor.dtype:
+            raise TypeError(
+                f"control-flow carried dtype mismatch: {left_tensor.dtype} != {right_tensor.dtype}"
+            )
+        if left_tensor.size is None or right_tensor.size is None:
+            return Tensor_(dtype=left_tensor.dtype, rank_known=False)
+        if len(left_tensor.size) != len(right_tensor.size):
+            return Tensor_(dtype=left_tensor.dtype, rank_known=False)
+        shape = [
+            left_dim if left_dim == right_dim else None
+            for left_dim, right_dim in zip(left_tensor.size, right_tensor.size)
+        ]
+        return Tensor_(*shape, dtype=left_tensor.dtype)
+
+    if isinstance(right, Sequence_):
+        if isinstance(left, Sequence_):
+            left_element = left.element
+        elif isinstance(left, list):
+            left_element = None
+            for element in left:
+                left_element = (
+                    element if left_element is None
+                    else _merge_control_metadata(left_element, element)
+                )
+        else:
+            raise TypeError(
+                f"control-flow carried kind mismatch: {type(left).__name__} != Sequence_"
+            )
+        element = (
+            right.element if left_element is None
+            else _merge_control_metadata(left_element, right.element)
+        )
+        return Sequence_(element)
+
+    raise TypeError(
+        f"unsupported control-flow carried metadata: "
+        f"{type(left).__name__}, {type(right).__name__}"
+    )
+
+
 class SequenceEmpty(Ops):
     # 初始化 `SequenceEmpty` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype="float32", version="17"):
@@ -56,6 +110,8 @@ class SequenceAt(Ops):
 
     # 执行 `SequenceAt` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, position):
+        if isinstance(input_sequence, Sequence_):
+            return {"tensor": input_sequence.element, "parameters": None}
         return self.forward(input_sequence, position)
 
 
@@ -75,6 +131,9 @@ class SequenceInsert(Ops):
 
     # 执行 `SequenceInsert` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, tensor, position=None):
+        if isinstance(input_sequence, Sequence_):
+            element = _merge_control_metadata(input_sequence.element, tensor)
+            return {"tensor": Sequence_(element), "parameters": None}
         return self.forward(input_sequence, tensor, position)
 
 
@@ -94,6 +153,8 @@ class SequenceErase(Ops):
 
     # 执行 `SequenceErase` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, position=None):
+        if isinstance(input_sequence, Sequence_):
+            return {"tensor": Sequence_(input_sequence.element), "parameters": None}
         return self.forward(input_sequence, position)
 
 
@@ -291,10 +352,8 @@ class If(Ops):
         )
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
-    @staticmethod
-    def _merge_tensor_output(then_info, else_info, output_index):
-        then_type = then_info.type
-        else_type = else_info.type
+    @classmethod
+    def _merge_declared_type(cls, then_type, else_type, output_index):
         then_kind = then_type.WhichOneof("value")
         else_kind = else_type.WhichOneof("value")
         if then_kind != else_kind:
@@ -302,10 +361,16 @@ class If(Ops):
                 f"If output {output_index} branch type mismatch: "
                 f"{then_kind} != {else_kind}"
             )
-        if not then_type.HasField("tensor_type") or not else_type.HasField("tensor_type"):
-            # Container-valued If outputs keep the established metadata behavior;
-            # tensor rank/dimension merging below must not invent a container shape.
-            return _graph_value_shape(then_info)
+        if then_type.HasField("sequence_type"):
+            then_element = then_type.sequence_type.elem_type
+            else_element = else_type.sequence_type.elem_type
+            return Sequence_(
+                cls._merge_declared_type(then_element, else_element, output_index)
+            )
+        if not then_type.HasField("tensor_type"):
+            raise TypeError(
+                f"If output {output_index} has unsupported branch type {then_kind!r}"
+            )
 
         then_tensor = then_type.tensor_type
         else_tensor = else_type.tensor_type
@@ -334,6 +399,10 @@ class If(Ops):
             else_value = int(else_dim.dim_value) if else_dim.HasField("dim_value") else None
             merged.append(then_value if then_value == else_value else None)
         return Tensor_(*merged, dtype=dtype)
+
+    @classmethod
+    def _merge_tensor_output(cls, then_info, else_info, output_index):
+        return cls._merge_declared_type(then_info.type, else_info.type, output_index)
 
     # 执行 `If` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, cond):
@@ -443,12 +512,21 @@ class Loop(Ops):
     # 执行 `Loop` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, m=None, cond=None, *loop_vars):
         outputs = []
-        state_count = max(0, len(self.body.input) - 2)
-        for value_info in self.body.output[1:1 + state_count]:
-            outputs.append(_graph_value_shape(value_info))
+        state_count = len(loop_vars)
+        symbol_bindings = _graph_symbol_bindings(
+            self.body.input[2:2 + state_count], loop_vars, "Loop body"
+        )
+        for loop_var, value_info in zip(
+            loop_vars, self.body.output[1:1 + state_count]
+        ):
+            declared = _graph_value_shape(value_info, symbol_bindings)
+            outputs.append(_merge_control_metadata(loop_var, declared))
         for value_info in self.body.output[1 + state_count:]:
-            scan = _graph_value_shape(value_info)
-            outputs.append(Tensor_(1, *scan.size, dtype=scan.dtype))
+            scan = _graph_value_shape(value_info, symbol_bindings)
+            if scan.size is None:
+                outputs.append(Tensor_(dtype=scan.dtype, rank_known=False))
+            else:
+                outputs.append(Tensor_(None, *scan.size, dtype=scan.dtype))
         return {"tensor": outputs[0] if len(outputs) == 1 else tuple(outputs), "parameters": None}
 
 
@@ -582,13 +660,31 @@ class Scan(Ops):
     def forward_(self, *inputs):
         num_states = len(inputs) - self.num_scan_inputs
         outputs = []
-        for value_info in self.body.output[:num_states]:
-            outputs.append(_graph_value_shape(value_info))
-        for idx, value_info in enumerate(self.body.output[num_states:]):
-            elem = _graph_value_shape(value_info)
-            scan_input = inputs[num_states + min(idx, self.num_scan_inputs - 1)]
-            requested_axis = self.scan_input_axes[min(idx, len(self.scan_input_axes) - 1)] if self.scan_input_axes else 0
+        body_values = list(inputs[:num_states])
+        scan_inputs = inputs[num_states:]
+        scan_axes = []
+        for idx, scan_input in enumerate(scan_inputs):
+            requested_axis = (
+                self.scan_input_axes[idx] if idx < len(self.scan_input_axes) else 0
+            )
             axis = self._normalized_axis(requested_axis, len(scan_input.size), "input")
+            scan_axes.append(axis)
+            element_shape = list(scan_input.size)
+            del element_shape[axis]
+            body_values.append(Tensor_(*element_shape, dtype=scan_input.dtype))
+        symbol_bindings = _graph_symbol_bindings(
+            self.body.input, body_values, "Scan body"
+        )
+        for state, value_info in zip(inputs[:num_states], self.body.output[:num_states]):
+            declared = _graph_value_shape(value_info, symbol_bindings)
+            outputs.append(_merge_control_metadata(state, declared))
+        for idx, value_info in enumerate(self.body.output[num_states:]):
+            elem = _graph_value_shape(value_info, symbol_bindings)
+            if elem.size is None:
+                outputs.append(Tensor_(dtype=elem.dtype, rank_known=False))
+                continue
+            scan_input = inputs[num_states + min(idx, self.num_scan_inputs - 1)]
+            axis = scan_axes[min(idx, self.num_scan_inputs - 1)]
             length = scan_input.size[axis]
             requested_out_axis = self.scan_output_axes[idx] if idx < len(self.scan_output_axes) else 0
             shape = list(elem.size)

@@ -121,6 +121,29 @@ class RNN(Ops):
             return None
         return self._numpy_to_ctensor(np.ascontiguousarray(tensor.data), tensor.dtype)
 
+    def _optional_state_ctensor(self, tensor):
+        """Convert a public recurrent state to the C kernel's directions-first layout."""
+        if tensor is None:
+            return None
+        data = np.asarray(tensor.data)
+        if self.layout == 1:
+            data = np.swapaxes(data, 0, 1)
+        return self._numpy_to_ctensor(np.ascontiguousarray(data), tensor.dtype)
+
+    def _state_to_internal(self, tensor, num_dirs, batch_size, hidden, dtype):
+        if tensor is None:
+            return np.zeros((num_dirs, batch_size, hidden), dtype=dtype)
+        data = _tensor_data_as_numeric(tensor).copy()
+        return np.swapaxes(data, 0, 1) if self.layout == 1 else data
+
+    def _state_from_internal(self, data):
+        return np.swapaxes(data, 0, 1) if self.layout == 1 else data
+
+    def _state_output_shape(self, batch_size, num_dirs, hidden):
+        if self.layout == 1:
+            return (batch_size, num_dirs, hidden)
+        return (num_dirs, batch_size, hidden)
+
     # 封装 `_c_supported` 辅助逻辑，统一边界条件处理并保持调用方实现简洁。
     def _c_supported(self, *tensors):
         return self.lib is not None and self.dtype in nn.DTYPE_MAP and all(
@@ -138,15 +161,16 @@ class RNN(Ops):
         hidden = self.hidden_size or r_data.shape[-1]
         if self._c_supported(x, w, r, b, sequence_lens, initial_h):
             y_shape = (batch_size, seq_len, num_dirs, hidden) if self.layout == 1 else (seq_len, num_dirs, batch_size, hidden)
-            y_h_shape = (num_dirs, batch_size, hidden)
+            y_h_internal_shape = (num_dirs, batch_size, hidden)
+            y_h_shape = self._state_output_shape(batch_size, num_dirs, hidden)
             x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
             w_c = self._numpy_to_ctensor(np.ascontiguousarray(w.data), w.dtype)
             r_c = self._numpy_to_ctensor(np.ascontiguousarray(r.data), r.dtype)
             b_c = self._optional_ctensor(b)
             seq_c = self._optional_ctensor(sequence_lens)
-            init_c = self._optional_ctensor(initial_h)
+            init_c = self._optional_state_ctensor(initial_h)
             y_shape_c = (ctypes.c_int * 4)(*y_shape)
-            yh_shape_c = (ctypes.c_int * 3)(*y_h_shape)
+            yh_shape_c = (ctypes.c_int * 3)(*y_h_internal_shape)
             y_c = self.lib.create_tensor(y_shape_c, 4, nn.DTYPE_MAP[self.dtype])
             yh_c = self.lib.create_tensor(yh_shape_c, 3, nn.DTYPE_MAP[self.dtype])
             act_codes, act_alpha, act_beta, act_count = self._activation_buffers()
@@ -157,7 +181,9 @@ class RNN(Ops):
                 ctypes.c_float(0.0 if self.clip is None else self.clip), ctypes.c_int(self.clip is not None),
             )
             y_data = self._ctensor_to_numpy(y_c, self.dtype)
-            yh_data = self._ctensor_to_numpy(yh_c, self.dtype)
+            yh_data = self._state_from_internal(
+                self._ctensor_to_numpy(yh_c, self.dtype)
+            )
             for c_tensor in (x_c, w_c, r_c, b_c, seq_c, init_c, y_c, yh_c):
                 if c_tensor is not None:
                     self.lib.free_tensor(c_tensor)
@@ -165,7 +191,9 @@ class RNN(Ops):
             return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
 
         bias = _tensor_data_as_numeric(b) if b is not None else np.zeros((num_dirs, 2 * hidden), dtype=x_time.dtype)
-        h_prev = _tensor_data_as_numeric(initial_h).copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
+        h_prev = self._state_to_internal(
+            initial_h, num_dirs, batch_size, hidden, x_time.dtype
+        )
         y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=x_time.dtype)
         for direction_index in range(num_dirs):
             reverse = self.direction == "reverse" or (self.direction == "bidirectional" and direction_index == 1)
@@ -181,7 +209,7 @@ class RNN(Ops):
                 y[t, direction_index] = h_t
             h_prev[direction_index] = h_t
         y = _cast_numeric_to_dtype(_recurrent_output_layout(y, self.layout), self.dtype)
-        y_h = _cast_numeric_to_dtype(h_prev, self.dtype)
+        y_h = _cast_numeric_to_dtype(self._state_from_internal(h_prev), self.dtype)
         outputs = (Tensor(*y.shape, dtype=self.dtype, data=y), Tensor(*y_h.shape, dtype=self.dtype, data=y_h))
         return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
 
@@ -196,7 +224,7 @@ class RNN(Ops):
             seq_len, batch_size = x.size[0], x.size[1]
             y_shape = (seq_len, num_dirs, batch_size, hidden)
         y = Tensor_(*y_shape, dtype=self.dtype)
-        y_h = Tensor_(num_dirs, batch_size, hidden, dtype=self.dtype)
+        y_h = Tensor_(*self._state_output_shape(batch_size, num_dirs, hidden), dtype=self.dtype)
         return {"tensor": y if len(self.outputs) == 1 else (y, y_h), "parameters": None}
 
 
@@ -252,15 +280,16 @@ class GRU(RNN):
         hidden = self.hidden_size or r_data.shape[-1]
         if self._c_supported(x, w, r, b, sequence_lens, initial_h):
             y_shape = (batch_size, seq_len, num_dirs, hidden) if self.layout == 1 else (seq_len, num_dirs, batch_size, hidden)
-            y_h_shape = (num_dirs, batch_size, hidden)
+            y_h_internal_shape = (num_dirs, batch_size, hidden)
+            y_h_shape = self._state_output_shape(batch_size, num_dirs, hidden)
             x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
             w_c = self._numpy_to_ctensor(np.ascontiguousarray(w.data), w.dtype)
             r_c = self._numpy_to_ctensor(np.ascontiguousarray(r.data), r.dtype)
             b_c = self._optional_ctensor(b)
             seq_c = self._optional_ctensor(sequence_lens)
-            init_c = self._optional_ctensor(initial_h)
+            init_c = self._optional_state_ctensor(initial_h)
             y_shape_c = (ctypes.c_int * 4)(*y_shape)
-            yh_shape_c = (ctypes.c_int * 3)(*y_h_shape)
+            yh_shape_c = (ctypes.c_int * 3)(*y_h_internal_shape)
             y_c = self.lib.create_tensor(y_shape_c, 4, nn.DTYPE_MAP[self.dtype])
             yh_c = self.lib.create_tensor(yh_shape_c, 3, nn.DTYPE_MAP[self.dtype])
             act_codes, act_alpha, act_beta, act_count = self._activation_buffers()
@@ -272,7 +301,9 @@ class GRU(RNN):
                 ctypes.c_int(self.clip is not None),
             )
             y_data = self._ctensor_to_numpy(y_c, self.dtype)
-            yh_data = self._ctensor_to_numpy(yh_c, self.dtype)
+            yh_data = self._state_from_internal(
+                self._ctensor_to_numpy(yh_c, self.dtype)
+            )
             for c_tensor in (x_c, w_c, r_c, b_c, seq_c, init_c, y_c, yh_c):
                 if c_tensor is not None:
                     self.lib.free_tensor(c_tensor)
@@ -280,7 +311,9 @@ class GRU(RNN):
             return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
 
         bias = _tensor_data_as_numeric(b) if b is not None else np.zeros((num_dirs, 6 * hidden), dtype=x_time.dtype)
-        h_prev = _tensor_data_as_numeric(initial_h).copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
+        h_prev = self._state_to_internal(
+            initial_h, num_dirs, batch_size, hidden, x_time.dtype
+        )
         y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=x_time.dtype)
         for direction_index in range(num_dirs):
             reverse = self.direction == "reverse" or (self.direction == "bidirectional" and direction_index == 1)
@@ -304,7 +337,7 @@ class GRU(RNN):
                 y[t, direction_index] = h_t
             h_prev[direction_index] = h_t
         y = _cast_numeric_to_dtype(_recurrent_output_layout(y, self.layout), self.dtype)
-        y_h = _cast_numeric_to_dtype(h_prev, self.dtype)
+        y_h = _cast_numeric_to_dtype(self._state_from_internal(h_prev), self.dtype)
         outputs = (Tensor(*y.shape, dtype=self.dtype, data=y), Tensor(*y_h.shape, dtype=self.dtype, data=y_h))
         return {"tensor": outputs[0] if len(self.outputs) == 1 else outputs, "parameters": None}
 
@@ -364,17 +397,18 @@ class LSTM(RNN):
         hidden = self.hidden_size or r_data.shape[-1]
         if self._c_supported(x, w, r, b, sequence_lens, initial_h, initial_c, p):
             y_shape = (batch_size, seq_len, num_dirs, hidden) if self.layout == 1 else (seq_len, num_dirs, batch_size, hidden)
-            y_h_shape = (num_dirs, batch_size, hidden)
+            state_internal_shape = (num_dirs, batch_size, hidden)
+            state_shape = self._state_output_shape(batch_size, num_dirs, hidden)
             x_c = self._numpy_to_ctensor(np.ascontiguousarray(x.data), x.dtype)
             w_c = self._numpy_to_ctensor(np.ascontiguousarray(w.data), w.dtype)
             r_c = self._numpy_to_ctensor(np.ascontiguousarray(r.data), r.dtype)
             b_c = self._optional_ctensor(b)
             seq_c = self._optional_ctensor(sequence_lens)
-            init_h_c = self._optional_ctensor(initial_h)
-            init_c_c = self._optional_ctensor(initial_c)
+            init_h_c = self._optional_state_ctensor(initial_h)
+            init_c_c = self._optional_state_ctensor(initial_c)
             p_c = self._optional_ctensor(p)
             y_shape_c = (ctypes.c_int * 4)(*y_shape)
-            yh_shape_c = (ctypes.c_int * 3)(*y_h_shape)
+            yh_shape_c = (ctypes.c_int * 3)(*state_internal_shape)
             y_c = self.lib.create_tensor(y_shape_c, 4, nn.DTYPE_MAP[self.dtype])
             yh_c = self.lib.create_tensor(yh_shape_c, 3, nn.DTYPE_MAP[self.dtype])
             yc_c = self.lib.create_tensor(yh_shape_c, 3, nn.DTYPE_MAP[self.dtype])
@@ -387,23 +421,31 @@ class LSTM(RNN):
                 ctypes.c_float(0.0 if self.clip is None else self.clip), ctypes.c_int(self.clip is not None),
             )
             y_data = self._ctensor_to_numpy(y_c, self.dtype)
-            yh_data = self._ctensor_to_numpy(yh_c, self.dtype)
-            yc_data = self._ctensor_to_numpy(yc_c, self.dtype)
+            yh_data = self._state_from_internal(
+                self._ctensor_to_numpy(yh_c, self.dtype)
+            )
+            yc_data = self._state_from_internal(
+                self._ctensor_to_numpy(yc_c, self.dtype)
+            )
             for c_tensor in (x_c, w_c, r_c, b_c, seq_c, init_h_c, init_c_c, p_c, y_c, yh_c, yc_c):
                 if c_tensor is not None:
                     self.lib.free_tensor(c_tensor)
             outputs = (
                 Tensor(*y_shape, dtype=self.dtype, data=y_data),
-                Tensor(*y_h_shape, dtype=self.dtype, data=yh_data),
-                Tensor(*y_h_shape, dtype=self.dtype, data=yc_data),
+                Tensor(*state_shape, dtype=self.dtype, data=yh_data),
+                Tensor(*state_shape, dtype=self.dtype, data=yc_data),
             )
             selected = tuple(value for name, value in zip(self.outputs, outputs) if name)
             return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
 
         bias = _tensor_data_as_numeric(b) if b is not None else np.zeros((num_dirs, 8 * hidden), dtype=x_time.dtype)
         peepholes = _tensor_data_as_numeric(p) if p is not None else np.zeros((num_dirs, 3 * hidden), dtype=x_time.dtype)
-        h_prev = _tensor_data_as_numeric(initial_h).copy() if initial_h is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
-        c_prev = _tensor_data_as_numeric(initial_c).copy() if initial_c is not None else np.zeros((num_dirs, batch_size, hidden), dtype=x_time.dtype)
+        h_prev = self._state_to_internal(
+            initial_h, num_dirs, batch_size, hidden, x_time.dtype
+        )
+        c_prev = self._state_to_internal(
+            initial_c, num_dirs, batch_size, hidden, x_time.dtype
+        )
         y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=x_time.dtype)
         for direction_index in range(num_dirs):
             reverse = self.direction == "reverse" or (self.direction == "bidirectional" and direction_index == 1)
@@ -430,8 +472,8 @@ class LSTM(RNN):
             h_prev[direction_index] = h_t
             c_prev[direction_index] = c_t
         y = _cast_numeric_to_dtype(_recurrent_output_layout(y, self.layout), self.dtype)
-        y_h = _cast_numeric_to_dtype(h_prev, self.dtype)
-        y_c = _cast_numeric_to_dtype(c_prev, self.dtype)
+        y_h = _cast_numeric_to_dtype(self._state_from_internal(h_prev), self.dtype)
+        y_c = _cast_numeric_to_dtype(self._state_from_internal(c_prev), self.dtype)
         outputs = (
             Tensor(*y.shape, dtype=self.dtype, data=y),
             Tensor(*y_h.shape, dtype=self.dtype, data=y_h),
@@ -451,8 +493,9 @@ class LSTM(RNN):
             seq_len, batch_size = x.size[0], x.size[1]
             y_shape = (seq_len, num_dirs, batch_size, hidden)
         y = Tensor_(*y_shape, dtype=self.dtype)
-        y_h = Tensor_(num_dirs, batch_size, hidden, dtype=self.dtype)
-        y_c = Tensor_(num_dirs, batch_size, hidden, dtype=self.dtype)
+        state_shape = self._state_output_shape(batch_size, num_dirs, hidden)
+        y_h = Tensor_(*state_shape, dtype=self.dtype)
+        y_c = Tensor_(*state_shape, dtype=self.dtype)
         selected = tuple(value for name, value in zip(self.outputs, (y, y_h, y_c)) if name)
         return {"tensor": selected[0] if len(selected) == 1 else selected, "parameters": None}
 

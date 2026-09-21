@@ -55,6 +55,188 @@ def _loop_tensor_body(scan_dim="width"):
     )
 
 
+def test_loop_shape_metadata_binds_carried_symbol_and_keeps_trip_count_unknown(monkeypatch):
+    _disable_c_backend(monkeypatch)
+    final, scan = Loop(
+        ["m", "cond", "state"], ["final", "scan"], body=_loop_tensor_body()
+    ).forward_(
+        Tensor_(dtype="int64"),
+        Tensor_(dtype="bool"),
+        Tensor_(2, dtype="float32"),
+    )["tensor"]
+
+    assert final.size == (2,)
+    assert scan.size == (None, 2)
+
+
+def test_loop_carried_metadata_merges_initial_and_body_shapes_conservatively(monkeypatch):
+    _disable_c_backend(monkeypatch)
+    replacement = helper.make_tensor(
+        "replacement", TensorProto.FLOAT, [3], [1.0, 2.0, 3.0]
+    )
+    body = helper.make_graph(
+        [
+            helper.make_node("Identity", ["cond_in"], ["cond_out"]),
+            helper.make_node("Constant", [], ["state_out"], value=replacement),
+        ],
+        "loop_shape_changing_body",
+        [
+            helper.make_tensor_value_info("iter", TensorProto.INT64, []),
+            helper.make_tensor_value_info("cond_in", TensorProto.BOOL, []),
+            helper.make_tensor_value_info("state_in", TensorProto.FLOAT, [None]),
+        ],
+        [
+            helper.make_tensor_value_info("cond_out", TensorProto.BOOL, []),
+            helper.make_tensor_value_info("state_out", TensorProto.FLOAT, [3]),
+        ],
+    )
+    final = Loop(
+        ["m", "cond", "state"], ["final"], body=body
+    ).forward_(
+        Tensor_(dtype="int64"),
+        Tensor_(dtype="bool"),
+        Tensor_(2, dtype="float32"),
+    )["tensor"]
+
+    assert final.size == (None,)
+
+
+def test_scan_shape_metadata_binds_body_symbol_from_scan_element(monkeypatch):
+    _disable_c_backend(monkeypatch)
+    body = helper.make_graph(
+        [helper.make_node("Identity", ["item"], ["value"])],
+        "scan_symbol_body",
+        [helper.make_tensor_value_info("item", TensorProto.FLOAT, ["width"])],
+        [helper.make_tensor_value_info("value", TensorProto.FLOAT, ["width"])],
+    )
+    result = Scan(
+        ["x"], ["y"], body=body, num_scan_inputs=1
+    ).forward_(Tensor_(4, 3, dtype="float32"))["tensor"]
+
+    assert result.size == (4, 3)
+
+
+def _sequence_identity_branch(name):
+    sequence_info = helper.make_tensor_sequence_value_info(
+        "sequence", TensorProto.FLOAT, [2]
+    )
+    return helper.make_graph(
+        [helper.make_node("SequenceConstruct", ["x"], ["sequence"])],
+        name,
+        [],
+        [sequence_info],
+    )
+
+
+def test_if_sequence_metadata_flows_through_sequence_at(monkeypatch, tmp_path):
+    _disable_c_backend(monkeypatch)
+    position = helper.make_tensor("position_value", TensorProto.INT64, [], [0])
+    graph = helper.make_graph(
+        [
+            helper.make_node(
+                "If", ["cond"], ["sequence"],
+                then_branch=_sequence_identity_branch("then_sequence"),
+                else_branch=_sequence_identity_branch("else_sequence"),
+            ),
+            helper.make_node("Constant", [], ["position"], value=position),
+            helper.make_node("SequenceAt", ["sequence", "position"], ["y"]),
+        ],
+        "if_sequence_metadata",
+        [
+            helper.make_tensor_value_info("cond", TensorProto.BOOL, []),
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [2]),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2])],
+    )
+    _ops, runtime = _import_runtime(tmp_path, graph, "if_sequence_metadata")
+
+    result = runtime.forward_(Tensor_(dtype="bool"), Tensor_(2, dtype="float32"))
+    assert result.size == (2,)
+    runtime_result = runtime.forward(
+        _tensor(True, "bool"),
+        _tensor(np.array([1.0, 2.0], dtype=np.float32), "float32"),
+    )
+    assert isinstance(runtime_result, Tensor)
+    np.testing.assert_array_equal(runtime_result.data, np.array([1.0, 2.0], dtype=np.float32))
+
+
+def test_loop_sequence_metadata_flows_through_sequence_at(monkeypatch, tmp_path):
+    _disable_c_backend(monkeypatch)
+    sequence_in = helper.make_tensor_sequence_value_info(
+        "sequence_in", TensorProto.FLOAT, [2]
+    )
+    sequence_out = helper.make_tensor_sequence_value_info(
+        "sequence_out", TensorProto.FLOAT, [2]
+    )
+    body = helper.make_graph(
+        [
+            helper.make_node("Identity", ["cond_in"], ["cond_out"]),
+            helper.make_node("Identity", ["sequence_in"], ["sequence_out"]),
+        ],
+        "loop_sequence_metadata_body",
+        [
+            helper.make_tensor_value_info("iter", TensorProto.INT64, []),
+            helper.make_tensor_value_info("cond_in", TensorProto.BOOL, []),
+            sequence_in,
+        ],
+        [helper.make_tensor_value_info("cond_out", TensorProto.BOOL, []), sequence_out],
+    )
+    position = helper.make_tensor("position_value", TensorProto.INT64, [], [0])
+    graph = helper.make_graph(
+        [
+            helper.make_node(
+                "Loop", ["m", "cond", "initial"], ["final_sequence"], body=body
+            ),
+            helper.make_node("Constant", [], ["position"], value=position),
+            helper.make_node("SequenceAt", ["final_sequence", "position"], ["y"]),
+        ],
+        "loop_sequence_metadata",
+        [
+            helper.make_tensor_value_info("m", TensorProto.INT64, []),
+            helper.make_tensor_value_info("cond", TensorProto.BOOL, []),
+            helper.make_tensor_sequence_value_info("initial", TensorProto.FLOAT, [2]),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2])],
+    )
+    _ops, runtime = _import_runtime(tmp_path, graph, "loop_sequence_metadata")
+
+    result = runtime.forward_(
+        Tensor_(dtype="int64"),
+        Tensor_(dtype="bool"),
+        nn.Sequence_(Tensor_(2, dtype="float32")),
+    )
+    assert result.size == (2,)
+    runtime_result = runtime.forward(
+        _tensor(0, "int64"),
+        _tensor(False, "bool"),
+        [_tensor(np.array([3.0, 4.0], dtype=np.float32), "float32")],
+    )
+    assert isinstance(runtime_result, Tensor)
+    np.testing.assert_array_equal(runtime_result.data, np.array([3.0, 4.0], dtype=np.float32))
+
+
+def test_unknown_sequence_metadata_protocols_do_not_claim_empty_length(monkeypatch):
+    _disable_c_backend(monkeypatch)
+    sequence = nn.Sequence_(Tensor_(2, dtype="float32"))
+    position = Tensor(dtype="int64", data=np.array(0, dtype=np.int64))
+
+    element = SequenceAt(["sequence", "position"], ["value"]).forward_(
+        sequence, position
+    )["tensor"]
+    length = SequenceLength(["sequence"], ["length"]).forward_(sequence)["tensor"]
+    inserted = SequenceInsert(
+        ["sequence", "value"], ["inserted"]
+    ).forward_(sequence, Tensor_(3, dtype="float32"))["tensor"]
+    erased = SequenceErase(["sequence"], ["erased"]).forward_(sequence)["tensor"]
+
+    assert element.size == (2,)
+    assert isinstance(length, Tensor_)
+    assert length.size == ()
+    assert isinstance(inserted, nn.Sequence_) and inserted.length is None
+    assert inserted.element.size == (None,)
+    assert isinstance(erased, nn.Sequence_) and erased.length is None
+
+
 @pytest.mark.parametrize("trip_count, expected_scan_shape", [(0, (0, 2)), (1, (1, 2))])
 def test_loop_binds_empty_scan_symbol_from_runtime_state(
     monkeypatch, tmp_path, trip_count, expected_scan_shape

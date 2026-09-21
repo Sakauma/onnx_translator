@@ -37,6 +37,13 @@ __device__ size_t gru_y_index(int layout, int seq_len, int num_dirs, int batch, 
         : (((size_t)t * num_dirs + d) * batch + b) * hidden + h;
 }
 
+// 按 layout 读取和写入 initial_h/Y_h；kernel 内部状态始终保持 directions-first。
+__device__ size_t gru_state_index(int layout, int num_dirs, int batch, int hidden, int d, int b, int h) {
+    return layout == 1
+        ? ((size_t)b * num_dirs + d) * hidden + h
+        : ((size_t)d * batch + b) * hidden + h;
+}
+
 __device__ double gru_sigmoid(double x) {
     return 1.0 / (1.0 + exp(-x));
 }
@@ -142,7 +149,8 @@ __global__ void gru_kernel(
         for (int b = 0; b < batch; ++b) {
             for (int h = 0; h < hidden; ++h) {
                 size_t idx = ((size_t)d * batch + b) * hidden + h;
-                h_state[idx] = initial_h[idx];
+                size_t input_idx = gru_state_index(layout, num_dirs, batch, hidden, d, b, h);
+                h_state[idx] = initial_h[input_idx];
             }
         }
     }
@@ -223,7 +231,8 @@ __global__ void gru_kernel(
         for (int b = 0; b < batch; ++b) {
             for (int h = 0; h < hidden; ++h) {
                 size_t idx = ((size_t)d * batch + b) * hidden + h;
-                Y_h[idx] = h_state[idx];
+                size_t output_idx = gru_state_index(layout, num_dirs, batch, hidden, d, b, h);
+                Y_h[output_idx] = h_state[idx];
             }
         }
     }

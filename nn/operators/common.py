@@ -10,7 +10,7 @@
 # */
 
 from nn import Ops
-from nn import Tensor, Tensor_, DTYPE_MAP, CTensor
+from nn import Tensor, Tensor_, Sequence_, DTYPE_MAP, CTensor
 import nn
 import ctypes
 import numpy as np
@@ -754,6 +754,8 @@ def _reference_feed_value(value):
 def _runtime_shape(value):
     """Return a concrete tensor shape without coercing container values."""
     if isinstance(value, (Tensor, Tensor_)):
+        if value.size is None or any(size is None for size in value.size):
+            return None
         return tuple(int(size) for size in value.size)
     if isinstance(value, np.ndarray):
         return value.shape
@@ -838,14 +840,46 @@ def _graph_external_names(graph_proto):
     used_names.update(nested_external_names)
     return {name for name in used_names if name not in local_names}
 
-def _graph_value_shape(value_info):
-    # ReferenceEvaluator 不能从纯符号元数据获得具体长度；占位推断统一把未知维降为 1。
-    tensor_type = value_info.type.tensor_type
-    dtype = nn.onnx_dtype_mapping.get(tensor_type.elem_type, "float32")
-    dims = []
-    for dim in tensor_type.shape.dim:
-        dims.append(dim.dim_value if dim.HasField("dim_value") else 1)
-    return Tensor_(*dims, dtype=dtype)
+def _graph_type_metadata(type_proto, symbol_bindings=None, context="graph value"):
+    """Create conservative metadata for an ONNX tensor or sequence type."""
+    symbol_bindings = symbol_bindings or {}
+    if type_proto.HasField("tensor_type"):
+        tensor_type = type_proto.tensor_type
+        dtype = nn.onnx_dtype_mapping.get(tensor_type.elem_type)
+        if dtype is None:
+            raise TypeError(
+                f"{context} has unsupported tensor element type {tensor_type.elem_type}"
+            )
+        if not tensor_type.HasField("shape"):
+            return Tensor_(dtype=dtype, rank_known=False)
+        dims = []
+        for dim in tensor_type.shape.dim:
+            if dim.HasField("dim_value"):
+                dims.append(int(dim.dim_value))
+            elif dim.HasField("dim_param") and dim.dim_param in symbol_bindings:
+                dims.append(symbol_bindings[dim.dim_param])
+            else:
+                dims.append(None)
+        return Tensor_(*dims, dtype=dtype)
+    if type_proto.HasField("sequence_type"):
+        element = _graph_type_metadata(
+            type_proto.sequence_type.elem_type,
+            symbol_bindings,
+            f"{context} sequence element",
+        )
+        return Sequence_(element)
+    raise TypeError(
+        f"{context} has unsupported ONNX kind {type_proto.WhichOneof('value')!r}"
+    )
+
+
+def _graph_value_shape(value_info, symbol_bindings=None):
+    """Create conservative tensor/container metadata from a graph ValueInfoProto."""
+    return _graph_type_metadata(
+        value_info.type,
+        symbol_bindings,
+        f"graph value {value_info.name!r}",
+    )
 
 def _normalize_opset_imports(opset_imports):
     """Return explicit domain/version pairs for a temporary nested model."""

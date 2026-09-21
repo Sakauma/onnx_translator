@@ -29,6 +29,14 @@ def _from_time_major(y, layout):
     return np.transpose(y, (2, 0, 1, 3)) if layout == 1 else y
 
 
+def _state_to_internal(state, layout):
+    return np.swapaxes(state, 0, 1) if layout == 1 else state
+
+
+def _state_from_internal(state, layout):
+    return np.swapaxes(state, 0, 1) if layout == 1 else state
+
+
 # 根据 direction 属性返回某个方向实际访问的时间步顺序。
 def _time_indices(seq_len, direction, direction_index):
     reverse = direction == "reverse" or (direction == "bidirectional" and direction_index == 1)
@@ -51,7 +59,7 @@ def _rnn_reference(x, w, r, b=None, sequence_lens=None, initial_h=None, directio
     h_state = (
         np.zeros((num_dirs, batch_size, hidden), dtype=np.float64)
         if initial_h is None
-        else np.asarray(initial_h, dtype=np.float64).copy()
+        else _state_to_internal(np.asarray(initial_h, dtype=np.float64), layout).copy()
     )
     y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=np.float64)
     for direction_index in range(num_dirs):
@@ -62,7 +70,7 @@ def _rnn_reference(x, w, r, b=None, sequence_lens=None, initial_h=None, directio
             active = _active_mask(sequence_lens, t, batch_size)
             h_state[direction_index] = np.where(active, h_new, h_state[direction_index])
             y[t, direction_index] = h_state[direction_index]
-    return _from_time_major(y, layout), h_state
+    return _from_time_major(y, layout), _state_from_internal(h_state, layout)
 
 
 # 用 ONNX 官方 GRU 公式独立计算 Y/Y_h，显式覆盖 linear_before_reset 分支。
@@ -84,7 +92,7 @@ def _gru_reference(
     h_state = (
         np.zeros((num_dirs, batch_size, hidden), dtype=np.float64)
         if initial_h is None
-        else np.asarray(initial_h, dtype=np.float64).copy()
+        else _state_to_internal(np.asarray(initial_h, dtype=np.float64), layout).copy()
     )
     y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=np.float64)
     for direction_index in range(num_dirs):
@@ -103,7 +111,7 @@ def _gru_reference(
             active = _active_mask(sequence_lens, t, batch_size)
             h_state[direction_index] = np.where(active, h_new, h_prev)
             y[t, direction_index] = h_state[direction_index]
-    return _from_time_major(y, layout), h_state
+    return _from_time_major(y, layout), _state_from_internal(h_state, layout)
 
 
 # 用 ONNX 官方 LSTM 公式独立计算 Y/Y_h/Y_c，覆盖 peephole 和 input_forget 语义。
@@ -128,12 +136,12 @@ def _lstm_reference(
     h_state = (
         np.zeros((num_dirs, batch_size, hidden), dtype=np.float64)
         if initial_h is None
-        else np.asarray(initial_h, dtype=np.float64).copy()
+        else _state_to_internal(np.asarray(initial_h, dtype=np.float64), layout).copy()
     )
     c_state = (
         np.zeros((num_dirs, batch_size, hidden), dtype=np.float64)
         if initial_c is None
-        else np.asarray(initial_c, dtype=np.float64).copy()
+        else _state_to_internal(np.asarray(initial_c, dtype=np.float64), layout).copy()
     )
     y = np.zeros((seq_len, num_dirs, batch_size, hidden), dtype=np.float64)
     for direction_index in range(num_dirs):
@@ -153,7 +161,11 @@ def _lstm_reference(
             h_state[direction_index] = np.where(active, h_new, h_prev)
             c_state[direction_index] = np.where(active, c_new, c_prev)
             y[t, direction_index] = h_state[direction_index]
-    return _from_time_major(y, layout), h_state, c_state
+    return (
+        _from_time_major(y, layout),
+        _state_from_internal(h_state, layout),
+        _state_from_internal(c_state, layout),
+    )
 
 
 # 构造 Tensor，避免每个断言重复 dtype、shape 和 data 样板。
@@ -230,7 +242,7 @@ def test_c_backend_recurrent_ops_match_independent_onnx_formulas():
     gru_w = np.linspace(-0.4, 0.5, 12, dtype=np.float32).reshape(1, 6, 2)
     gru_r = np.linspace(0.3, -0.2, 12, dtype=np.float32).reshape(1, 6, 2)
     gru_b = np.linspace(-0.2, 0.2, 12, dtype=np.float32).reshape(1, 12)
-    gru_initial = np.array([[[0.1, -0.1], [0.2, 0.0]]], dtype=np.float32)
+    gru_initial = np.array([[[0.1, -0.1]], [[0.2, 0.0]]], dtype=np.float32)
     expected_y, expected_h = _gru_reference(
         gru_x, gru_w, gru_r, gru_b, sequence_lens, gru_initial, direction="reverse", layout=1, linear_before_reset=1
     )
@@ -290,6 +302,130 @@ def test_c_backend_recurrent_ops_match_independent_onnx_formulas():
     np.testing.assert_allclose(actual_y.data, expected_y.astype(np.float16), rtol=1e-3, atol=1e-3)
     np.testing.assert_allclose(actual_h.data, expected_h.astype(np.float16), rtol=1e-3, atol=1e-3)
     np.testing.assert_allclose(actual_c.data, expected_c.astype(np.float16), rtol=1e-3, atol=1e-3)
+
+
+@pytest.mark.parametrize("use_c_backend", [False, True])
+@pytest.mark.parametrize("op_name", ["rnn", "gru", "lstm"])
+def test_layout_one_state_tensors_are_batch_major_with_distinct_initial_values(
+    monkeypatch, use_c_backend, op_name
+):
+    if use_c_backend:
+        if not os.path.exists(nn.TENSOR_OPS_LIB_PATH):
+            pytest.skip("C backend library is not built")
+    else:
+        _disable_c_backend(monkeypatch)
+
+    batch, sequence, input_size, hidden, directions = 3, 2, 2, 2, 1
+    x = np.linspace(-0.4, 0.7, batch * sequence * input_size, dtype=np.float32).reshape(
+        batch, sequence, input_size
+    )
+    sequence_lens = np.array([2, 1, 0], dtype=np.int32)
+    initial_h = np.array(
+        [[[0.1, -0.2]], [[0.3, 0.4]], [[-0.5, 0.6]]], dtype=np.float32
+    )
+
+    if op_name == "rnn":
+        w = np.linspace(-0.3, 0.4, directions * hidden * input_size, dtype=np.float32).reshape(
+            directions, hidden, input_size
+        )
+        r = np.linspace(0.2, -0.1, directions * hidden * hidden, dtype=np.float32).reshape(
+            directions, hidden, hidden
+        )
+        b = np.linspace(-0.1, 0.2, directions * 2 * hidden, dtype=np.float32).reshape(
+            directions, 2 * hidden
+        )
+        expected = _rnn_reference(
+            x, w, r, b, sequence_lens, initial_h, direction="reverse", layout=1
+        )
+        op = RNN(
+            ["x", "w", "r", "b", "seq", "h"], ["y", "yh"],
+            hidden_size=hidden, direction="reverse", layout=1, dtype="float32",
+        )
+        actual = op.forward(
+            _tensor(x, "float32"), _tensor(w, "float32"), _tensor(r, "float32"),
+            _tensor(b, "float32"), _tensor(sequence_lens, "int32"),
+            _tensor(initial_h, "float32"),
+        )["tensor"]
+    elif op_name == "gru":
+        w = np.linspace(-0.3, 0.4, directions * 3 * hidden * input_size, dtype=np.float32).reshape(
+            directions, 3 * hidden, input_size
+        )
+        r = np.linspace(0.2, -0.1, directions * 3 * hidden * hidden, dtype=np.float32).reshape(
+            directions, 3 * hidden, hidden
+        )
+        b = np.linspace(-0.1, 0.2, directions * 6 * hidden, dtype=np.float32).reshape(
+            directions, 6 * hidden
+        )
+        expected = _gru_reference(
+            x, w, r, b, sequence_lens, initial_h,
+            direction="reverse", layout=1, linear_before_reset=1,
+        )
+        op = GRU(
+            ["x", "w", "r", "b", "seq", "h"], ["y", "yh"],
+            hidden_size=hidden, direction="reverse", layout=1,
+            linear_before_reset=1, dtype="float32",
+        )
+        actual = op.forward(
+            _tensor(x, "float32"), _tensor(w, "float32"), _tensor(r, "float32"),
+            _tensor(b, "float32"), _tensor(sequence_lens, "int32"),
+            _tensor(initial_h, "float32"),
+        )["tensor"]
+    else:
+        w = np.linspace(-0.3, 0.4, directions * 4 * hidden * input_size, dtype=np.float32).reshape(
+            directions, 4 * hidden, input_size
+        )
+        r = np.linspace(0.2, -0.1, directions * 4 * hidden * hidden, dtype=np.float32).reshape(
+            directions, 4 * hidden, hidden
+        )
+        b = np.linspace(-0.1, 0.2, directions * 8 * hidden, dtype=np.float32).reshape(
+            directions, 8 * hidden
+        )
+        initial_c = np.array(
+            [[[0.7, -0.8]], [[0.9, 1.0]], [[-1.1, 1.2]]], dtype=np.float32
+        )
+        p = np.linspace(-0.05, 0.05, directions * 3 * hidden, dtype=np.float32).reshape(
+            directions, 3 * hidden
+        )
+        expected = _lstm_reference(
+            x, w, r, b, sequence_lens, initial_h, initial_c, p,
+            direction="reverse", layout=1,
+        )
+        op = LSTM(
+            ["x", "w", "r", "b", "seq", "h", "c", "p"],
+            ["y", "yh", "yc"], hidden_size=hidden,
+            direction="reverse", layout=1, dtype="float32",
+        )
+        actual = op.forward(
+            _tensor(x, "float32"), _tensor(w, "float32"), _tensor(r, "float32"),
+            _tensor(b, "float32"), _tensor(sequence_lens, "int32"),
+            _tensor(initial_h, "float32"), _tensor(initial_c, "float32"),
+            _tensor(p, "float32"),
+        )["tensor"]
+
+    expected_shapes = (
+        (batch, sequence, directions, hidden),
+        (batch, directions, hidden),
+    ) + (((batch, directions, hidden),) if op_name == "lstm" else ())
+    inferred = op.forward_(
+        Tensor_(batch, sequence, input_size, dtype="float32"),
+        Tensor_(*w.shape, dtype="float32"),
+        Tensor_(*r.shape, dtype="float32"),
+        Tensor_(*b.shape, dtype="float32"),
+        Tensor_(batch, dtype="int32"),
+        Tensor_(*initial_h.shape, dtype="float32"),
+        *(
+            (Tensor_(*initial_c.shape, dtype="float32"), Tensor_(*p.shape, dtype="float32"))
+            if op_name == "lstm" else ()
+        ),
+    )["tensor"]
+
+    for value, expected_value, expected_shape in zip(actual, expected, expected_shapes):
+        assert value.size == expected_shape
+        np.testing.assert_allclose(
+            value.data, np.asarray(expected_value, dtype=np.float32), rtol=2e-5, atol=2e-5
+        )
+    for value, expected_shape in zip(inferred, expected_shapes):
+        assert value.size == expected_shape
 
 
 # 验证 sequence_lens 为 0 的 batch 不执行任何时间步，并保持 initial_h/initial_c 状态。
