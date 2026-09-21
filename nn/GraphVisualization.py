@@ -13,7 +13,7 @@ from graphviz import Digraph
 from pathlib import Path
 
 # 实现 `GraphGenerate` 步骤，规范化输入并返回下游期望的数据或元信息。
-def GraphGenerate(input_graph, model_name, fast_mode=True, output_dir=None):
+def GraphGenerate(input_graph, model_name, fast_mode=True, output_dir=None, raise_on_error=False):
     """
     生成计算图的可视化图形
     
@@ -22,6 +22,7 @@ def GraphGenerate(input_graph, model_name, fast_mode=True, output_dir=None):
         model_name: 任务/模型名称，用于命名输出文件
         fast_mode: 是否开启极速渲染模式（牺牲布局质量换取速度）
         output_dir: 可选的显式保存目录；省略时保留相对当前目录的历史行为
+        raise_on_error: 渲染失败时是否抛出异常；默认保留历史兼容行为
     """
     mode_info = "极速渲染 (nslimit=2)" if fast_mode else "标准渲染"
     print(f"   [GraphViz] 正在构建图结构 (布局: Top-Down, 模式: {mode_info})...")
@@ -156,3 +157,5 @@ def GraphGenerate(input_graph, model_name, fast_mode=True, output_dir=None):
     except Exception as e:
         print(f"❌ 渲染失败: {e}")
         print("提示: 请确保系统已安装 Graphviz (apt install graphviz / brew install graphviz)")
+        if raise_on_error:
+            raise RuntimeError(f"Graphviz render failed for {file_path}: {e}") from e

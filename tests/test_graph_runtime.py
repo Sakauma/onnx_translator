@@ -170,7 +170,7 @@ def test_verify_graph_uses_declared_output_order_and_ignores_extra_terminal(tmp_
     monkeypatch.setattr(
         verify_graph,
         "GraphGenerate",
-        lambda graph, task_name, output_dir=None: None,
+        lambda graph, task_name, output_dir=None, raise_on_error=False: None,
     )
 
     assert verify_graph.run_verification(str(model_path), "declared_outputs", clean=False) == 0

@@ -58,6 +58,21 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
         flat[2] = 0.0
         inputs_np[0] = from_float32(values, dtypes[0])
 
+    if op_name == "isnan":
+        # Deterministically exercise the true branch while retaining finite and
+        # infinite values so an always-false implementation cannot pass by luck.
+        total = int(np.prod(shapes[0]))
+        values = np.linspace(-4.0, 4.0, total, dtype=np.float32).reshape(shapes[0])
+        flat = values.reshape(-1)
+        flat[0] = np.nan
+        if total > 1:
+            flat[1] = np.inf
+        if total > 2:
+            flat[2] = -np.inf
+        if total > 3:
+            flat[3] = 0.0
+        inputs_np[0] = from_float32(values, dtypes[0])
+
     if op_name == "identity":
         # Identity 使用有限可量化样本，覆盖低精度位模式经 C 后端原样传递的路径。
         total = int(np.prod(shapes[0]))
@@ -595,8 +610,13 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
             axis += len(shapes[0])
         dim = int(shapes[0][axis])
         grid = np.indices(shapes[1], dtype=np.int64)
-        permutation = (np.arange(dim, dtype=np.int64) + 1) % dim
-        indices = permutation[grid[axis]]
+        if init_args.get("reduction") in {"max", "min"}:
+            # Exercise real reduction semantics: every coordinate along the
+            # selected axis targets slot zero, producing duplicate writes.
+            indices = np.zeros(shapes[1], dtype=np.int64)
+        else:
+            permutation = (np.arange(dim, dtype=np.int64) + 1) % dim
+            indices = permutation[grid[axis]]
         data_values = np.linspace(-2.0, 2.0, data_total, dtype=np.float32).reshape(shapes[0])
         update_values = np.linspace(3.0, -3.0, update_total, dtype=np.float32).reshape(shapes[2])
         inputs_np[0] = from_float32(data_values, dtypes[0])
@@ -735,10 +755,11 @@ def prepare_input_samples(op_name, shapes, dtypes, init_args):
         )
         seq_default = [seq_len] + [max(seq_len - 1 - (idx % 2), 1) for idx in range(1, batch)]
         inputs_np[4] = np.array(init_args.get("sequence_lens_value", seq_default), dtype=np.int64)
-        init_values = np.linspace(0.1, -0.15, num_dirs * batch * hidden, dtype=np.float32).reshape(num_dirs, batch, hidden)
+        state_shape = (batch, num_dirs, hidden) if layout == 1 else (num_dirs, batch, hidden)
+        init_values = np.linspace(0.1, -0.15, num_dirs * batch * hidden, dtype=np.float32).reshape(state_shape)
         inputs_np[5] = from_float32(init_values, dtypes[5])
         if op_name == "lstm":
-            init_c_values = np.linspace(-0.05, 0.2, num_dirs * batch * hidden, dtype=np.float32).reshape(num_dirs, batch, hidden)
+            init_c_values = np.linspace(-0.05, 0.2, num_dirs * batch * hidden, dtype=np.float32).reshape(state_shape)
             peephole_values = np.linspace(-0.05, 0.05, num_dirs * 3 * hidden, dtype=np.float32).reshape(num_dirs, 3 * hidden)
             inputs_np[6] = from_float32(init_c_values, dtypes[6])
             inputs_np[7] = from_float32(peephole_values, dtypes[7])

@@ -174,7 +174,7 @@ def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False
 
     print("\n[Step 4] 生成可视化流程图...")
     try:
-        GraphGenerate(graph, task_name, output_dir=result_dir)
+        GraphGenerate(graph, task_name, output_dir=result_dir, raise_on_error=True)
     except Exception:
         print("错误: 生成可视化图表失败。")
         traceback.print_exc()

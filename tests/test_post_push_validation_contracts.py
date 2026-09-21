@@ -19,6 +19,7 @@ def _verify_ordinary_output(monkeypatch, *, out_dtype, nps_output, cuda_output):
     monkeypatch.setattr(runner, "build_cuda_params", lambda *_args, **_kwargs: b"")
     monkeypatch.setattr(runner, "build_cuda_inputs", lambda *_args, **_kwargs: [sample])
     monkeypatch.setattr(runner, "run_cuda_ground_truth", lambda *_args, **_kwargs: cuda_output)
+    monkeypatch.setattr(runner, "resolve_output_shapes", lambda *_args, **_kwargs: ((1,),))
     return runner.verify_op(
         object, "probe", [(1,)], ["float32"], out_dtype, iterations=1
     )[2]

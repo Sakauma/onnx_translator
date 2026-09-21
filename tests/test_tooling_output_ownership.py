@@ -11,13 +11,15 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+import subprocess
+import sys
 
 import onnx
 import pytest
 from onnx import TensorProto, helper
 
 from tools import model_suite
-from tools.commands import verify_graph
+from tools.commands import graph_logic, verify_graph
 from nn import GraphVisualization
 
 
@@ -121,9 +123,10 @@ def test_verify_graph_passes_validated_result_dir_to_visualization_outside_repo(
     external_cwd.mkdir()
     captured = {}
 
-    def capture(_graph, task_name, output_dir=None):
+    def capture(_graph, task_name, output_dir=None, raise_on_error=False):
         captured["task_name"] = task_name
         captured["output_dir"] = output_dir
+        captured["raise_on_error"] = raise_on_error
 
     monkeypatch.setattr(verify_graph, "RESULT_ROOT", result_root)
     monkeypatch.setattr(verify_graph, "GraphGenerate", capture)
@@ -133,6 +136,7 @@ def test_verify_graph_passes_validated_result_dir_to_visualization_outside_repo(
     assert captured == {
         "task_name": "validated-task",
         "output_dir": result_root / "validated-task",
+        "raise_on_error": True,
     }
     assert not (external_cwd / "result").exists()
 
@@ -176,6 +180,64 @@ def test_graph_visualization_honors_explicit_output_dir_outside_repo(tmp_path, m
         True,
     )
     assert not (external_cwd / "result").exists()
+
+
+def test_verify_graph_returns_nonzero_when_graphviz_render_fails(tmp_path, monkeypatch):
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])
+    y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])
+    graph = helper.make_graph([helper.make_node("Identity", ["x"], ["y"])], "g", [x], [y])
+    model_path = tmp_path / "identity.onnx"
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
+    monkeypatch.setattr(verify_graph, "RESULT_ROOT", tmp_path / "result")
+
+    def fail_render(*_args, **_kwargs):
+        raise RuntimeError("synthetic dot failure")
+
+    monkeypatch.setattr(verify_graph, "GraphGenerate", fail_render)
+    assert verify_graph.run_verification(str(model_path), "render-failure", clean=False) == 1
+
+
+def test_graph_logic_rejects_traversal_and_accepts_legal_task_name(tmp_path, monkeypatch):
+    result_root = tmp_path / "result"
+    monkeypatch.setattr(verify_graph, "RESULT_ROOT", result_root)
+    assert graph_logic.main("missing.onnx", "../escaped") == 2
+    assert not (tmp_path / "escaped").exists()
+
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])
+    y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1])
+    graph = helper.make_graph([helper.make_node("Identity", ["x"], ["y"])], "g", [x], [y])
+    model_path = tmp_path / "identity.onnx"
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
+    captured = {}
+
+    def capture(_graph, task_name, output_dir=None, raise_on_error=False):
+        captured.update(
+            task_name=task_name,
+            output_dir=output_dir,
+            raise_on_error=raise_on_error,
+        )
+
+    monkeypatch.setattr(graph_logic, "GraphGenerate", capture)
+    assert graph_logic.main(str(model_path), "legal-task") == 0
+    assert captured == {
+        "task_name": "legal-task",
+        "output_dir": result_root / "legal-task",
+        "raise_on_error": True,
+    }
+
+
+def test_create_graph_model_cli_accepts_basename_output(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, str(root / "tools" / "cli.py"), "create-graph-model", "--output", "model.onnx"],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert (tmp_path / "model.onnx").is_file()
 
 
 def _enable_model_suite(monkeypatch, tmp_path):

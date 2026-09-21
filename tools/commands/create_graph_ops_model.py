@@ -25,7 +25,9 @@ def make_const(name: str, value: np.ndarray):
 
 # 实现 `export_graph_ops_model` 步骤，规范化输入并返回下游期望的数据或元信息。
 def export_graph_ops_model(out_path="./onnx_model/model.onnx"):
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    parent_dir = os.path.dirname(out_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
 
     nodes = []
     initializers = []

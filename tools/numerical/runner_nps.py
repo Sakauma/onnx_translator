@@ -27,6 +27,18 @@ class NpsForwardResult:
     topk_indices: object | None = None
 
 
+def _normalize_reduce_output(op_name: str, nps_out):
+    """Legacy helper retained for callers that need the one-element wire form.
+
+    The active runner no longer calls this function before shape validation;
+    logical scalar shape ``()`` must remain observable to the independent oracle.
+    """
+
+    if op_name.startswith("reduce_"):
+        return np.asarray(nps_out).reshape(1,)
+    return nps_out
+
+
 def _operator_init_args(op_name: str, init_args: dict, out_dtype: str) -> tuple[dict, dict[str, int]]:
     op_init_args = dict(init_args)
     op_init_args.pop("sizes_value", None)
@@ -91,22 +103,6 @@ def _operator_init_args(op_name: str, init_args: dict, out_dtype: str) -> tuple[
     if op_name == "constant_of_shape" and fill_value is not None:
         op_init_args["value"] = from_float32(np.array([fill_value], dtype=np.float32), out_dtype)
     return op_init_args, controls
-
-
-def _normalize_reduce_output(op_name: str, nps_out):
-    if op_name not in {
-        "reduce_sum",
-        "reduce_max",
-        "reduce_min",
-        "reduce_prod",
-        "reduce_l1",
-        "reduce_l2",
-        "reduce_log_sum",
-        "reduce_log_sum_exp",
-        "reduce_sum_square",
-    }:
-        return nps_out
-    return np.asarray(nps_out).reshape(1,)
 
 
 def run_nps_forward(op_cls, op_name: str, inputs_tensor: list, init_args: dict, out_dtype: str) -> NpsForwardResult:
@@ -217,4 +213,4 @@ def run_nps_forward(op_cls, op_name: str, inputs_tensor: list, init_args: dict, 
         else:
             nps_out = op.forward(*valid_tensors)["tensor"].data
 
-    return NpsForwardResult(_normalize_reduce_output(op_name, nps_out), topk_indices)
+    return NpsForwardResult(nps_out, topk_indices)

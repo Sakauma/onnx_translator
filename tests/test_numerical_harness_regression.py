@@ -14,7 +14,9 @@ from tools.numerical import cli as numerical_cli
 from tools.numerical import compare as numerical_compare
 from tools.numerical import cuda as cuda_runner
 from tools.numerical import runner as numerical_runner
+from tools.numerical import runner_inputs
 from tools.numerical import runner_nps
+from tools.numerical import runner_shapes
 from tools.numerical import runner_special_outputs
 
 
@@ -179,6 +181,7 @@ def test_finite_integer_difference_is_not_reported_as_nan_or_inf(monkeypatch, ca
     )
     monkeypatch.setattr(numerical_runner, "build_cuda_params", lambda *_args: b"")
     monkeypatch.setattr(numerical_runner, "build_cuda_inputs", lambda *_args: [sample])
+    monkeypatch.setattr(numerical_runner, "resolve_output_shapes", lambda *_args: ((1,),))
     monkeypatch.setattr(
         numerical_runner,
         "run_cuda_ground_truth",
@@ -206,6 +209,7 @@ def test_fractional_nps_integer_output_fails_through_verify_op(monkeypatch, caps
     )
     monkeypatch.setattr(numerical_runner, "build_cuda_params", lambda *_args: b"")
     monkeypatch.setattr(numerical_runner, "build_cuda_inputs", lambda *_args: [sample])
+    monkeypatch.setattr(numerical_runner, "resolve_output_shapes", lambda *_args: ((1,),))
     monkeypatch.setattr(
         numerical_runner,
         "run_cuda_ground_truth",
@@ -240,6 +244,120 @@ def _patch_verify_inputs(monkeypatch, nps_output, topk_indices=None):
     )
     monkeypatch.setattr(numerical_runner, "build_cuda_params", lambda *_args: b"")
     monkeypatch.setattr(numerical_runner, "build_cuda_inputs", lambda *_args: [sample])
+    def expected_shapes(op_name, *_args):
+        if op_name == "topk":
+            return (np.asarray(nps_output).shape, np.asarray(topk_indices).shape)
+        if isinstance(nps_output, (list, tuple)):
+            return tuple(np.asarray(value).shape for value in nps_output)
+        return (np.asarray(nps_output).shape,)
+
+    monkeypatch.setattr(numerical_runner, "resolve_output_shapes", expected_shapes)
+
+
+def test_active_runner_rejects_flattened_add_shape_before_cuda(monkeypatch, capsys):
+    inputs = [
+        np.arange(4, dtype=np.float32).reshape(2, 2),
+        np.zeros((2, 2), dtype=np.float32),
+    ]
+    malformed = np.arange(4, dtype=np.float32)
+    monkeypatch.setattr(numerical_runner, "prepare_input_samples", lambda *_args: inputs)
+    monkeypatch.setattr(
+        numerical_runner,
+        "run_nps_forward",
+        lambda *_args: SimpleNamespace(output=malformed, topk_indices=None),
+    )
+    monkeypatch.setattr(
+        numerical_runner,
+        "run_cuda_ground_truth",
+        lambda *_args, **_kwargs: pytest.fail("shape mismatch reached CUDA dispatch"),
+    )
+
+    _abs, _rel, ok = numerical_runner.verify_op(
+        object,
+        "add",
+        [(2, 2), (2, 2)],
+        ["float32", "float32"],
+        "float32",
+        iterations=1,
+    )
+
+    assert not ok
+    assert "expected (2, 2), got (4,)" in capsys.readouterr().out
+
+
+def test_every_default_plan_has_independent_shape_metadata():
+    plans = numerical_cli.build_default_plans()
+    assert len(plans) == 728
+    for plan in plans:
+        _op_cls, op_name, shapes, dtypes, _out_dtype = plan[:5]
+        init_args = plan[5] if len(plan) == 6 else {}
+        inputs = runner_inputs.prepare_input_samples(op_name, shapes, dtypes, init_args)
+        resolved = runner_shapes.resolve_output_shapes(op_name, inputs, init_args)
+        assert resolved
+        assert all(isinstance(shape, tuple) for shape in resolved)
+
+
+def test_shape_oracle_covers_dynamic_and_multioutput_contracts():
+    nonzero = np.array([[0.0, 1.0], [2.0, 0.0]], dtype=np.float32)
+    assert runner_shapes.resolve_output_shapes("nonzero", [nonzero]) == ((2, 2),)
+
+    unique = np.array([3, 1, 3, 2, 1], dtype=np.int64)
+    assert runner_shapes.resolve_output_shapes("unique", [unique], {}) == (
+        (3,), (3,), (5,), (3,)
+    )
+
+    source = np.zeros((2, 4), dtype=np.float32)
+    assert runner_shapes.resolve_output_shapes("dynamic_quantize_linear", [source]) == (
+        (2, 4), (), ()
+    )
+    assert runner_shapes.resolve_output_shapes(
+        "topk", [source, np.array([2], dtype=np.int64)], {"axis": 1}
+    ) == ((2, 2), (2, 2))
+
+
+def test_nms_shape_oracle_keeps_score_equal_to_threshold_per_schema():
+    boxes = np.array([[[0.0, 0.0, 1.0, 1.0], [0.0, 2.0, 1.0, 3.0]]], dtype=np.float32)
+    scores = np.array([[[0.5, 0.4]]], dtype=np.float32)
+    inputs = [
+        boxes,
+        scores,
+        np.array([2], dtype=np.int64),
+        np.array([0.5], dtype=np.float32),
+        np.array([0.5], dtype=np.float32),
+    ]
+    assert runner_shapes.resolve_output_shapes(
+        "non_max_suppression", inputs, {"center_point_box": 0}
+    ) == ((1, 3),)
+
+
+def test_isnan_plan_includes_nan_and_always_false_mutant_fails(monkeypatch, capsys):
+    sample = runner_inputs.prepare_input_samples("isnan", [(8,)], ["float32"], {})[0]
+    assert np.isnan(sample).any()
+    assert np.isposinf(sample).any()
+    assert np.isneginf(sample).any()
+    assert np.isfinite(sample).any()
+
+    monkeypatch.setattr(numerical_runner, "prepare_input_samples", lambda *_args: [sample])
+    monkeypatch.setattr(
+        numerical_runner,
+        "run_nps_forward",
+        lambda *_args: SimpleNamespace(
+            output=np.zeros(sample.shape, dtype=np.bool_), topk_indices=None
+        ),
+    )
+    monkeypatch.setattr(numerical_runner, "build_cuda_params", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(numerical_runner, "build_cuda_inputs", lambda *_args: [sample])
+    monkeypatch.setattr(
+        numerical_runner,
+        "run_cuda_ground_truth",
+        lambda *_args, **_kwargs: np.isnan(sample).astype(np.float32),
+    )
+
+    _abs, _rel, ok = numerical_runner.verify_op(
+        object, "isnan", [(8,)], ["float32"], "bool", iterations=1
+    )
+    assert not ok
+    assert "FAILED" in capsys.readouterr().out
 
 
 def test_split_uint32_precision_boundary_fails_through_verify_op(monkeypatch, capsys):

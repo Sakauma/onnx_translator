@@ -10,6 +10,7 @@
 # */
 
 import numpy as np
+import pytest
 
 from tools.numerical.runner_cuda_params import build_cuda_params
 
@@ -82,3 +83,38 @@ def test_slice_params_encode_output_shape_starts_and_steps():
     )
 
     assert _i32(payload) == [3, 2, 3, 4, 2, 3, 4, 0, 0, 3, 1, 1, -1]
+
+
+@pytest.mark.parametrize(("reduction", "code"), [("max", 3), ("min", 4)])
+def test_scatter_elements_params_encode_opset18_reductions(reduction, code):
+    inputs = [
+        np.zeros((2, 3), dtype=np.float32),
+        np.zeros((2, 3), dtype=np.int64),
+        np.ones((2, 3), dtype=np.float32),
+    ]
+    payload = build_cuda_params(
+        "scatter_elements",
+        inputs,
+        {"axis": 1, "reduction": reduction, "version": "18"},
+        [(2, 3), (2, 3), (2, 3)],
+        ["float32", "int64", "float32"],
+        "float32",
+    )
+    assert _i32(payload)[:3] == [2, 1, code]
+
+
+def test_scatter_elements_params_reject_unknown_reduction():
+    inputs = [
+        np.zeros((2, 3), dtype=np.float32),
+        np.zeros((2, 3), dtype=np.int64),
+        np.ones((2, 3), dtype=np.float32),
+    ]
+    with pytest.raises(ValueError, match="unsupported ScatterElements reduction"):
+        build_cuda_params(
+            "scatter_elements",
+            inputs,
+            {"axis": 1, "reduction": "mystery"},
+            [(2, 3), (2, 3), (2, 3)],
+            ["float32", "int64", "float32"],
+            "float32",
+        )

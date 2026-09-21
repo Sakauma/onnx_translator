@@ -20,9 +20,22 @@ from .runner_params import (
     recurrent_params_binary,
     slice_io_values,
 )
+from .runner_shapes import resolve_output_shapes
 
 
-def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, nps_out):
+def build_cuda_params(
+    op_name,
+    inputs_np,
+    init_args,
+    shapes,
+    dtypes,
+    out_dtype,
+    nps_out=None,
+    expected_shapes=None,
+):
+    if expected_shapes is None:
+        expected_shapes = resolve_output_shapes(op_name, inputs_np, init_args)
+    expected_shape = expected_shapes[0]
     # 3. CUDA 参数打包
     params_bin = None
     if op_name == "conv2d":
@@ -259,7 +272,7 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
             axis += x.ndim
         inverse = init_args.get("inverse", 0)
         onesided = init_args.get("onesided", 0)
-        output_shape = list(map(int, np.asarray(nps_out).shape))
+        output_shape = list(map(int, expected_shape))
         input_shape = list(map(int, x.shape))
         params_bin = np.array(
             [
@@ -532,7 +545,7 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
 
     elif op_name == "center_crop_pad":
         input_shape = list(shapes[0])
-        output_shape = list(np.asarray(nps_out).shape)
+        output_shape = list(expected_shape)
         params_bin = np.array([len(input_shape), *input_shape, *output_shape], dtype=np.int32).tobytes()
 
     elif op_name == "depth_to_space":
@@ -552,7 +565,7 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
 
     elif op_name == "slice":
         input_shape = list(map(int, shapes[0]))
-        output_shape = list(map(int, np.asarray(nps_out).shape))
+        output_shape = list(map(int, expected_shape))
         starts, ends, axes, steps = slice_io_values(init_args, input_shape)
         full_starts, _full_ends, full_steps = normalize_slice_parameters(input_shape, starts, ends, axes, steps)
         params_bin = np.array(
@@ -573,7 +586,7 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
 
     elif op_name == "one_hot":
         indices_shape = list(map(int, shapes[0]))
-        output_shape = list(map(int, np.asarray(nps_out).shape))
+        output_shape = list(map(int, expected_shape))
         axis = int(init_args.get("axis", -1))
         if axis < 0:
             axis += len(output_shape)
@@ -618,7 +631,7 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
 
     elif op_name == "compress":
         input_shape = list(map(int, shapes[0]))
-        output_shape = list(map(int, np.asarray(nps_out).shape))
+        output_shape = list(map(int, expected_shape))
         axis_value = init_args.get("axis", None)
         axis = -1
         if axis_value is not None:
@@ -636,7 +649,11 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
         axis = int(init_args.get("axis", 0))
         if axis < 0:
             axis += len(data_shape)
-        reduction = {"none": 0, "add": 1, "mul": 2}.get(init_args.get("reduction", "none"), 0)
+        reduction_name = init_args.get("reduction", "none")
+        reduction_codes = {"none": 0, "add": 1, "mul": 2, "max": 3, "min": 4}
+        if reduction_name not in reduction_codes:
+            raise ValueError(f"unsupported ScatterElements reduction: {reduction_name!r}")
+        reduction = reduction_codes[reduction_name]
         params_bin = np.array(
             [len(data_shape), axis, reduction, *data_shape, *update_shape],
             dtype=np.int32,
@@ -875,7 +892,7 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
         params_bin = (np.array([numel], dtype=np.int32).tobytes() + np.array([low, high], dtype=np.float32).tobytes() + np.array([seed], dtype=np.uint32).tobytes())
 
     elif op_name == "random_uniform":
-        numel = int(np.prod(np.asarray(nps_out).shape))
+        numel = int(np.prod(expected_shape))
         low = float(init_args.get("low", 0.0))
         high = float(init_args.get("high", 1.0))
         seed = np.uint32(int(init_args.get("seed", 123)))
@@ -886,7 +903,7 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
         )
 
     elif op_name in {"random_normal", "random_normal_like"}:
-        numel = int(np.prod(np.asarray(nps_out).shape))
+        numel = int(np.prod(expected_shape))
         mean = float(init_args.get("mean", 0.0))
         scale = float(init_args.get("scale", 1.0))
         seed = np.uint32(int(init_args.get("seed", 123)))
@@ -903,7 +920,7 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
 
     elif op_name == "multinomial":
         batch, classes = shapes[0]
-        sample_size = int(init_args.get("sample_size", np.asarray(nps_out).shape[1]))
+        sample_size = int(init_args.get("sample_size", expected_shape[1]))
         output_dtype_code = 1 if out_dtype == "int64" else 0
         seed = np.uint32(int(init_args.get("seed", 0) or 0))
         params_bin = (
@@ -962,7 +979,7 @@ def build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, 
         if len(inputs_np) > 1:
             split_sizes = [int(v) for v in np.asarray(inputs_np[1], dtype=np.int64).reshape(-1)]
         else:
-            count = int(init_args.get("num_outputs", len(nps_out)))
+            count = int(init_args.get("num_outputs", len(expected_shapes)))
             dim_len = input_shape[axis]
             div, remainder = divmod(dim_len, count)
             split_sizes = [div + (1 if idx < remainder else 0) for idx in range(count)]

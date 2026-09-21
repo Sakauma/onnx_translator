@@ -17,12 +17,18 @@ from nn.GraphVisualization import GraphGenerate
 import os
 import sys
 
+from .verify_graph import _resolve_result_dir
+
 
 # 执行图逻辑验证命令，导入模型、推断结构并生成可视化结果。
 def main(model_path="./onnx_model/model.onnx", model_name="graph_logic_test"):
-    result_dir = os.path.join("./result", model_name)
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
+    try:
+        result_dir = _resolve_result_dir(model_name)
+    except ValueError as exc:
+        print(f"错误：{exc}")
+        return 2
+    if not result_dir.exists():
+        result_dir.mkdir(parents=True)
         print(f"创建目录: {result_dir}")
 
     print("步骤 1: 导入 ONNX 模型并映射算子...")
@@ -54,7 +60,12 @@ def main(model_path="./onnx_model/model.onnx", model_name="graph_logic_test"):
 
     print("\n步骤 4: 生成图可视化文件...")
     try:
-        GraphGenerate(graph_for_logic, model_name)
+        GraphGenerate(
+            graph_for_logic,
+            model_name,
+            output_dir=result_dir,
+            raise_on_error=True,
+        )
         print(f"✅ 逻辑验证成功！流程图已保存在 '{result_dir}' 目录中。")
     except Exception as e:
         print(f"❌ 生成图表时出错: {e}")

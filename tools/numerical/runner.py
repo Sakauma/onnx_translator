@@ -23,6 +23,11 @@ from .runner_cuda_inputs import build_cuda_inputs, resolve_cuda_output_dtype
 from .runner_cuda_params import build_cuda_params
 from .runner_inputs import prepare_input_samples
 from .runner_nps import run_nps_forward
+from .runner_shapes import (
+    ShapeOracleError,
+    resolve_output_shapes,
+    validate_nps_output_shapes,
+)
 from .output_contracts import OutputContractError, require_array, require_shape
 from .runner_special_outputs import (
     SpecialOutputAction,
@@ -63,6 +68,16 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             if data is not None: inputs_tensor.append(Tensor(*data.shape, dtype=d, data=data))
             else: inputs_tensor.append(None)
 
+        # Resolve every logical output shape solely from the prepared inputs and
+        # plan attributes.  This must happen before the tested implementation runs,
+        # otherwise a malformed C output could define CUDA's target reshape.
+        try:
+            expected_shapes = resolve_output_shapes(op_name, inputs_np, init_args)
+        except (ShapeOracleError, TypeError, ValueError) as exc:
+            print(f"  ❌ Iter {i} FAILED")
+            print(f"     Independent shape oracle failed: {exc}")
+            break
+
         try:
             nps_result = run_nps_forward(op_cls, op_name, inputs_tensor, init_args, out_dtype)
             nps_out = nps_result.output
@@ -71,9 +86,25 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             print(f"  ❌ Iter {i} Crash: {e}")
             traceback.print_exc()
             continue
+
+        try:
+            validate_nps_output_shapes(op_name, nps_result, expected_shapes)
+        except ShapeOracleError as exc:
+            print(f"  ❌ Iter {i} FAILED")
+            print(f"     Output contract mismatch: {exc}")
+            break
             
         # params.bin 是 CUDA verifier 的稳定参数协议，必须基于本轮实际输入和 C 输出构造。
-        params_bin = build_cuda_params(op_name, inputs_np, init_args, shapes, dtypes, out_dtype, nps_out)
+        params_bin = build_cuda_params(
+            op_name,
+            inputs_np,
+            init_args,
+            shapes,
+            dtypes,
+            out_dtype,
+            None,
+            expected_shapes,
+        )
 
         # 多输出和 sidecar 协议在这里截获；NOT_HANDLED 才进入普通单输出路径。
         special_state = SpecialOutputState(
@@ -118,10 +149,12 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
                 break
 
         # 标量统一物化成单元素数组，因为 CUDA 文件协议只传输张量缓冲区。
-        expected_shape = nps_out.shape
-        if expected_shape == ():
-            expected_shape = (1,)  # 统一当成 1 元素张量来跑 CUDA/读写 bin
-            nps_out = np.array([nps_out], dtype=nps_out.dtype)
+        logical_shape = expected_shapes[0]
+        expected_shape = logical_shape if logical_shape else (1,)
+        if logical_shape == ():
+            # CUDA's file protocol carries a one-element buffer for a logical
+            # scalar.  Shape validation above already checked the logical ``()``.
+            nps_out = np.asarray(nps_out).reshape(expected_shape)
         cuda_inputs = build_cuda_inputs(
             op_name,
             inputs_np,
@@ -153,16 +186,7 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             cuda_topk_indices = cuda_result.sidecars["tmp_out_idx.bin"]
 
             try:
-                input_shape = np.asarray(inputs_np[0]).shape
-                axis = int(init_args.get("axis", -1)) % len(input_shape)
-                if len(inputs_np) > 1 and inputs_np[1] is not None:
-                    expected_topk_shape = list(input_shape)
-                    expected_topk_shape[axis] = int(np.asarray(inputs_np[1]).reshape(-1)[0])
-                    expected_topk_shape = tuple(expected_topk_shape)
-                else:
-                    # Some direct verifier regression fixtures predate the explicit K input.
-                    # Live TopK plans always take the schema-derived branch above.
-                    expected_topk_shape = np.asarray(nps_out).shape
+                expected_topk_shape = expected_shapes[0]
                 nps_out = require_shape(
                     nps_out, name="TopK NPS values", shape=expected_topk_shape
                 )
