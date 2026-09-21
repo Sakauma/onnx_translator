@@ -195,6 +195,7 @@ make PYTHON=$PYTHON model-smoke
 ```
 
 该命令生成并严格验证 CNN、Transformer block 和 Embedding MLP 三类 ONNX 模型，覆盖常见发布路径中的导入、initializer、图连接、shape 推导，并用 ONNX reference evaluator 对齐 C 后端真实前向数值。
+自定义 `--output-dir` 必须指向尚不存在或内容为空的目录；默认清理只移除本次生成的模型文件，并保留调用者已有的空目录。
 
 性能基线：
 

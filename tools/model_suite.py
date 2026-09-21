@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -343,26 +342,91 @@ def verify_model_suite(output_dir: Path, check_numeric: bool = True) -> list[dic
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate and verify representative ONNX model smoke tests.")
-    parser.add_argument("--output-dir", default=str(ROOT / "onnx_model" / "model_suite"), help="Directory for generated ONNX models.")
+    parser.add_argument(
+        "--output-dir",
+        default=str(ROOT / "onnx_model" / "model_suite"),
+        help="New or empty directory for generated ONNX models.",
+    )
     parser.add_argument("--skip-numeric", action="store_true", help="Only verify import and shape inference; skip ONNX reference numeric comparison.")
     parser.add_argument("--keep-artifacts", action="store_true", help="Keep generated ONNX model files for inspection.")
     return parser.parse_args(argv)
 
 
+def _validate_output_dir(output_dir: Path) -> bool:
+    if not output_dir.exists():
+        return False
+    if not output_dir.is_dir():
+        raise ValueError(f"output path is not a directory: {output_dir}")
+    if any(output_dir.iterdir()):
+        raise ValueError(f"output directory must be new or empty: {output_dir}")
+    return True
+
+
+def _reserve_output_files(output_dir: Path) -> list[Path]:
+    owned_paths = []
+    try:
+        for spec in MODEL_SPECS:
+            path = output_dir / f"{spec.name}.onnx"
+            path.touch(exist_ok=False)
+            owned_paths.append(path)
+    except Exception:
+        for path in owned_paths:
+            path.unlink(missing_ok=True)
+        raise
+    return owned_paths
+
+
+def _cleanup_owned_outputs(owned_paths: list[Path], output_dir: Path, remove_output_dir: bool) -> None:
+    for path in owned_paths:
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+    if remove_output_dir and output_dir.exists() and not any(output_dir.iterdir()):
+        output_dir.rmdir()
+
+
+def _cleanup_unwritten_reservations(
+    owned_paths: list[Path], output_dir: Path, remove_output_dir: bool
+) -> None:
+    for path in owned_paths:
+        if path.is_file() and path.stat().st_size == 0:
+            path.unlink()
+    if remove_output_dir and output_dir.exists() and not any(output_dir.iterdir()):
+        output_dir.rmdir()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    output_dir = Path(args.output_dir)
+    try:
+        output_dir_existed = _validate_output_dir(output_dir)
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
     if not Path(nn.TENSOR_OPS_LIB_PATH).exists():
         print(f"ERROR: C backend library not found: {nn.TENSOR_OPS_LIB_PATH}. Run `make` first.", file=sys.stderr)
         return 1
-    output_dir = Path(args.output_dir)
+
+    owned_paths = []
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if any(output_dir.iterdir()):
+            raise ValueError(f"output directory must be new or empty: {output_dir}")
+        owned_paths = _reserve_output_files(output_dir)
+    except (OSError, ValueError) as exc:
+        _cleanup_owned_outputs(owned_paths, output_dir, remove_output_dir=not output_dir_existed)
+        print(f"ERROR: unable to reserve model suite outputs: {exc}", file=sys.stderr)
+        return 2
+
     try:
         verify_model_suite(output_dir, check_numeric=not args.skip_numeric)
     finally:
-        if not args.keep_artifacts and output_dir.exists():
-            shutil.rmtree(output_dir)
-            parent = output_dir.parent
-            if parent.exists() and not any(parent.iterdir()):
-                parent.rmdir()
+        if args.keep_artifacts:
+            _cleanup_unwritten_reservations(
+                owned_paths, output_dir, remove_output_dir=not output_dir_existed
+            )
+        else:
+            _cleanup_owned_outputs(owned_paths, output_dir, remove_output_dir=not output_dir_existed)
     print("Representative model suite smoke gate passed.")
     return 0
 

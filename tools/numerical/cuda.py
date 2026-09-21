@@ -11,13 +11,17 @@
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import subprocess
 import tempfile
 
 import numpy as np
 
 
-CUDA_VERIFY_DIR = os.environ.get("CUDA_VERIFY_DIR", "cache")
+CUDA_VERIFY_DIR = os.environ.get(
+    "CUDA_VERIFY_DIR",
+    str(Path(__file__).resolve().parents[2] / "cache"),
+)
 
 
 @dataclass(frozen=True)

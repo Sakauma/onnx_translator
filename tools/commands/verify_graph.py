@@ -14,6 +14,7 @@ import os
 import shutil
 import sys
 import traceback
+from pathlib import Path
 
 import onnx
 
@@ -22,6 +23,32 @@ import nn.ModelInitParas
 from nn import Graph
 from nn.GraphVisualization import GraphGenerate
 from nn.ONNXImport import ONNXImport
+
+
+RESULT_ROOT = Path(__file__).resolve().parents[2] / "result"
+
+
+def _resolve_result_dir(task_name):
+    if (
+        not task_name
+        or task_name in {".", ".."}
+        or "/" in task_name
+        or "\\" in task_name
+        or Path(task_name).is_absolute()
+    ):
+        raise ValueError("task name must be a non-empty directory basename")
+
+    result_root = RESULT_ROOT.resolve()
+    lexical_result_dir = result_root / task_name
+    try:
+        result_dir = lexical_result_dir.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"task result path cannot be resolved safely: {exc}") from exc
+    if result_dir.parent != result_root:
+        raise ValueError("task name must resolve to a direct child of the result directory")
+    if result_dir != lexical_result_dir:
+        raise ValueError("task result directory must not be a symbolic link or filesystem alias")
+    return result_dir
 
 
 def _declared_outputs(model):
@@ -69,10 +96,10 @@ def _validate_declared_outputs(declarations, inferred):
 
 # 实现 `run_verification` 步骤，规范化输入并返回下游期望的数据或元信息。
 def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False, clean=True):
-    result_dir = os.path.join("./result", task_name)
-    if clean and os.path.exists(result_dir):
+    result_dir = _resolve_result_dir(task_name)
+    if clean and result_dir.exists():
         shutil.rmtree(result_dir)
-    os.makedirs(result_dir, exist_ok=True)
+    result_dir.mkdir(parents=True, exist_ok=True)
     print(f"创建结果目录: {result_dir}")
 
     print(f"\n开始验证模型: {onnx_file_path}")
@@ -147,7 +174,7 @@ def run_verification(onnx_file_path, task_name, strict=True, allow_generic=False
 
     print("\n[Step 4] 生成可视化流程图...")
     try:
-        GraphGenerate(graph, task_name)
+        GraphGenerate(graph, task_name, output_dir=result_dir)
     except Exception:
         print("错误: 生成可视化图表失败。")
         traceback.print_exc()
@@ -165,6 +192,11 @@ def main(argv=None):
     parser.add_argument("--no-strict", action="store_true", help="Let ONNXImport downgrade unsupported nodes instead of failing immediately.")
     parser.add_argument("--no-clean", action="store_true", help="Keep the previous result directory.")
     args = parser.parse_args(argv)
+
+    try:
+        _resolve_result_dir(args.task_name)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if not os.path.exists(args.model):
         print(f"找不到模型文件: {args.model}")

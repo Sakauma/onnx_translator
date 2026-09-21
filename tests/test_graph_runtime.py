@@ -167,7 +167,11 @@ def test_verify_graph_uses_declared_output_order_and_ignores_extra_terminal(tmp_
     )
     model_path = tmp_path / "declared_outputs.onnx"
     onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]), model_path)
-    monkeypatch.setattr(verify_graph, "GraphGenerate", lambda graph, task_name: None)
+    monkeypatch.setattr(
+        verify_graph,
+        "GraphGenerate",
+        lambda graph, task_name, output_dir=None: None,
+    )
 
     assert verify_graph.run_verification(str(model_path), "declared_outputs", clean=False) == 0
 
