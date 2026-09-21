@@ -134,11 +134,17 @@ def ONNXImport(file_path, strict=False):
     # 解析 Initializers
     # =========================================================================
     print("   [ONNXImport] Parsing Initializers...")
+    graph_input_names = {value.name for value in onnx_model.graph.input}
     for init in onnx_model.graph.initializer:
         try:
             val = numpy_helper.to_array(init, base_dir=str(Path(resolved_model_path).parent))
             dtype = onnx_dtype_mapping.get(init.data_type, "float32")
             const_op = nn.Operators.Constant([], [init.name], value=val, dtype=dtype, version="17")
+            # ONNX permits an initializer to share a graph-input name. In that case
+            # it is a default value which the caller may override at runtime, not an
+            # unconditional second producer of the edge.
+            const_op.is_initializer = True
+            const_op.is_overridable_initializer = init.name in graph_input_names
             onnx_graph_list.append(const_op)
         except Exception as e:
             message = (

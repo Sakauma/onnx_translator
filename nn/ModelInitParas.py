@@ -13,7 +13,7 @@ import onnx
 from nn import Tensor
 from nn import onnx_dtype_mapping
 import numpy as np
-from onnx import shape_inference
+from onnx import numpy_helper, shape_inference
 from nn.importer.model_loader import load_model
 
 # ONNX数据类型到NumPy数据类型的映射
@@ -72,17 +72,12 @@ def ONNXParasGen(file_path):
     model = load_model(file_path, load_external_data=True)
     graph = model.graph
 
-    # 构建所有Initializer的名称集合
-    # 这些是内部常量，不应被视为外部输入
-    initializer_names = set()
-    for init in graph.initializer:
-        initializer_names.add(init.name)
+    # 只在 initializer 未声明为 graph input 时将其视为纯内部常量。
+    # 同名 graph input 的 initializer 是 ONNX 定义的可覆盖默认值。
+    initializers = {init.name: init for init in graph.initializer}
     
     # 遍历图的输入节点
     for item in graph.input:
-        if item.name in initializer_names:
-            continue
-
         print("item: ", item.name)
         inputs_list.append(item.name)
         
@@ -94,6 +89,13 @@ def ONNXParasGen(file_path):
         # 获取张量数据类型
         elem_type = get_tensor_dtype(item.name, model)
         dtype = onnx_dtype_mapping.get(elem_type, "float32")
+
+        if item.name in initializers:
+            # 保持 names/tensors 等长，供现有 CLI 按位置 zip；传给 Graph 的
+            # 数值与省略该参数时使用的 serialized default 完全相同。
+            data = np.asarray(numpy_helper.to_array(initializers[item.name])).copy()
+            tensor_list.append(Tensor(*data.shape, dtype=dtype, data=data))
+            continue
         
         # 根据数据类型创建随机张量
         if "float" in dtype:

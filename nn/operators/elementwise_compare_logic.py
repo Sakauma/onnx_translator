@@ -224,6 +224,8 @@ class Sign(Ops):
 
 
 class Identity(Ops):
+    supports_unknown_shape_metadata = True
+
     # 初始化 `Identity` 的构造参数，保存后续运行、形状推断或验证所需的状态。
     def __init__(self, inputs, outputs, dtype, version="17"):
         super().__init__(inputs, outputs)
@@ -251,7 +253,10 @@ class Identity(Ops):
     # 执行 `Identity` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, x):
         if isinstance(x, Tensor_):
-            return {"tensor": Tensor_(*x.size, dtype=self.dtype or x.dtype), "parameters": None}
+            return {
+                "tensor": Tensor_.metadata_like(x, dtype=self.dtype or x.dtype),
+                "parameters": None,
+            }
         return {"tensor": x, "parameters": None}
 
 

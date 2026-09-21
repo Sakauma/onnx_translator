@@ -291,10 +291,63 @@ class If(Ops):
         )
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
+    @staticmethod
+    def _merge_tensor_output(then_info, else_info, output_index):
+        then_type = then_info.type
+        else_type = else_info.type
+        then_kind = then_type.WhichOneof("value")
+        else_kind = else_type.WhichOneof("value")
+        if then_kind != else_kind:
+            raise TypeError(
+                f"If output {output_index} branch type mismatch: "
+                f"{then_kind} != {else_kind}"
+            )
+        if not then_type.HasField("tensor_type") or not else_type.HasField("tensor_type"):
+            # Container-valued If outputs keep the established metadata behavior;
+            # tensor rank/dimension merging below must not invent a container shape.
+            return _graph_value_shape(then_info)
+
+        then_tensor = then_type.tensor_type
+        else_tensor = else_type.tensor_type
+        if then_tensor.elem_type != else_tensor.elem_type:
+            raise TypeError(
+                f"If output {output_index} branch dtype mismatch: "
+                f"{then_tensor.elem_type} != {else_tensor.elem_type}"
+            )
+        dtype = nn.onnx_dtype_mapping.get(then_tensor.elem_type)
+        if dtype is None:
+            raise TypeError(
+                f"If output {output_index} has unsupported element type "
+                f"{then_tensor.elem_type}"
+            )
+
+        if not then_tensor.HasField("shape") or not else_tensor.HasField("shape"):
+            return Tensor_(dtype=dtype, rank_known=False)
+        then_dims = then_tensor.shape.dim
+        else_dims = else_tensor.shape.dim
+        if len(then_dims) != len(else_dims):
+            return Tensor_(dtype=dtype, rank_known=False)
+
+        merged = []
+        for then_dim, else_dim in zip(then_dims, else_dims):
+            then_value = int(then_dim.dim_value) if then_dim.HasField("dim_value") else None
+            else_value = int(else_dim.dim_value) if else_dim.HasField("dim_value") else None
+            merged.append(then_value if then_value == else_value else None)
+        return Tensor_(*merged, dtype=dtype)
+
     # 执行 `If` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, cond):
-        graph = self.then_branch
-        outputs = tuple(_graph_value_shape(value_info) for value_info in graph.output)
+        if len(self.then_branch.output) != len(self.else_branch.output):
+            raise ValueError(
+                "If branches declare different output counts: "
+                f"{len(self.then_branch.output)} != {len(self.else_branch.output)}"
+            )
+        outputs = tuple(
+            self._merge_tensor_output(then_info, else_info, index)
+            for index, (then_info, else_info) in enumerate(
+                zip(self.then_branch.output, self.else_branch.output)
+            )
+        )
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}
 
 

@@ -214,27 +214,62 @@ class Tensor:
 class Tensor_:
     """图构建和形状推断阶段使用的纯元数据张量，不分配数值缓冲区。"""
     
-    def __init__(self, *size, dtype="float32"):
+    def __init__(self, *size, dtype="float32", rank_known=True):
         """记录占位形状和逻辑 dtype，形状参数规则与 :class:`Tensor` 一致。
 
         Args:
-            *size: 张量的维度大小。
+            *size: 张量的维度大小；单个 ``None`` 表示 rank-1 的未知维。
             dtype: 项目内部逻辑 dtype 名称。
+            rank_known: 为 False 时表示整个 rank 未知，此时 ``size`` 必须为空。
         """
         # self.size = size[0] if (isinstance(size[0], list) and len(size) == 1) else size
         # self.data_size = 1
         # for s in self.size:
         #     self.data_size *= s
         # self.dtype = dtype
-        if len(size) == 1 and isinstance(size[0], list):
+        if not rank_known:
+            if size:
+                raise ValueError("unknown-rank Tensor_ cannot declare dimensions")
+            self.size = None
+        elif len(size) == 1 and isinstance(size[0], list):
             self.size = size[0]
         else:
             self.size = size
             
-        self.data_size = 1
-        for s in self.size:
-            self.data_size *= s
+        self.data_size = None
+        if self.size is not None and all(s is not None for s in self.size):
+            self.data_size = 1
+            for s in self.size:
+                self.data_size *= s
         self.dtype = dtype
+
+    @classmethod
+    def metadata_like(cls, tensor, dtype=None):
+        """复制张量元数据，同时保留未知维和未知 rank。"""
+        output_dtype = dtype or tensor.dtype
+        if tensor.size is None:
+            return cls(dtype=output_dtype, rank_known=False)
+        return cls(*tensor.size, dtype=output_dtype)
+
+    def require_known_rank(self, context="operation"):
+        """返回形状；需要具体 rank 的推断路径用此方法给出清楚错误。"""
+        if self.size is None:
+            raise ValueError(f"{context} requires a statically known input rank")
+        return self.size
+
+    def require_concrete_shape(self, context="operation"):
+        """返回可安全物化的形状，拒绝未知 rank 或未知维。"""
+        shape = self.require_known_rank(context)
+        unknown_dims = [index for index, size in enumerate(shape) if size is None]
+        if unknown_dims:
+            raise ValueError(
+                f"{context} requires concrete input dimensions; "
+                f"unknown dimension(s): {unknown_dims}"
+            )
+        return shape
+
+    def __repr__(self):
+        return f"Tensor_(size={self.size!r}, dtype={self.dtype!r})"
 
 class Ops:
     """内部算子的公共基类，统一 C 后端加载和张量桥接协议。
@@ -496,8 +531,10 @@ class Graph:
         Args:
             ops: 已按依赖拓扑排序的操作节点列表。
         """
+        ops = list(ops)
         name_dict = {}
         self.ops = OrderedDict()
+        accepted_default_edges = set()
         self.output_in_degree = {na: 0 for na in self.input_name}
         produced_edges = []
 
@@ -531,8 +568,21 @@ class Graph:
                 if o not in self.output_in_degree:
                     self.output_in_degree[o] = 0
                     produced_edges.append(o)
+                elif (
+                    o in self.input_name
+                    and o not in accepted_default_edges
+                    and self._is_initializer_default(op)
+                ):
+                    # The initializer supplies this graph input's default. Runtime
+                    # binding decides whether this producer executes for each call.
+                    accepted_default_edges.add(o)
+                    continue
                 else:
                     raise ValueError(f"output edge name {o} repeat!!!")
+
+        self.default_input_names = [
+            name for name in self.input_name if name in accepted_default_edges
+        ]
 
         # 如果没有指定输出节点，则自动推断为无消费者的算子输出。
         if not self.output_name:
@@ -541,13 +591,70 @@ class Graph:
                 if self.output_in_degree.get(edge, 0) == 0
             ]
 
-    def _init_edge_data(self, inputs):
-        """按声明顺序绑定图输入；位置和数量都是公开调用契约。"""
-        if len(inputs) != len(self.input_name):
-            raise ValueError(
-                f"Graph expects {len(self.input_name)} inputs, got {len(inputs)}"
-            )
-        return {na: inputs[idx] for idx, na in enumerate(self.input_name)}
+    def _init_edge_data(self, inputs, named_inputs=None):
+        """绑定必需输入和 initializer 默认输入。
+
+        完整位置参数按 ONNX 声明顺序解释。省略默认输入时，位置参数按必需
+        输入顺序解释；部分默认值覆盖可通过同名关键字明确绑定。
+        """
+        named_inputs = dict(named_inputs or {})
+        unknown = [name for name in named_inputs if name not in self.input_name]
+        if unknown:
+            raise ValueError(f"Unknown graph input name(s): {unknown}")
+
+        required_names = [
+            name for name in self.input_name if name not in self.default_input_names
+        ]
+        if len(inputs) == len(self.input_name) and not named_inputs:
+            positional_names = list(self.input_name)
+        else:
+            positional_order = required_names + list(self.default_input_names)
+            if len(inputs) > len(positional_order):
+                raise ValueError(
+                    f"Graph expects at most {len(self.input_name)} inputs, "
+                    f"got {len(inputs) + len(named_inputs)}"
+                )
+            positional_names = positional_order[:len(inputs)]
+
+        edge_data = dict(zip(positional_names, inputs))
+        duplicates = [name for name in named_inputs if name in edge_data]
+        if duplicates:
+            raise ValueError(f"Graph input(s) bound more than once: {duplicates}")
+        edge_data.update(named_inputs)
+
+        missing = [name for name in required_names if name not in edge_data]
+        if missing:
+            if not self.default_input_names and not named_inputs:
+                raise ValueError(
+                    f"Graph expects {len(self.input_name)} inputs, got {len(inputs)}"
+                )
+            raise ValueError(f"Missing required graph input(s): {missing}")
+        return edge_data
+
+    @staticmethod
+    def _is_initializer_default(op):
+        return (
+            op.__class__.__name__ == "Constant"
+            and getattr(op, "is_initializer", False)
+            and getattr(op, "is_overridable_initializer", False)
+        )
+
+    @classmethod
+    def _default_is_overridden(cls, op, edge_data_buffer):
+        return (
+            cls._is_initializer_default(op)
+            and any(name and name in edge_data_buffer for name in op.outputs)
+        )
+
+    @staticmethod
+    def _unknown_shape_inputs(inputs):
+        unknown = []
+        for index, value in enumerate(inputs):
+            if not isinstance(value, Tensor_):
+                continue
+            if value.size is None or any(size is None for size in value.size):
+                unknown.append((index, value.size))
+        return unknown
 
     @staticmethod
     def _extract_tensor_result(outputs):
@@ -588,14 +695,14 @@ class Graph:
             return outputs[0]
         return tuple(outputs)
 
-    def forward(self, *inputs):
+    def forward(self, *inputs, **named_inputs):
         """执行真实张量路径。
 
         ONNX 用空字符串保留缺省可选输入的位置，此处将其转换为 ``None``，但不
         改变后续参数索引。多输出结果同样按原始输出槽位分配，空输出名只跳过存储。
         """
         # 初始化边数据缓冲区。每次执行都复制使用计数，避免污染图对象。
-        edge_data_buffer = self._init_edge_data(inputs)
+        edge_data_buffer = self._init_edge_data(inputs, named_inputs)
         edge_usage = dict(self.output_in_degree)
         protected_outputs = set(self.output_name)
         outputs = ()
@@ -605,6 +712,8 @@ class Graph:
         # 依次执行每个操作
         for (cc, op_na) in zip(range(length), self.ops):
             op = self.ops[op_na]
+            if self._default_is_overridden(op, edge_data_buffer):
+                continue
             op_inputs = tuple(None if not na else edge_data_buffer[na] for na in op.inputs)
             if hasattr(op, "forward_with_context"):
                 outputs = self._extract_tensor_result(op.forward_with_context(edge_data_buffer, *op_inputs))
@@ -632,14 +741,14 @@ class Graph:
 
         return self._collect_graph_outputs(edge_data_buffer)
 
-    def forward_(self, *inputs):
+    def forward_(self, *inputs, **named_inputs):
         """执行只传播 :class:`Tensor_` 的形状推断路径。
 
         该路径保留较宽松的历史多输出兼容行为，最终仍由 ``_collect_graph_outputs``
         检查所有声明的图输出是否实际生成。
         """
         # 初始化边数据缓冲区。每次执行都复制使用计数，避免污染图对象。
-        edge_data_buffer = self._init_edge_data(inputs)
+        edge_data_buffer = self._init_edge_data(inputs, named_inputs)
         edge_usage = dict(self.output_in_degree)
         protected_outputs = set(self.output_name)
         outputs = ()
@@ -649,6 +758,9 @@ class Graph:
         # 依次执行每个操作
         for (cc, op_na) in zip(range(length), self.ops):
             op = self.ops[op_na]
+
+            if self._default_is_overridden(op, edge_data_buffer):
+                continue
 
             op_inputs_list = []
             try:
@@ -661,6 +773,16 @@ class Graph:
                         op_inputs_list.append(edge_data_buffer[na])
                 
                 op_inputs = tuple(op_inputs_list)
+
+                unknown_shapes = self._unknown_shape_inputs(op_inputs)
+                if (
+                    unknown_shapes
+                    and not getattr(op, "supports_unknown_shape_metadata", False)
+                ):
+                    raise ValueError(
+                        f"{op.__class__.__name__}.forward_ requires concrete input "
+                        f"shape metadata; unknown inputs: {unknown_shapes}"
+                    )
                 
             except KeyError as e:
                 #print(f"\n [图构建错误] 算子 {op_na} ({op.__class__.__name__}) 输入缺失: {e}")
