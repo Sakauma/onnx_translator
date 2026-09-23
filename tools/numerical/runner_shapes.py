@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from nn import DTYPE_TO_NUMPY
 
 
 class ShapeOracleError(ValueError):
@@ -513,7 +514,7 @@ def resolve_output_shapes(op_name: str, inputs, init_args=None) -> tuple[tuple[i
         axis = init_args.get("axis")
         if axis is None:
             unique_len = int(np.unique(value.reshape(-1)).size)
-            inverse_shape = value.shape
+            inverse_shape = (value.size,)
             values_shape = (unique_len,)
         else:
             axis = int(axis) % value.ndim
@@ -540,8 +541,44 @@ def resolve_output_shapes(op_name: str, inputs, init_args=None) -> tuple[tuple[i
     raise ShapeOracleError(f"no independent output-shape rule for numerical op {op_name!r}")
 
 
-def validate_nps_output_shapes(op_name, nps_result, expected_shapes):
-    """Validate NPS output order/rank/dimensions before CUDA dispatch."""
+def resolve_output_dtypes(op_name, out_dtype, init_args, output_count):
+    """Derive public output storage dtypes from the plan and operator contract.
+
+    CUDA may use a different transport dtype; this contract describes the NPS
+    result before any conversion to that transport format.
+    """
+
+    init_args = init_args or {}
+    if op_name == "topk":
+        dtypes = (out_dtype, "int64")
+    elif op_name == "dropout":
+        dtypes = (out_dtype, "bool")
+    elif op_name == "dynamic_quantize_linear":
+        dtypes = ("uint8", "float32", "uint8")
+    elif op_name == "unique":
+        dtypes = (out_dtype, "int64", "int64", "int64")
+    elif op_name == "layer_normalization" and int(init_args.get("emit_stats", 0)):
+        stash_type = int(init_args.get("stash_type", 1))
+        stash_dtype = {1: "float32", 16: "bfloat16"}.get(stash_type)
+        if stash_dtype is None:
+            raise ShapeOracleError(f"unsupported LayerNormalization stash_type {stash_type}")
+        dtypes = (out_dtype, stash_dtype, stash_dtype)
+    else:
+        # BatchNormalization training, recurrent states, Split pieces, and
+        # SoftmaxCrossEntropyLoss log_prob share the declared primary dtype.
+        dtypes = (out_dtype,) * output_count
+    if len(dtypes) != output_count:
+        raise ShapeOracleError(
+            f"{op_name} output dtype count mismatch: expected {output_count}, got {len(dtypes)}"
+        )
+    for dtype in dtypes:
+        if dtype not in DTYPE_TO_NUMPY:
+            raise ShapeOracleError(f"{op_name} has unknown output dtype {dtype!r}")
+    return dtypes
+
+
+def validate_nps_output_shapes(op_name, nps_result, expected_shapes, expected_dtypes=None):
+    """Validate NPS output count, rank, dimensions, and storage dtypes."""
 
     if op_name == "topk":
         actual = [nps_result.output, nps_result.topk_indices]
@@ -553,9 +590,19 @@ def validate_nps_output_shapes(op_name, nps_result, expected_shapes):
         raise ShapeOracleError(
             f"{op_name} output count mismatch: expected {len(expected_shapes)}, got {len(actual)}"
         )
+    if expected_dtypes is not None and len(expected_dtypes) != len(expected_shapes):
+        raise ShapeOracleError(f"{op_name} output dtype contract length mismatch")
     for index, (value, expected) in enumerate(zip(actual, expected_shapes)):
         actual_shape = _shape(value)
         if actual_shape != tuple(expected):
             raise ShapeOracleError(
                 f"{op_name} output {index} shape mismatch: expected {tuple(expected)}, got {actual_shape}"
             )
+        if expected_dtypes is not None:
+            expected_dtype = np.dtype(DTYPE_TO_NUMPY[expected_dtypes[index]])
+            actual_dtype = np.asarray(value).dtype
+            if actual_dtype != expected_dtype:
+                raise ShapeOracleError(
+                    f"{op_name} NPS output dtype mismatch at output {index}: "
+                    f"expected {expected_dtype}, got {actual_dtype}"
+                )

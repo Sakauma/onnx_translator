@@ -25,6 +25,7 @@ from .runner_inputs import prepare_input_samples
 from .runner_nps import run_nps_forward
 from .runner_shapes import (
     ShapeOracleError,
+    resolve_output_dtypes,
     resolve_output_shapes,
     validate_nps_output_shapes,
 )
@@ -73,6 +74,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
         # otherwise a malformed C output could define CUDA's target reshape.
         try:
             expected_shapes = resolve_output_shapes(op_name, inputs_np, init_args)
+            expected_dtypes = resolve_output_dtypes(
+                op_name, out_dtype, init_args, len(expected_shapes)
+            )
         except (ShapeOracleError, TypeError, ValueError) as exc:
             print(f"  ❌ Iter {i} FAILED")
             print(f"     Independent shape oracle failed: {exc}")
@@ -88,7 +92,9 @@ def verify_op(op_cls, op_name, shapes, dtypes, out_dtype, init_args=None, iterat
             continue
 
         try:
-            validate_nps_output_shapes(op_name, nps_result, expected_shapes)
+            validate_nps_output_shapes(
+                op_name, nps_result, expected_shapes, expected_dtypes
+            )
         except ShapeOracleError as exc:
             print(f"  ❌ Iter {i} FAILED")
             print(f"     Output contract mismatch: {exc}")
