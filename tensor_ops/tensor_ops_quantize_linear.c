@@ -46,7 +46,12 @@ static uint8_t quantize_float_to_fp8_e4m3(float f, int saturate) {
     if (exp == 0) return (uint8_t)sign;
 
     exp = exp - 127 + 7;
-    if (exp < 1) return (uint8_t)sign;
+    if (exp < 1) {
+        // E4M3FN 的最小次正规数是 2^-9。rint 使用当前默认的最近偶数
+        // 舍入，尾数进位到 8 时恰好成为最小正规数。
+        uint32_t subnormal = (uint32_t)rint(fabs((double)f) * 512.0);
+        return (uint8_t)(sign | subnormal);
+    }
 
     uint32_t mant_3 = mant >> 20;
     uint32_t rem = mant & 0xFFFFF;
@@ -77,7 +82,11 @@ static uint8_t quantize_float_to_fp8_e5m2(float f, int saturate) {
     if (exp == 0) return (uint8_t)sign;
 
     exp = exp - 127 + 15;
-    if (exp < 1) return (uint8_t)sign;
+    if (exp < 1) {
+        // E5M2 的最小次正规数是 2^-16；尾数进位到 4 即最小正规数。
+        uint32_t subnormal = (uint32_t)rint(fabs((double)f) * 65536.0);
+        return (uint8_t)(sign | subnormal);
+    }
 
     uint32_t mant_2 = mant >> 21;
     uint32_t rem = mant & 0x1FFFFF;
@@ -187,6 +196,7 @@ static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, c
     DataType division_dtype = quantize_linear_division_dtype(Scale, precision);
     int use_double_precision = division_dtype == DTYPE_FLOAT64;
     int output_is_float_dtype = quantize_linear_output_is_float_dtype(Y->dtype);
+    int preserve_signed_zero = Y->dtype == DTYPE_FLOAT8_E4M3 || Y->dtype == DTYPE_FLOAT8_E5M2;
 
     #pragma omp parallel for
     for (size_t i = 0; i < loop_size; i++) {
@@ -198,7 +208,9 @@ static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, c
             double s_val = get_value_as_double(Scale, i);
             if (s_val != 0.0) {
                 double quotient = x_val / s_val;
-                double scaled = quotient + zp_val;
+                // 加 +0 会把 -0 商变为 +0；零点为零时保留商的符号位。
+                double scaled = (preserve_signed_zero && zp_val == 0.0)
+                    ? quotient : quotient + zp_val;
                 res = output_is_float_dtype ? scaled : rint(quotient) + zp_val;
             }
         } else {
@@ -209,7 +221,8 @@ static void quantize_linear_forward_impl(const Tensor* X, const Tensor* Scale, c
             s_val = quantize_linear_materialize_float_value(s_val, division_dtype);
             if (s_val != 0.0f) {
                 float quotient = quantize_linear_materialize_float_value(x_val / s_val, division_dtype);
-                float scaled = quotient + zp_float;
+                float scaled = (preserve_signed_zero && zp_float == 0.0f)
+                    ? quotient : quotient + zp_float;
                 res = output_is_float_dtype ? (double)scaled : (double)rintf(quotient) + zp_val;
             }
         }
