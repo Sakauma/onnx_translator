@@ -273,18 +273,31 @@ class Tensor_:
 
 
 class Sequence_:
-    """图构建阶段的未知长度序列元数据。
+    """图构建阶段的序列元数据，保留元素类型及可选的已知长度。
 
-    普通 ``list`` 继续表示元素和长度均已知的序列；该类型只用于控制流输出等
-    无法静态确定长度的情况，避免把未知序列误当成空序列。
+    普通 ``list`` 继续表示具体已知的元素；该类型还可表示没有元素可供
+    展开的空序列，避免丢失声明的元素类型。
     """
 
-    def __init__(self, element):
+    def __init__(self, element, length=None):
         self.element = element
-        self.length = None
+        self.length = length
 
     def __repr__(self):
-        return f"Sequence_(element={self.element!r}, length=None)"
+        return f"Sequence_(element={self.element!r}, length={self.length!r})"
+
+
+class Optional_:
+    """静态 optional 元数据；``present=None`` 表示存在性尚不可知。"""
+
+    def __init__(self, element, present=None):
+        if present not in (None, False, True):
+            raise ValueError("optional presence must be True, False, or None")
+        self.element = element
+        self.present = present
+
+    def __repr__(self):
+        return f"Optional_(element={self.element!r}, present={self.present!r})"
 
 class Ops:
     """内部算子的公共基类，统一 C 后端加载和张量桥接协议。

@@ -22,6 +22,21 @@ def _tensor_metadata(value):
 
 def _merge_control_metadata(left, right):
     """Merge values that may reach the same carried output across zero or more steps."""
+    if isinstance(right, Optional_):
+        if isinstance(left, Optional_):
+            element = _merge_control_metadata(left.element, right.element)
+            initial_presence = left.present
+        elif left is None:
+            element = right.element
+            initial_presence = False
+        else:
+            element = _merge_control_metadata(left, right.element)
+            initial_presence = True
+        presence = (
+            initial_presence if initial_presence == right.present else None
+        )
+        return Optional_(element, presence)
+
     left_tensor = _tensor_metadata(left)
     right_tensor = _tensor_metadata(right)
     if left_tensor is not None and right_tensor is not None:
@@ -78,7 +93,10 @@ class SequenceEmpty(Ops):
 
     # 执行 `SequenceEmpty` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self):
-        return {"tensor": [], "parameters": None}
+        return {
+            "tensor": Sequence_(Tensor_(dtype=self.dtype, rank_known=False), length=0),
+            "parameters": None,
+        }
 
 
 class SequenceConstruct(Ops):
@@ -111,6 +129,10 @@ class SequenceAt(Ops):
     # 执行 `SequenceAt` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, position):
         if isinstance(input_sequence, Sequence_):
+            if input_sequence.length == 0:
+                raise IndexError("cannot select from an empty sequence")
+            if input_sequence.length is not None and hasattr(position, "data"):
+                _sequence_position(position, input_sequence.length)
             return {"tensor": input_sequence.element, "parameters": None}
         return self.forward(input_sequence, position)
 
@@ -133,7 +155,8 @@ class SequenceInsert(Ops):
     def forward_(self, input_sequence, tensor, position=None):
         if isinstance(input_sequence, Sequence_):
             element = _merge_control_metadata(input_sequence.element, tensor)
-            return {"tensor": Sequence_(element), "parameters": None}
+            length = None if input_sequence.length is None else input_sequence.length + 1
+            return {"tensor": Sequence_(element, length), "parameters": None}
         return self.forward(input_sequence, tensor, position)
 
 
@@ -154,7 +177,14 @@ class SequenceErase(Ops):
     # 执行 `SequenceErase` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, position=None):
         if isinstance(input_sequence, Sequence_):
-            return {"tensor": Sequence_(input_sequence.element), "parameters": None}
+            length = input_sequence.length
+            if length is not None:
+                if length == 0:
+                    raise IndexError("cannot erase from an empty sequence")
+                if position is not None and hasattr(position, "data"):
+                    _sequence_position(position, length)
+                length -= 1
+            return {"tensor": Sequence_(input_sequence.element, length), "parameters": None}
         return self.forward(input_sequence, position)
 
 
@@ -173,6 +203,8 @@ class SequenceLength(Ops):
     def forward_(self, input_sequence):
         if isinstance(input_sequence, list):
             return self.forward(input_sequence)
+        if isinstance(input_sequence, Sequence_) and input_sequence.length is not None:
+            return {"tensor": Tensor(dtype=self.dtype, data=np.array(input_sequence.length, dtype=np.int64)), "parameters": None}
         return {"tensor": Tensor_(dtype=self.dtype), "parameters": None}
 
 
@@ -199,18 +231,46 @@ class ConcatFromSequence(Ops):
 
     # 执行 `ConcatFromSequence` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence):
-        if not input_sequence:
-            return {"tensor": Tensor_(0, dtype=self.dtype), "parameters": None}
-        shapes = [tuple(tensor.size) for tensor in input_sequence]
-        if self.new_axis:
-            axis = self.axis if self.axis >= 0 else self.axis + len(shapes[0]) + 1
-            out_shape = list(shapes[0])
-            out_shape.insert(axis, len(shapes))
+        if isinstance(input_sequence, Sequence_):
+            if input_sequence.length == 0:
+                raise ValueError("ConcatFromSequence requires a non-empty sequence")
+            element = input_sequence.element
+            if not isinstance(element, Tensor_):
+                raise TypeError("ConcatFromSequence requires tensor sequence metadata")
+            if element.size is None:
+                return {"tensor": Tensor_(dtype=self.dtype, rank_known=False), "parameters": None}
+            shapes = [tuple(element.size)]
+            length = input_sequence.length
         else:
-            axis = self.axis if self.axis >= 0 else self.axis + len(shapes[0])
-            out_shape = list(shapes[0])
-            out_shape[axis] = sum(shape[axis] for shape in shapes)
-        return {"tensor": Tensor_(*tuple(out_shape), dtype=self.dtype), "parameters": None}
+            if not input_sequence:
+                raise ValueError("ConcatFromSequence requires a non-empty sequence")
+            if any(tensor.size is None for tensor in input_sequence):
+                return {"tensor": Tensor_(dtype=self.dtype, rank_known=False), "parameters": None}
+            shapes = [tuple(tensor.size) for tensor in input_sequence]
+            length = len(shapes)
+
+        rank = len(shapes[0])
+        output_rank = rank + int(bool(self.new_axis))
+        axis = self.axis if self.axis >= 0 else self.axis + output_rank
+        if axis < 0 or axis >= output_rank:
+            raise ValueError(
+                f"ConcatFromSequence axis {self.axis} is out of range for rank {output_rank}"
+            )
+        out_shape = list(shapes[0])
+        for dim_index in range(rank):
+            dimensions = [shape[dim_index] for shape in shapes]
+            if any(dimension != dimensions[0] for dimension in dimensions):
+                out_shape[dim_index] = None
+        if self.new_axis:
+            out_shape.insert(axis, length)
+        else:
+            sizes = [shape[axis] for shape in shapes]
+            out_shape[axis] = (
+                None if length is None or any(size is None for size in sizes)
+                else sizes[0] * length if isinstance(input_sequence, Sequence_)
+                else sum(sizes)
+            )
+        return {"tensor": Tensor_(*out_shape, dtype=self.dtype), "parameters": None}
 
 
 class SplitToSequence(Ops):
@@ -270,9 +330,10 @@ class SplitToSequence(Ops):
 
 class Optional(Ops):
     # 初始化 `Optional` 的构造参数，保存后续运行、形状推断或验证所需的状态。
-    def __init__(self, inputs, outputs, dtype="float32", version="17"):
+    def __init__(self, inputs, outputs, dtype="float32", element_type=None, version="17"):
         super().__init__(inputs, outputs)
         self.dtype = dtype
+        self.element_type = element_type
         self.version = version
 
     # 执行 `Optional` 的真实张量计算路径，读取输入数据并返回图运行器约定的结果结构。
@@ -281,7 +342,14 @@ class Optional(Ops):
 
     # 执行 `Optional` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input=None):
-        return {"tensor": input, "parameters": None}
+        if input is None:
+            element = (
+                _graph_type_metadata(self.element_type)
+                if self.element_type is not None
+                else Tensor_(dtype=self.dtype, rank_known=False)
+            )
+            return {"tensor": Optional_(element, present=False), "parameters": None}
+        return {"tensor": Optional_(input, present=True), "parameters": None}
 
 
 class OptionalGetElement(Ops):
@@ -299,6 +367,10 @@ class OptionalGetElement(Ops):
 
     # 执行 `OptionalGetElement` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
+        if isinstance(input, Optional_):
+            if input.present is False:
+                raise ValueError("OptionalGetElement cannot read an empty optional")
+            return {"tensor": input.element, "parameters": None}
         return self.forward(input)
 
 
@@ -315,8 +387,6 @@ class OptionalHasElement(Ops):
 
     # 执行 `OptionalHasElement` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input):
-        if input is None:
-            return self.forward(input)
         return {"tensor": Tensor_(dtype=self.dtype), "parameters": None}
 
 
@@ -365,6 +435,12 @@ class If(Ops):
             then_element = then_type.sequence_type.elem_type
             else_element = else_type.sequence_type.elem_type
             return Sequence_(
+                cls._merge_declared_type(then_element, else_element, output_index)
+            )
+        if then_type.HasField("optional_type"):
+            then_element = then_type.optional_type.elem_type
+            else_element = else_type.optional_type.elem_type
+            return Optional_(
                 cls._merge_declared_type(then_element, else_element, output_index)
             )
         if not then_type.HasField("tensor_type"):
@@ -454,7 +530,13 @@ class Loop(Ops):
         if trip_count is None and cond is None:
             raise ValueError("Loop without trip count or condition would be unbounded")
         body_inputs = [value.name for value in self.body.input]
-        state_values = [_reference_feed_value(value) for value in loop_vars]
+        carried_input_types = [
+            value_info.type for value_info in self.body.input[2:2 + len(loop_vars)]
+        ]
+        state_values = [
+            _reference_value_for_type(value, type_proto)
+            for value, type_proto in zip(loop_vars, carried_input_types)
+        ]
         scan_outputs = None
         iteration = 0
         last_outputs = None
@@ -736,5 +818,43 @@ class SequenceMap(Ops):
 
     # 执行 `SequenceMap` 的形状推断路径，只生成 `Tensor_` 元数据，不访问真实数值缓冲区。
     def forward_(self, input_sequence, *additional_inputs):
-        outputs = tuple([] for _ in self.body.output)
+        def body_metadata(item, index):
+            values = [item]
+            for additional in additional_inputs:
+                if isinstance(additional, Sequence_):
+                    values.append(additional.element)
+                elif isinstance(additional, list):
+                    if index is None:
+                        element = None
+                        for candidate in additional:
+                            element = (
+                                candidate if element is None
+                                else _merge_control_metadata(element, candidate)
+                            )
+                        values.append(element)
+                    else:
+                        values.append(additional[index])
+                else:
+                    values.append(additional)
+            bindings = _graph_symbol_bindings(self.body.input, values, "SequenceMap body")
+            return tuple(
+                _graph_value_shape(value_info, bindings)
+                for value_info in self.body.output
+            )
+
+        if isinstance(input_sequence, Sequence_):
+            elements = body_metadata(input_sequence.element, None)
+            outputs = tuple(
+                Sequence_(element, input_sequence.length) for element in elements
+            )
+        elif input_sequence:
+            outputs = tuple([] for _ in self.body.output)
+            for index, item in enumerate(input_sequence):
+                elements = body_metadata(item, index)
+                for bucket, element in zip(outputs, elements):
+                    bucket.append(element)
+        else:
+            # An empty sequence still carries the declared output element kind.
+            elements = tuple(_graph_value_shape(info) for info in self.body.output)
+            outputs = tuple(Sequence_(element, 0) for element in elements)
         return {"tensor": outputs[0] if len(outputs) == 1 else outputs, "parameters": None}

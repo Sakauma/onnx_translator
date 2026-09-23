@@ -402,7 +402,12 @@ def _factory_073_optional(node, import_context):
     get_dtype = lambda name, default=onnx.TensorProto.FLOAT: import_context.get_dtype(name, default)
     onnx_graph_list = []
     elem_type = get_dtype(node.input[0]) if node.input else get_dtype(node.output[0])
-    onnx_graph_list.append(nn.Operators.Optional(node.input, node.output, dtype=onnx_dtype_mapping.get(elem_type, "float32"), version="17"))
+    element_type = next((attr.tp for attr in node.attribute if attr.name == "type"), None)
+    onnx_graph_list.append(nn.Operators.Optional(
+        node.input, node.output,
+        dtype=onnx_dtype_mapping.get(elem_type, "float32"),
+        element_type=element_type, version="17",
+    ))
     return onnx_graph_list[-1]
 
 

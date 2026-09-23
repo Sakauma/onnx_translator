@@ -10,7 +10,7 @@
 # */
 
 from nn import Ops
-from nn import Tensor, Tensor_, Sequence_, DTYPE_MAP, CTensor
+from nn import Tensor, Tensor_, Sequence_, Optional_, DTYPE_MAP, CTensor
 import nn
 import ctypes
 import numpy as np
@@ -747,9 +747,30 @@ def _tensor_to_numpy(value):
     return np.asarray(value)
 
 def _reference_feed_value(value):
+    if value is None:
+        return None
     if isinstance(value, (list, tuple)):
         return [_reference_feed_value(item) for item in value]
     return _tensor_to_numpy(value)
+
+
+def _reference_value_for_type(value, type_proto):
+    """Encode a runtime value for a nested ONNX graph's declared input kind."""
+    if type_proto.HasField("optional_type"):
+        if value is None:
+            return [None]
+        element = _reference_value_for_type(value, type_proto.optional_type.elem_type)
+        return [element]
+    if type_proto.HasField("sequence_type"):
+        return [
+            _reference_value_for_type(item, type_proto.sequence_type.elem_type)
+            for item in value
+        ]
+    if type_proto.HasField("tensor_type"):
+        return _tensor_to_numpy(value)
+    raise TypeError(
+        f"unsupported nested graph input kind {type_proto.WhichOneof('value')!r}"
+    )
 
 def _runtime_shape(value):
     """Return a concrete tensor shape without coercing container values."""
@@ -868,6 +889,13 @@ def _graph_type_metadata(type_proto, symbol_bindings=None, context="graph value"
             f"{context} sequence element",
         )
         return Sequence_(element)
+    if type_proto.HasField("optional_type"):
+        element = _graph_type_metadata(
+            type_proto.optional_type.elem_type,
+            symbol_bindings,
+            f"{context} optional element",
+        )
+        return Optional_(element)
     raise TypeError(
         f"{context} has unsupported ONNX kind {type_proto.WhichOneof('value')!r}"
     )
